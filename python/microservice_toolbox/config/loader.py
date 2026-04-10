@@ -88,7 +88,25 @@ class AppConfig:
         return self._get_addr(name, 'ip', 'port')
 
     def get_grpc_listen_addr(self, name):
-        return self._get_addr(name, 'grpc_ip', 'grpc_port')
+        caps = self.data.get('capabilities', {})
+        cap = caps.get(name, {})
+        
+        # 1. Try explicit grpc config
+        grpc_ip = cap.get('grpc_ip')
+        grpc_port = cap.get('grpc_port')
+        
+        if grpc_ip and grpc_port:
+            return f"{grpc_ip}:{grpc_port}"
+            
+        # 2. Fallback to convention: ip:port+1
+        ip = cap.get('ip', '127.0.0.1')
+        port = cap.get('port', '80')
+        try:
+            grpc_port = int(port) + 1
+        except (ValueError, TypeError):
+            grpc_port = 81
+            
+        return f"{ip}:{grpc_port}"
 
     def _get_addr(self, name, host_key, port_key):
         caps = self.data.get('capabilities', {})

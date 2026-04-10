@@ -132,7 +132,29 @@ func (ac *AppConfig) GetListenAddr(capability string) (string, error) {
 }
 
 func (ac *AppConfig) GetGRPCListenAddr(capability string) (string, error) {
-	return ac.getAddr(capability, "grpc_ip", "grpc_port")
+	addr, err := ac.getAddr(capability, "grpc_ip", "grpc_port")
+	if err == nil {
+		return addr, nil
+	}
+
+	// Fallback to convention: ip:port+1
+	capRaw, ok := ac.Config.Capabilities[capability]
+	if !ok {
+		return "", fmt.Errorf("capability %s not found for gRPC fallback", capability)
+	}
+	cap := capRaw.(map[string]interface{})
+
+	host := "0.0.0.0"
+	if h, ok := cap["ip"].(string); ok && h != "" {
+		host = h
+	}
+
+	port := 8080
+	if p, ok := cap["port"].(string); ok && p != "" {
+		fmt.Sscanf(p, "%d", &port)
+	}
+
+	return fmt.Sprintf("%s:%d", host, port+1), nil
 }
 
 func (ac *AppConfig) getAddr(capability, hostKey, portKey string) (string, error) {

@@ -70,7 +70,30 @@ impl AppConfig {
     }
 
     pub fn get_grpc_listen_addr(&self, name: &str) -> String {
-        self.get_addr(name, "grpc_ip", "grpc_port")
+        let ip = self
+            .get_value(&format!("capabilities.{}.grpc_ip", name))
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                self.get_value(&format!("capabilities.{}.ip", name))
+                    .and_then(|v| v.as_str())
+            })
+            .unwrap_or("127.0.0.1");
+
+        let port_val = self
+            .get_value(&format!("capabilities.{}.grpc_port", name))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                self.get_value(&format!("capabilities.{}.port", name))
+                    .and_then(|v| v.as_str())
+                    .map(|s| {
+                        let p = s.parse::<u16>().unwrap_or(80);
+                        (p + 1).to_string()
+                    })
+            })
+            .unwrap_or_else(|| "81".to_string());
+
+        format!("{}:{}", ip, port_val)
     }
 
     fn get_addr(&self, name: &str, host_key: &str, port_key: &str) -> String {
