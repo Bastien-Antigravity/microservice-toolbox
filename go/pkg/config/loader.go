@@ -175,10 +175,11 @@ func (ac *AppConfig) getAddr(capability, hostKey, portKey string) (string, error
 	if h, ok := cap[hostKey].(string); ok && h != "" {
 		host = h
 	}
-	port := "8080"
-	if p, ok := cap[portKey].(string); ok && p != "" {
-		port = p
+
+	p, ok := cap[portKey].(string)
+	if !ok || p == "" {
+		return "", fmt.Errorf("port key %s missing or empty in capability %s", portKey, capability)
 	}
 
-	return fmt.Sprintf("%s:%s", host, port), nil
+	return fmt.Sprintf("%s:%s", host, p), nil
 }
