@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use tonic::transport::{Server, server::Router};
 use tonic_reflection::server::Builder;
+use tonic::body::BoxBody;
 
 pub struct GrpcServer {
     pub addr: SocketAddr,
@@ -25,7 +26,7 @@ impl GrpcServer {
     pub fn add_service<S>(mut self, service: S) -> Self 
     where
         S: tonic::server::NamedService + Clone + Send + 'static,
-        S: tonic::codegen::Service<tonic::codegen::http::Request<tonic::codegen::BoxBody>, Response = tonic::codegen::http::Response<tonic::codegen::box_body::UnsyncBoxBody<tonic::codegen::Bytes, tonic::Status>>, Error = std::convert::Infallible> + Send + 'static,
+        S: tonic::codegen::Service<tonic::codegen::http::Request<BoxBody>, Response = tonic::codegen::http::Response<BoxBody>, Error = std::convert::Infallible> + Send + 'static,
         S::Future: Send + 'static,
     {
         self.builder = self.builder.add_service(service);
