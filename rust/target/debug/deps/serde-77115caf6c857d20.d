@@ -1,0 +1,14 @@
+/Users/imac/Desktop/Bastien-Antigravity/microservice-toolbox/rust/target/debug/deps/serde-77115caf6c857d20.d: /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/imac/Desktop/Bastien-Antigravity/microservice-toolbox/rust/target/debug/build/serde-5c50027d95d15631/out/private.rs
+
+/Users/imac/Desktop/Bastien-Antigravity/microservice-toolbox/rust/target/debug/deps/libserde-77115caf6c857d20.rlib: /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/imac/Desktop/Bastien-Antigravity/microservice-toolbox/rust/target/debug/build/serde-5c50027d95d15631/out/private.rs
+
+/Users/imac/Desktop/Bastien-Antigravity/microservice-toolbox/rust/target/debug/deps/libserde-77115caf6c857d20.rmeta: /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/imac/Desktop/Bastien-Antigravity/microservice-toolbox/rust/target/debug/build/serde-5c50027d95d15631/out/private.rs
+
+/Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/imac/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/imac/Desktop/Bastien-Antigravity/microservice-toolbox/rust/target/debug/build/serde-5c50027d95d15631/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/imac/Desktop/Bastien-Antigravity/microservice-toolbox/rust/target/debug/build/serde-5c50027d95d15631/out
