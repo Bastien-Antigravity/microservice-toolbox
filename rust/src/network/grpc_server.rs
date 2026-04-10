@@ -1,36 +1,40 @@
 use std::net::SocketAddr;
-use tonic::transport::Server;
+use tonic::transport::{Server, server::Router};
 use tonic_reflection::server::Builder;
 
 pub struct GrpcServer {
     pub addr: SocketAddr,
+    builder: Router,
 }
 
 impl GrpcServer {
-    pub fn new(addr: &str) -> Self {
+    pub fn new(addr: &str, descriptor_set: &'static [u8]) -> Self {
         let addr = addr.parse().expect("Invalid address for GRPC Server");
-        Self { addr }
-    }
-
-    pub async fn start<S>(self, service: S, descriptor_set: &'static [u8]) -> Result<(), Box<dyn std::error::Error>>
-    where
-        S: tonic::server::NamedService + Clone + Send + 'static,
-        S: tonic::codegen::Service<tonic::codegen::http::Request<tonic::codegen::Body>, Response = tonic::codegen::http::Response<tonic::codegen::BoxBody>> + Send + 'static,
-        S::Future: Send + 'static,
-        S::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
-    {
-        println!("Toolbox: GRPC Server listening on {}", self.addr);
-
+        
         let reflection_service = Builder::configure()
             .register_encoded_file_descriptor_set(descriptor_set)
-            .build()?;
+            .build()
+            .expect("Failed to build reflection service");
 
-        Server::builder()
-            .add_service(reflection_service)
-            .add_service(service)
-            .serve(self.addr)
-            .await?;
+        let builder = Server::builder()
+            .add_service(reflection_service);
 
+        Self { addr, builder }
+    }
+
+    pub fn add_service<S>(mut self, service: S) -> Self 
+    where
+        S: tonic::server::NamedService + Clone + Send + 'static,
+        S: tonic::codegen::Service<tonic::codegen::http::Request<tonic::codegen::BoxBody>, Response = tonic::codegen::http::Response<tonic::codegen::box_body::UnsyncBoxBody<tonic::codegen::Bytes, tonic::Status>>, Error = std::convert::Infallible> + Send + 'static,
+        S::Future: Send + 'static,
+    {
+        self.builder = self.builder.add_service(service);
+        self
+    }
+
+    pub async fn start(self) -> Result<(), Box<dyn std::error::Error>> {
+        println!("Toolbox: GRPC Server listening on {}", self.addr);
+        self.builder.serve(self.addr).await?;
         Ok(())
     }
 }
