@@ -1,0 +1,18 @@
+# Go
+go/bin/
+go/pkg/mod/
+
+# Rust
+rust/target/
+rust/Cargo.lock
+
+# Python
+**/__pycache__/
+**/*.pyc
+.env
+venv/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
