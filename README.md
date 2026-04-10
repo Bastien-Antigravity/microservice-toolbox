@@ -6,19 +6,22 @@ A unified infrastructure library for the Bastien-Antigravity microservices ecosy
 
 ### 1. Smart Configuration Loader
 Implements a strict "Hierarchy of Truth" for service configuration:
-1.  **Command Line Overrides** (`--params`): Highest Priority. Always wins.
+1.  **Command Line Overrides** (`--params`, `--host`, `--port`, `--grpc_host`, `--grpc_port`): Highest Priority.
 2.  **Context-Aware Overrides**:
     *   **Dev Mode** (`standalone`, `test`): Local File > Config Server.
     *   **Fleet Mode** (`production`, `preprod`): Config Server > Local File.
 3.  **Environment Variables**: Base layer (lowest priority).
 
-### 2. Network-Aware Resolver (Option 3)
-Automatically detects the runtime environment to solve "Connection Refused" issues:
-*   **Docker Detection**: Automatically resolves `127.0.0.x` loopback addresses to the internal container interface (e.g., `eth0`).
-*   **Docker Guard**: CLI overrides for `--host` and `--port` are ignored in containerized environments to prevent breaking container network isolation.
+### 2. Network-Aware Resolver & Docker Guard
+*   **Docker Detection**: Automatically resolves `127.0.0.x` loopback addresses to the internal container interface.
+*   **Docker Guard**: CLI overrides for networking (`--host`, `--port`, `--grpc_host`, `--grpc_port`) are **ignored** in containerized environments. This ensures inter-service connectivity is never broken by manual runtime overrides.
 
-### 3. Unified Lifecycle Management
-Standardized graceful shutdown handling across all languages using a `LifecycleManager`.
+### 3. Unified gRPC Foundation
+Standardized gRPC infrastructure across all three languages:
+- **Consistent Addressing**: Unified `GetGRPCListenAddr` helpers.
+- **Graceful Lifecycle**: `GRPCServer` wrappers with built-in reflection and graceful shutdown logic.
+
+---
 
 ## Language Support
 
@@ -26,26 +29,47 @@ Standardized graceful shutdown handling across all languages using a `LifecycleM
 Located in `/go`.
 ```go
 import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/config"
+import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/network"
 
-// Initialize with profile and optional specific flags
-ac, err := config.LoadConfig("standalone", []string{"my_flag"})
+// 1. Load Config
+ac, _ := config.LoadConfig("standalone", nil)
+addr, _ := ac.GetGRPCListenAddr("my_service")
+
+// 2. Start Standard Server
+server := network.NewGRPCServer(addr)
+server.Start(your_servicer_registration_func)
 ```
 
 ### Python
 Located in `/python`.
 ```python
-from microservice_toolbox.config.loader import AppConfig
+from microservice_toolbox.config.loader import load_config
+from microservice_toolbox.network.grpc_server import GRPCServer
 
-ac = AppConfig("standalone", ["my_flag"])
+# 1. Load Config
+ac = load_config("standalone")
+addr = ac.get_grpc_listen_addr("my_service")
+
+# 2. Start Server
+server = GRPCServer(addr)
+server.add_service(add_MyService_to_server, MyServicer())
+server.start()
 ```
 
 ### Rust
 Located in `/rust`.
 ```rust
-use rust::config::loader::AppConfig;
+use microservice_toolbox::config::loader::load_config;
+use microservice_toolbox::network::grpc_server::GrpcServer;
 
-let ac = AppConfig::load("standalone");
+// 1. Load Config
+let ac = load_config("standalone");
+let addr = ac.get_grpc_listen_addr("my_service")?;
+
+// 2. Start Fluent Server
+let server = GrpcServer::new(&addr, DESCRIPTOR_SET);
+server.add_service(MyServiceServer::new(service)).start().await?;
 ```
 
 ## Security Best Practices
-Services using this toolbox should NOT publish internal ports in `docker-compose.yaml`. The toolbox handles inter-service discovery via the private Docker network name by default.
+Services using this toolbox should NOT publish internal ports in `docker-compose.yaml`. Inter-service discovery is handled via the internal `teleremote_network` using service names.
