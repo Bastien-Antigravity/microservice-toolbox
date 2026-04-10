@@ -15,6 +15,12 @@ pub struct RawArgs {
     pub port: Option<u16>,
 
     #[arg(long)]
+    pub grpc_host: Option<String>,
+
+    #[arg(long)]
+    pub grpc_port: Option<u16>,
+
+    #[arg(long)]
     pub conf: Option<String>,
 
     #[arg(long)]
@@ -30,13 +36,15 @@ pub struct ToolboxArgs {
     pub name: Option<String>,
     pub host: Option<String>,
     pub port: Option<u16>,
+    pub grpc_host: Option<String>,
+    pub grpc_port: Option<u16>,
     pub conf: Option<String>,
     pub log_level: Option<String>,
     pub extras: HashMap<String, String>,
 }
 
 impl ToolboxArgs {
-    pub fn parse() -> Self {
+    pub fn parse_cli_args() -> Self {
         let raw = RawArgs::parse();
         let mut result = ToolboxArgs::default();
 
@@ -48,14 +56,18 @@ impl ToolboxArgs {
         result.log_level = raw.log_level;
 
         if is_docker {
-            if raw.host.is_some() || raw.port.is_some() {
-                println!("Toolbox (Rust): Running in Docker. Ignoring CLI overrides for --host and --port to preserve network-aware resolution.");
+            if raw.host.is_some() || raw.port.is_some() || raw.grpc_host.is_some() || raw.grpc_port.is_some() {
+                println!("Toolbox (Rust): Running in Docker. Ignoring CLI network overrides to preserve network-aware resolution.");
             }
             result.host = None;
             result.port = None;
+            result.grpc_host = None;
+            result.grpc_port = None;
         } else {
             result.host = raw.host;
             result.port = raw.port;
+            result.grpc_host = raw.grpc_host;
+            result.grpc_port = raw.grpc_port;
         }
 
         for item in raw.extra {

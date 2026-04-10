@@ -12,6 +12,8 @@ type CLIArgs struct {
 	Name     string
 	Host     string
 	Port     int
+	GRPCHost string
+	GRPCPort int
 	Conf     string
 	LogLevel string
 	Extra    map[string]string
@@ -26,6 +28,8 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 	name := fs.String("name", "", "Service name")
 	host := fs.String("host", "", "Binding host IP")
 	port := fs.Int("port", 0, "Binding port")
+	grpcHost := fs.String("grpc_host", "", "GRPC Binding host IP")
+	grpcPort := fs.Int("grpc_port", 0, "GRPC Binding port")
 	conf := fs.String("conf", "", "Path to configuration file")
 	logLevel := fs.String("log_level", "", "Logging level (DEBUG, INFO, etc.)")
 
@@ -52,17 +56,21 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 
 	// Apply Docker Guard
 	if ac.Resolver.IsDocker {
-		if *host != "" || *port != 0 {
-			fmt.Println("Toolbox: Running in Docker. Ignoring CLI overrides for --host and --port to preserve network-aware resolution.")
+		if *host != "" || *port != 0 || *grpcHost != "" || *grpcPort != 0 {
+			fmt.Println("Toolbox: Running in Docker. Ignoring CLI overrides for network flags to preserve network-aware resolution.")
 		}
 		result.Host = ""
 		result.Port = 0
+		result.GRPCHost = ""
+		result.GRPCPort = 0
 	} else {
 		result.Host = *host
 		result.Port = *port
+		result.GRPCHost = *grpcHost
+		result.GRPCPort = *grpcPort
 	}
 
-	// Map extras
+	result.Conf = *conf
 	for k, v := range extras {
 		result.Extra[k] = *v
 	}

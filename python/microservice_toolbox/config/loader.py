@@ -2,6 +2,10 @@ import yaml
 import os
 from .args import parse_cli_args
 
+def load_config(profile, specific_flags=None):
+    """Semantic helper to match Go LoadConfig()"""
+    return AppConfig(profile, specific_flags)
+
 class AppConfig:
     def __init__(self, profile, specific_flags=None):
         self.profile = profile
@@ -9,7 +13,7 @@ class AppConfig:
         self.cli_args = parse_cli_args(specific_flags)
         
         # Priority Logic:
-        # 1. Base (Env - very simple placeholder for now as we don't have python-dist-config yet)
+        # 1. Base (Env)
         self._load_from_env()
         
         # 2. Server (Placeholder)
@@ -55,8 +59,8 @@ class AppConfig:
             self.data['common'] = self.data.get('common', {})
             self.data['common']['name'] = self.cli_args.name
             
-        # If host/port provided and not blocked by Docker Guard
-        if self.cli_args.host or self.cli_args.port:
+        # If network flags provided and not blocked by Docker Guard
+        if any([self.cli_args.host, self.cli_args.port, self.cli_args.grpc_host, self.cli_args.grpc_port]):
             target = self.cli_args.name or "config_server"
             self.data['capabilities'] = self.data.get('capabilities', {})
             cap = self.data['capabilities'].get(target, {})
@@ -65,6 +69,10 @@ class AppConfig:
                 cap['ip'] = self.cli_args.host
             if self.cli_args.port:
                 cap['port'] = str(self.cli_args.port)
+            if self.cli_args.grpc_host:
+                cap['grpc_ip'] = self.cli_args.grpc_host
+            if self.cli_args.grpc_port:
+                cap['grpc_port'] = str(self.cli_args.grpc_port)
                 
             self.data['capabilities'][target] = cap
 
@@ -76,9 +84,15 @@ class AppConfig:
             else:
                 dst[key] = value
 
-    def get_capability_addr(self, name):
+    def get_listen_addr(self, name):
+        return self._get_addr(name, 'ip', 'port')
+
+    def get_grpc_listen_addr(self, name):
+        return self._get_addr(name, 'grpc_ip', 'grpc_port')
+
+    def _get_addr(self, name, host_key, port_key):
         caps = self.data.get('capabilities', {})
         cap = caps.get(name, {})
-        ip = cap.get('ip', '127.0.0.1')
-        port = cap.get('port', '80')
+        ip = cap.get(host_key, '127.0.0.1')
+        port = cap.get(port_key, '80')
         return f"{ip}:{port}"

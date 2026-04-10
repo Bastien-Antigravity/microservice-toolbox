@@ -50,8 +50,9 @@ func LoadConfig(profile string, specificFlags []string) (*AppConfig, error) {
 		fmt.Println("Toolbox: Production Mode detected. Config Server remains authoritative.")
 	}
 
-	// Phase 4: Apply CLI Overrides (Always Highest)
+	// Phase 4: Apply CLI Overrides (Highest)
 	ac.applyCLIOverrides(cliArgs)
+	ac.applyCLIGRPCOverrides(cliArgs)
 
 	return ac, nil
 }
@@ -100,23 +101,57 @@ func (ac *AppConfig) applyCLIOverrides(args *CLIArgs) {
 	}
 }
 
+func (ac *AppConfig) applyCLIGRPCOverrides(args *CLIArgs) {
+	target := args.Name
+	if target == "" {
+		target = "config_server" // default target for overrides if name not specified
+	}
+
+	if args.GRPCHost != "" || args.GRPCPort != 0 {
+		ac.ensurePath("capabilities." + target)
+		cap := ac.Config.Capabilities[target].(map[string]interface{})
+		if args.GRPCHost != "" {
+			cap["grpc_ip"] = args.GRPCHost
+		}
+		if args.GRPCPort != 0 {
+			cap["grpc_port"] = fmt.Sprintf("%d", args.GRPCPort)
+		}
+	}
+}
+
 // GetListenAddr extracts a capability and resolves its IP for binding.
 func (ac *AppConfig) GetListenAddr(capability string) (string, error) {
-	var cap struct {
-		IP   string `json:"ip"`
-		Port string `json:"port"`
+	return ac.getAddr(capability, "ip", "port")
+}
+
+func (ac *AppConfig) GetGRPCListenAddr(capability string) (string, error) {
+	return ac.getAddr(capability, "grpc_ip", "grpc_port")
+}
+
+func (ac *AppConfig) getAddr(capability, hostKey, portKey string) (string, error) {
+	if ac.Config.Capabilities == nil {
+		return "", fmt.Errorf("no capabilities found")
+	}
+	capRaw, ok := ac.Config.Capabilities[capability]
+	if !ok {
+		return "", fmt.Errorf("capability %s not found", capability)
 	}
 
-	if err := ac.GetCapability(capability, &cap); err != nil {
-		return "", err
+	cap, ok := capRaw.(map[string]interface{})
+	if !ok {
+		return "", fmt.Errorf("invalid capability format for %s", capability)
 	}
 
-	bindIP, err := ac.Resolver.ResolveBindAddr(cap.IP)
-	if err != nil {
-		return "", err
+	host := "0.0.0.0"
+	if h, ok := cap[hostKey].(string); ok && h != "" {
+		host = h
+	}
+	port := "8080"
+	if p, ok := cap[portKey].(string); ok && p != "" {
+		port = p
 	}
 
-	return fmt.Sprintf("%s:%s", bindIP, cap.Port), nil
+	return fmt.Sprintf("%s:%s", host, port), nil
 }
 
 // GetDiscoveryAddr extracts a capability and resolves its address for clients.
