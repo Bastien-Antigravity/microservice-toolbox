@@ -160,20 +160,3 @@ func (ac *AppConfig) getAddr(capability, hostKey, portKey string) (string, error
 
 	return fmt.Sprintf("%s:%s", host, port), nil
 }
-
-// DeepMerge performs a recursive merge of maps.
-func DeepMerge(dst, src map[string]interface{}) map[string]interface{} {
-	if dst == nil {
-		return src
-	}
-	for k, v := range src {
-		if srcMap, ok := v.(map[string]interface{}); ok {
-			if dstMap, ok := dst[k].(map[string]interface{}); ok {
-				dst[k] = DeepMerge(dstMap, srcMap)
-				continue
-			}
-		}
-		dst[k] = v
-	}
-	return dst
-}
