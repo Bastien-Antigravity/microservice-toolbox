@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	distconf "github.com/Bastien-Antigravity/distributed-config"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
@@ -39,8 +40,6 @@ func LoadConfig(profile string, specificFlags []string) (*AppConfig, error) {
 	cliArgs := ac.ParseCLIArgs(specificFlags)
 
 	// Phase 3: Layered Merging Logic
-	// In Dev (Standalone/Test): File > Server
-	// In Prod (Production/Preprod): Server > File
 	isDev := (profile == "standalone" || profile == "test")
 
 	if isDev {
@@ -60,12 +59,11 @@ func LoadConfig(profile string, specificFlags []string) (*AppConfig, error) {
 func (ac *AppConfig) applyFileOverride(filename string) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return // Ignore if file missing, we already have dConf defaults
+		return
 	}
 
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal(data, &raw); err == nil {
-		// Merge Capabilities
 		if caps, ok := raw["capabilities"].(map[string]interface{}); ok {
 			ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
 		}
@@ -77,34 +75,27 @@ func (ac *AppConfig) applyCLIOverrides(args *CLIArgs) {
 		ac.Config.Common.Name = args.Name
 	}
 
-	// Host and Port are usually inside the capability matching the service name or 'config_server'
+	target := args.Name
+	if target == "" {
+		target = "config_server"
+	}
+
 	if args.Host != "" || args.Port != 0 {
-		// Identify the target capability to override (defaults to current Name or config_server)
-		target := args.Name
-		if target == "" {
-			target = "config_server" // fallback for many of your components
-		}
-		
-		capMap, ok := ac.Config.Capabilities[target].(map[string]interface{})
-		if !ok {
-			capMap = make(map[string]interface{})
-		}
-		
+		ac.ensurePath("capabilities." + target)
+		cap := ac.Config.Capabilities[target].(map[string]interface{})
 		if args.Host != "" {
-			capMap["ip"] = args.Host
+			cap["ip"] = args.Host
 		}
 		if args.Port != 0 {
-			capMap["port"] = fmt.Sprintf("%d", args.Port)
+			cap["port"] = fmt.Sprintf("%d", args.Port)
 		}
-		
-		ac.Config.Capabilities[target] = capMap
 	}
 }
 
 func (ac *AppConfig) applyCLIGRPCOverrides(args *CLIArgs) {
 	target := args.Name
 	if target == "" {
-		target = "config_server" // default target for overrides if name not specified
+		target = "config_server"
 	}
 
 	if args.GRPCHost != "" || args.GRPCPort != 0 {
@@ -119,7 +110,23 @@ func (ac *AppConfig) applyCLIGRPCOverrides(args *CLIArgs) {
 	}
 }
 
-// GetListenAddr extracts a capability and resolves its IP for binding.
+func (ac *AppConfig) ensurePath(path string) {
+	if ac.Config.Capabilities == nil {
+		ac.Config.Capabilities = make(map[string]interface{})
+	}
+	parts := strings.Split(path, ".")
+	if len(parts) < 2 {
+		return
+	}
+	// Currently we only support capabilities.NAME
+	if parts[0] == "capabilities" {
+		target := parts[1]
+		if _, ok := ac.Config.Capabilities[target].(map[string]interface{}); !ok {
+			ac.Config.Capabilities[target] = make(map[string]interface{})
+		}
+	}
+}
+
 func (ac *AppConfig) GetListenAddr(capability string) (string, error) {
 	return ac.getAddr(capability, "ip", "port")
 }
@@ -154,18 +161,19 @@ func (ac *AppConfig) getAddr(capability, hostKey, portKey string) (string, error
 	return fmt.Sprintf("%s:%s", host, port), nil
 }
 
-// GetDiscoveryAddr extracts a capability and resolves its address for clients.
-// Note: In Docker, this can be overridden to return the service name if desired,
-// but usually Docker DNS handles the mapping from name to IP automatically.
-func (ac *AppConfig) GetDiscoveryAddr(capability string) (string, error) {
-	var cap struct {
-		IP   string `json:"ip"`
-		Port string `json:"port"`
+// DeepMerge performs a recursive merge of maps.
+func DeepMerge(dst, src map[string]interface{}) map[string]interface{} {
+	if dst == nil {
+		return src
 	}
-
-	if err := ac.GetCapability(capability, &cap); err != nil {
-		return "", err
+	for k, v := range src {
+		if srcMap, ok := v.(map[string]interface{}); ok {
+			if dstMap, ok := dst[k].(map[string]interface{}); ok {
+				dst[k] = DeepMerge(dstMap, srcMap)
+				continue
+			}
+		}
+		dst[k] = v
 	}
-
-	return fmt.Sprintf("%s:%s", cap.IP, cap.Port), nil
+	return dst
 }
