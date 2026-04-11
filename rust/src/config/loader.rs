@@ -1,4 +1,4 @@
-use serde_yaml::Value;
+use serde_yml::Value;
 use std::fs;
 use crate::config::args::ToolboxArgs;
 
@@ -8,39 +8,61 @@ pub struct AppConfig {
     pub cli_args: ToolboxArgs,
 }
 
-pub fn load_config(profile: &str) -> AppConfig {
+pub fn load_config(profile: &str) -> Result<AppConfig, Box<dyn std::error::Error>> {
     AppConfig::load_config(profile)
 }
 
 impl AppConfig {
-    pub fn load_config(profile: &str) -> Self {
+    pub fn load_config(profile: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let mut ac = AppConfig {
             profile: profile.to_string(),
-            data: Value::Mapping(serde_yaml::Mapping::new()),
+            data: Value::Mapping(serde_yml::Mapping::new()),
             cli_args: ToolboxArgs::parse_cli_args(),
         };
 
-        // Priority Logic:
+        // Phase 1: Load base config from file (full merge of all sections)
+        ac.load_from_file(&format!("{}.yaml", profile));
+
+        // Phase 2: Layered logic matching Go implementation
         let is_dev = profile == "standalone" || profile == "test";
         if is_dev {
-            println!("Toolbox (Rust): Dev Mode. File > Server.");
-            ac.load_from_file(&format!("{}.yaml", profile));
+            println!("Toolbox (Rust): Dev Mode detected. Re-applying Local File as Hard Override.");
+            // Re-apply file capabilities as hard override (matching Go applyFileOverride)
+            ac.apply_file_override(&format!("{}.yaml", profile));
         } else {
-            println!("Toolbox (Rust): Production Mode. Server > File.");
-            ac.load_from_file(&format!("{}.yaml", profile));
+            println!("Toolbox (Rust): Production Mode detected. Config Server remains authoritative.");
         }
 
         ac.apply_cli_overrides();
-        ac
+        Ok(ac)
     }
 
+    /// Full merge of all file data into self.data
     fn load_from_file(&mut self, filename: &str) {
         if let Ok(content) = fs::read_to_string(filename) {
-            if let Ok(file_data) = serde_yaml::from_str::<Value>(&content) {
+            if let Ok(file_data) = serde_yml::from_str::<Value>(&content) {
                 Self::deep_merge(&mut self.data, &file_data);
             }
         }
     }
+
+    /// Re-reads a file and merges ONLY the capabilities section as a hard override.
+    /// This matches Go's applyFileOverride behavior.
+    fn apply_file_override(&mut self, filename: &str) {
+        if let Ok(content) = fs::read_to_string(filename) {
+            if let Ok(file_data) = serde_yml::from_str::<Value>(&content) {
+                if let Some(caps) = file_data.get("capabilities") {
+                    if self.data.get("capabilities").is_none() {
+                        self.set_value("capabilities", Value::Mapping(serde_yml::Mapping::new()));
+                    }
+                    if let Some(dst_caps) = self.data.get_mut("capabilities") {
+                        Self::deep_merge(dst_caps, caps);
+                    }
+                }
+            }
+        }
+    }
+
 
     fn apply_cli_overrides(&mut self) {
         if let Some(name) = &self.cli_args.name {
@@ -65,45 +87,45 @@ impl AppConfig {
         }
     }
 
-    pub fn get_listen_addr(&self, name: &str) -> String {
-        self.get_addr(name, "ip", "port")
+    pub fn get_listen_addr(&self, capability: &str) -> Result<String, String> {
+        self.get_addr(capability, "ip", "port")
     }
 
-    pub fn get_grpc_listen_addr(&self, name: &str) -> String {
-        let ip = self
-            .get_value(&format!("capabilities.{}.grpc_ip", name))
-            .and_then(|v| v.as_str())
-            .or_else(|| {
-                self.get_value(&format!("capabilities.{}.ip", name))
-                    .and_then(|v| v.as_str())
-            })
-            .unwrap_or("127.0.0.1");
+    pub fn get_grpc_listen_addr(&self, capability: &str) -> Result<String, String> {
+        // 1. Try explicit grpc config
+        if let Ok(addr) = self.get_addr(capability, "grpc_ip", "grpc_port") {
+            return Ok(addr);
+        }
 
-        let port_val = self
-            .get_value(&format!("capabilities.{}.grpc_port", name))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .or_else(|| {
-                self.get_value(&format!("capabilities.{}.port", name))
-                    .and_then(|v| v.as_str())
-                    .map(|s| {
-                        let p = s.parse::<u16>().unwrap_or(80);
-                        (p + 1).to_string()
-                    })
-            })
-            .unwrap_or_else(|| "81".to_string());
+        // 2. Fallback to convention: ip:port+1 (matching Go implementation)
+        let cap_path = format!("capabilities.{}", capability);
+        let cap = self.get_value(&cap_path).ok_or_else(|| format!("capability {} not found for gRPC fallback", capability))?;
 
-        format!("{}:{}", ip, port_val)
+        let host = cap.get("ip")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.0.0.0");
+
+        let port_str = cap.get("port")
+            .and_then(|v| v.as_str())
+            .unwrap_or("8080");
+
+        let port = port_str.parse::<u16>().unwrap_or(8080);
+        Ok(format!("{}:{}", host, port + 1))
     }
 
-    fn get_addr(&self, name: &str, host_key: &str, port_key: &str) -> String {
-        let ip = self.get_value(&format!("capabilities.{}.{}", name, host_key))
+    fn get_addr(&self, capability: &str, host_key: &str, port_key: &str) -> Result<String, String> {
+        let cap_path = format!("capabilities.{}", capability);
+        let cap = self.get_value(&cap_path).ok_or_else(|| format!("capability {} not found", capability))?;
+
+        let host = cap.get(host_key)
             .and_then(|v| v.as_str())
-            .unwrap_or("127.0.0.1");
-        let port = self.get_value(&format!("capabilities.{}.{}", name, port_key))
+            .unwrap_or("0.0.0.0");
+
+        let port = cap.get(port_key)
             .and_then(|v| v.as_str())
-            .unwrap_or("80");
-        format!("{}:{}", ip, port)
+            .ok_or_else(|| format!("port key {} missing or empty in capability {}", port_key, capability))?;
+
+        Ok(format!("{}:{}", host, port))
     }
 
     pub fn deep_merge(dst: &mut Value, src: &Value) {
@@ -132,7 +154,7 @@ impl AppConfig {
             }
             if !current.as_mapping().map_or(false, |m| m.contains_key(&Value::String(part.to_string()))) {
                 if let Some(map) = current.as_mapping_mut() {
-                    map.insert(Value::String(part.to_string()), Value::Mapping(serde_yaml::Mapping::new()));
+                    map.insert(Value::String(part.to_string()), Value::Mapping(serde_yml::Mapping::new()));
                 }
             }
             current = current.as_mapping_mut().unwrap().get_mut(&Value::String(part.to_string())).unwrap();

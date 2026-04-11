@@ -12,47 +12,39 @@ class AppConfig:
         self.data = {}
         self.cli_args = parse_cli_args(specific_flags)
         
-        # Priority Logic:
-        # 1. Base (Env)
-        self._load_from_env()
-        
-        # 2. Server (Placeholder)
-        self._load_from_server()
-        
-        # 3. Local File (Layered based on Profile)
+        # Phase 1: Load base config from file (full merge of all sections)
+        filename = f"{profile}.yaml"
+        if not os.path.exists(filename):
+            raise FileNotFoundError(f"Toolbox (Python): Config file '{filename}' not found for profile '{profile}'")
+        self._load_from_file(filename)
+
+        # Phase 2: Layered logic matching Go implementation
         is_dev = profile in ["standalone", "test"]
         if is_dev:
-            print(f"Toolbox (Python): Dev Mode. File > Server.")
-            self._load_from_file(f"{profile}.yaml")
+            print(f"Toolbox (Python): Dev Mode detected. Re-applying Local File as Hard Override.")
+            self._apply_file_override(filename)
         else:
-            print(f"Toolbox (Python): Production Mode. Server > File.")
-            self._load_from_file(f"{profile}.yaml", hard_override=False)
+            print(f"Toolbox (Python): Production Mode detected. Config Server remains authoritative.")
 
-        # 4. CLI Overrides (Highest)
+        # Phase 3: CLI Overrides (Highest)
         self._apply_cli_overrides()
 
-    def _load_from_env(self):
-        # Base defaults from ENV if needed
-        pass
 
-    def _load_from_server(self):
-        # Future: Sync with Config Server
-        pass
-
-    def _load_from_file(self, filename, hard_override=True):
-        if not os.path.exists(filename):
-            return
-            
+    def _load_from_file(self, filename):
+        """Full merge of all file data into self.data"""
         with open(filename, 'r') as f:
             file_data = yaml.safe_load(f)
             if file_data:
-                if hard_override:
-                    self.deep_merge(self.data, file_data)
-                else:
-                    # In production, file only fills gaps (Server wins)
-                    temp = file_data.copy()
-                    self.deep_merge(temp, self.data)
-                    self.data = temp
+                self.deep_merge(self.data, file_data)
+
+    def _apply_file_override(self, filename):
+        """Re-reads file and merges ONLY capabilities as hard override (matches Go applyFileOverride)"""
+        with open(filename, 'r') as f:
+            file_data = yaml.safe_load(f)
+            if file_data and 'capabilities' in file_data:
+                self.data['capabilities'] = self.data.get('capabilities', {})
+                self.deep_merge(self.data['capabilities'], file_data['capabilities'])
+
 
     def _apply_cli_overrides(self):
         if self.cli_args.name:
@@ -84,13 +76,16 @@ class AppConfig:
             else:
                 dst[key] = value
 
-    def get_listen_addr(self, name):
-        return self._get_addr(name, 'ip', 'port')
+    def get_listen_addr(self, capability):
+        return self._get_addr(capability, 'ip', 'port')
 
-    def get_grpc_listen_addr(self, name):
+    def get_grpc_listen_addr(self, capability):
         caps = self.data.get('capabilities', {})
-        cap = caps.get(name, {})
+        cap = caps.get(capability)
         
+        if not cap:
+            raise ValueError(f"capability {capability} not found for gRPC fallback")
+
         # 1. Try explicit grpc config
         grpc_ip = cap.get('grpc_ip')
         grpc_port = cap.get('grpc_port')
@@ -98,19 +93,25 @@ class AppConfig:
         if grpc_ip and grpc_port:
             return f"{grpc_ip}:{grpc_port}"
             
-        # 2. Fallback to convention: ip:port+1
-        ip = cap.get('ip', '127.0.0.1')
-        port = cap.get('port', '80')
+        # 2. Fallback to convention: ip:port+1 (matching Go implementation)
+        ip = cap.get('ip', '0.0.0.0')
+        port_str = cap.get('port', '8080')
         try:
-            grpc_port = int(port) + 1
+            port = int(port_str)
         except (ValueError, TypeError):
-            grpc_port = 81
+            port = 8080
             
-        return f"{ip}:{grpc_port}"
+        return f"{ip}:{port + 1}"
 
-    def _get_addr(self, name, host_key, port_key):
+    def _get_addr(self, capability, host_key, port_key):
         caps = self.data.get('capabilities', {})
-        cap = caps.get(name, {})
-        ip = cap.get(host_key, '127.0.0.1')
-        port = cap.get(port_key, '80')
-        return f"{ip}:{port}"
+        cap = caps.get(capability)
+        if not cap:
+            raise ValueError(f"capability {capability} not found")
+            
+        host = cap.get(host_key, '0.0.0.0')
+        port = cap.get(port_key)
+        if not port:
+            raise ValueError(f"port key {port_key} missing or empty in capability {capability}")
+            
+        return f"{host}:{port}"

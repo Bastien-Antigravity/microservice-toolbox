@@ -49,7 +49,8 @@ impl ToolboxArgs {
         let mut result = ToolboxArgs::default();
 
         // Docker Guard
-        let is_docker = Path::new("/.dockerenv").exists() || std::env::var("DOCKER_ENV").is_ok();
+        let is_docker = Path::new("/.dockerenv").exists()
+            || std::env::var("DOCKER_ENV").map_or(false, |v| v == "true");
 
         result.name = raw.name;
         result.conf = raw.conf;
