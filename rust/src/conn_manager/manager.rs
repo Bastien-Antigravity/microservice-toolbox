@@ -1,16 +1,18 @@
-use tokio::net::TcpStream;
 use tokio::time::{sleep, Duration};
 use std::sync::Arc;
+use rand::Rng;
 use crate::conn_manager::connection::ManagedConnection;
 use crate::conn_manager::errors::Error;
 
 pub type OnErrorHandler = Arc<dyn Fn(&str, &str, &(dyn std::error::Error + Send + Sync), &str) + Send + Sync>;
 
 pub struct NetworkManager {
-    pub max_retries: usize,
+    pub max_retries: isize, // Supports -1 for infinite retries
     pub base_delay: Duration,
     pub max_delay: Duration,
     pub connect_timeout: Duration,
+    pub backoff: f64,
+    pub jitter: f64, // 0.0 to 1.0
     pub on_error: OptionalHandler,
 }
 
@@ -18,16 +20,20 @@ pub struct OptionalHandler(pub Option<OnErrorHandler>);
 
 impl NetworkManager {
     pub fn new(
-        max_retries: usize,
+        max_retries: isize,
         base_delay_ms: u64,
         max_delay_ms: u64,
         connect_timeout_ms: u64,
+        backoff: f64,
+        jitter: f64,
     ) -> Self {
         Self {
             max_retries,
             base_delay: Duration::from_millis(base_delay_ms),
             max_delay: Duration::from_millis(max_delay_ms),
             connect_timeout: Duration::from_millis(connect_timeout_ms),
+            backoff,
+            jitter,
             on_error: OptionalHandler(None),
         }
     }
@@ -54,7 +60,8 @@ impl NetworkManager {
         let mut delay = self.base_delay;
         let mut last_error = None;
 
-        for _ in 0..self.max_retries {
+        let mut i = 0;
+        while self.max_retries == -1 || i < self.max_retries {
             match self.establish_connection(&mc.ip, &mc.port).await {
                 Ok(stream) => {
                     mc.set_stream(stream).await;
@@ -62,12 +69,27 @@ impl NetworkManager {
                 }
                 Err(e) => {
                     last_error = Some(e);
+                    
+                    // Calculate backoff
+                    let mut current_delay = self.base_delay.as_secs_f64() * self.backoff.powi(i as i32);
+                    if current_delay > self.max_delay.as_secs_f64() {
+                        current_delay = self.max_delay.as_secs_f64();
+                    }
+
+                    // Apply jitter
+                    if self.jitter > 0.0 {
+                        let jitter_val = rand::thread_rng().gen_range(0.0..(self.jitter * current_delay));
+                        current_delay += jitter_val;
+                    }
+
+                    let sleep_duration = Duration::from_secs_f64(current_delay);
+
                     println!(
                         "ManagedConnection: Initial connection to {}:{} failed. Retrying in {:?}...",
-                        mc.ip, mc.port, delay
+                        mc.ip, mc.port, sleep_duration
                     );
-                    sleep(delay).await;
-                    delay = std::cmp::min(delay * 2, self.max_delay);
+                    sleep(sleep_duration).await;
+                    i += 1;
                 }
             }
         }
@@ -99,10 +121,12 @@ impl NetworkManager {
 }
 
 pub fn new_network_manager(
-    max_retries: usize,
+    max_retries: isize,
     base_delay_ms: u64,
     max_delay_ms: u64,
     connect_timeout_ms: u64,
+    backoff: f64,
+    jitter: f64,
 ) -> Arc<NetworkManager> {
-    Arc::new(NetworkManager::new(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms))
+    Arc::new(NetworkManager::new(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter))
 }

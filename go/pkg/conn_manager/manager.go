@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -16,23 +17,27 @@ type OnErrorHandler func(name string, source string, err error, originalMsg stri
 // -----------------------------------------------------------------------------
 // NetworkManager handles reliable connection establishment with retries.
 type NetworkManager struct {
-	MaxRetries     int
+	MaxRetries     int // Supports -1 for infinite retries
 	BaseDelay      time.Duration
 	MaxDelay       time.Duration
 	ConnectTimeout time.Duration
+	Backoff        float64
+	Jitter         float64 // 0.0 to 1.0 (multiplier for delay added as randomness)
 
 	// OnError is an optional hook for custom error reporting (e.g. to a logger or alert system).
 	OnError OnErrorHandler
 }
 
 // -----------------------------------------------------------------------------
-// NewNetworkManager creates a manager with provided retry policies.
-func NewNetworkManager(maxRetries int, baseDelayMs, maxDelayMs, connectTimeoutMs int) *NetworkManager {
+// NewNetworkManager creates a manager with provided retry policies (durations in milliseconds).
+func NewNetworkManager(maxRetries int, baseDelayMs, maxDelayMs, connectTimeoutMs int, backoff, jitter float64) *NetworkManager {
 	return &NetworkManager{
 		MaxRetries:     maxRetries,
 		BaseDelay:      time.Duration(baseDelayMs) * time.Millisecond,
 		MaxDelay:       time.Duration(maxDelayMs) * time.Millisecond,
 		ConnectTimeout: time.Duration(connectTimeoutMs) * time.Millisecond,
+		Backoff:        backoff,
+		Jitter:         jitter,
 	}
 }
 
@@ -60,24 +65,33 @@ func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile s
 	cleanIP := strings.Trim(*ip, "\"")
 	cleanPort := strings.Trim(*port, "\"")
 	address := fmt.Sprintf("%s:%s", cleanIP, cleanPort)
-	var err error
-	for i := 0; i < nm.MaxRetries; i++ {
+	var lastErr error
+	for i := 0; (nm.MaxRetries == -1) || (i < nm.MaxRetries); i++ {
 		conn, err := nm.EstablishConnection(ip, port, publicIP, profile)
 		if err == nil {
 			mc.currentConn = conn
 			return mc, nil
 		}
+		lastErr = err
 
-		delay := float64(nm.BaseDelay) * math.Pow(2, float64(i))
+		// Calculate backoff
+		delay := float64(nm.BaseDelay) * math.Pow(nm.Backoff, float64(i))
 		if delay > float64(nm.MaxDelay) {
 			delay = float64(nm.MaxDelay)
 		}
+
+		// Apply jitter
+		if nm.Jitter > 0 {
+			jitterVal := rand.Float64() * nm.Jitter * delay
+			delay += jitterVal
+		}
+
 		fmt.Printf("ManagedConnection: Initial connection to %s failed: %v. Retrying in %v...\n", address, err, time.Duration(delay))
 		time.Sleep(time.Duration(delay))
-		address = fmt.Sprintf("%s:%s", *ip, *port)
+		address = fmt.Sprintf("%s:%s", cleanIP, cleanPort)
 	}
 
-	return nil, fmt.Errorf("%w: %s after %d attempts (last error: %v)", ErrMaxRetriesReached, address, nm.MaxRetries, err)
+	return nil, fmt.Errorf("%w: %s after %d attempts (last error: %v)", ErrMaxRetriesReached, address, nm.MaxRetries, lastErr)
 }
 
 // -----------------------------------------------------------------------------

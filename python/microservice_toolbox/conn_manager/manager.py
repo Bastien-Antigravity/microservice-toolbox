@@ -1,5 +1,6 @@
 import time
 import math
+import random
 from typing import Callable, Optional
 try:
     from safesocket import safesocket
@@ -22,12 +23,16 @@ class NetworkManager:
         base_delay_ms: int = 200,
         max_delay_ms: int = 5000,
         connect_timeout_ms: int = 2000,
+        backoff: float = 2.0,
+        jitter: float = 0.0,
         on_error: Optional[OnErrorHandler] = None
     ):
         self.max_retries = max_retries
         self.base_delay = base_delay_ms / 1000.0
         self.max_delay = max_delay_ms / 1000.0
         self.connect_timeout = connect_timeout_ms / 1000.0
+        self.backoff = backoff
+        self.jitter = jitter
         self.on_error = on_error
 
     def establish_connection(self, ip: str, port: str, public_ip: str, profile: str):
@@ -55,19 +60,26 @@ class NetworkManager:
         address = f"{clean_ip}:{clean_port}"
         
         last_err = None
-        for i in range(self.max_retries):
+        i = 0
+        while self.max_retries == -1 or i < self.max_retries:
             try:
                 conn = self.establish_connection(ip, port, public_ip, profile)
                 mc.current_conn = conn
                 return mc
             except Exception as e:
                 last_err = e
-                delay = self.base_delay * math.pow(2, i)
+                # Calculate backoff
+                delay = self.base_delay * math.pow(self.backoff, i)
                 if delay > self.max_delay:
                     delay = self.max_delay
                 
-                print(f"ManagedConnection: Initial connection to {address} failed: {e}. Retrying in {delay}s...")
+                # Apply jitter
+                if self.jitter > 0:
+                    delay += random.uniform(0, self.jitter * delay)
+                
+                print(f"ManagedConnection: Initial connection to {address} failed: {e}. Retrying in {delay:.2f}s...")
                 time.sleep(delay)
+                i += 1
 
         raise MaxRetriesReachedError(f"{address} after {self.max_retries} attempts (last error: {last_err})")
 
@@ -90,6 +102,8 @@ def NewNetworkManager(
     base_delay_ms: int = 200,
     max_delay_ms: int = 5000,
     connect_timeout_ms: int = 2000,
+    backoff: float = 2.0,
+    jitter: float = 0.0,
     on_error: Optional[OnErrorHandler] = None
 ) -> NetworkManager:
-    return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, on_error)
+    return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error)
