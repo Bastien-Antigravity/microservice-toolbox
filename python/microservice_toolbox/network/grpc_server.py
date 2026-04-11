@@ -1,6 +1,5 @@
 import grpc
 from concurrent import futures
-import time
 
 class GRPCServer:
     """

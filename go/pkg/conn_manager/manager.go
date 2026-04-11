@@ -26,13 +26,13 @@ type NetworkManager struct {
 }
 
 // -----------------------------------------------------------------------------
-// NewNetworkManager creates a manager with default retry policies.
-func NewNetworkManager() *NetworkManager {
+// NewNetworkManager creates a manager with provided retry policies.
+func NewNetworkManager(maxRetries int, baseDelayMs, maxDelayMs, connectTimeoutMs int) *NetworkManager {
 	return &NetworkManager{
-		MaxRetries:     5,
-		BaseDelay:      200 * time.Millisecond,
-		MaxDelay:       5 * time.Second,
-		ConnectTimeout: 2 * time.Second,
+		MaxRetries:     maxRetries,
+		BaseDelay:      time.Duration(baseDelayMs) * time.Millisecond,
+		MaxDelay:       time.Duration(maxDelayMs) * time.Millisecond,
+		ConnectTimeout: time.Duration(connectTimeoutMs) * time.Millisecond,
 	}
 }
 
@@ -62,7 +62,7 @@ func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile s
 	address := fmt.Sprintf("%s:%s", cleanIP, cleanPort)
 	var err error
 	for i := 0; i < nm.MaxRetries; i++ {
-		conn, err = nm.EstablishConnection(ip, port, publicIP, profile)
+		conn, err := nm.EstablishConnection(ip, port, publicIP, profile)
 		if err == nil {
 			mc.currentConn = conn
 			return mc, nil

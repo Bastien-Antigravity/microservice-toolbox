@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	distconf "github.com/Bastien-Antigravity/distributed-config"
-	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
-	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
+	"github.com/Bastien-Antigravity/microservice-toolbox/pkg/connectivity"
+	"github.com/Bastien-Antigravity/microservice-toolbox/pkg/utils"
 	"gopkg.in/yaml.v3"
 )
 
