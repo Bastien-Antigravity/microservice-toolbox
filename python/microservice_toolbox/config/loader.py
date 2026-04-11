@@ -53,7 +53,7 @@ class AppConfig:
             
         # If network flags provided and not blocked by Docker Guard
         if any([self.cli_args.host, self.cli_args.port, self.cli_args.grpc_host, self.cli_args.grpc_port]):
-            target = self.cli_args.name or "config_server"
+            target = self.cli_args.name or self.data.get('common', {}).get('name') or "config_server"
             self.data['capabilities'] = self.data.get('capabilities', {})
             cap = self.data['capabilities'].get(target, {})
             

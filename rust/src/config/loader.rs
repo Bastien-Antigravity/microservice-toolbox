@@ -70,7 +70,8 @@ impl AppConfig {
         }
 
         if self.cli_args.host.is_some() || self.cli_args.port.is_some() || self.cli_args.grpc_host.is_some() || self.cli_args.grpc_port.is_some() {
-            let target = self.cli_args.name.as_deref().unwrap_or("config_server").to_string();
+            let config_name = self.get_value("common.name").and_then(|v| v.as_str()).map(String::from);
+            let target = self.cli_args.name.clone().or(config_name).unwrap_or_else(|| "config_server".to_string());
             
             if let Some(host) = &self.cli_args.host {
                 self.set_value(&format!("capabilities.{}.ip", target), Value::String(host.clone()));

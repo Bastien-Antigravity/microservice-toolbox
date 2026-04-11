@@ -1,4 +1,4 @@
-module github.com/Bastien-Antigravity/microservice-toolbox/go
+module github.com/Bastien-Antigravity/microservice-toolbox
 
 go 1.25.3
 

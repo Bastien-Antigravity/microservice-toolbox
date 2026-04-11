@@ -77,6 +77,9 @@ func (ac *AppConfig) applyCLIOverrides(args *CLIArgs) {
 
 	target := args.Name
 	if target == "" {
+		target = ac.Config.Common.Name
+	}
+	if target == "" {
 		target = "config_server"
 	}
 
@@ -94,6 +97,9 @@ func (ac *AppConfig) applyCLIOverrides(args *CLIArgs) {
 
 func (ac *AppConfig) applyCLIGRPCOverrides(args *CLIArgs) {
 	target := args.Name
+	if target == "" {
+		target = ac.Config.Common.Name
+	}
 	if target == "" {
 		target = "config_server"
 	}
