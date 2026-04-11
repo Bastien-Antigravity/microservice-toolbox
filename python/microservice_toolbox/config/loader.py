@@ -1,6 +1,7 @@
 import yaml
 import os
 from .args import parse_cli_args
+from ..utils.terminal_ui import print_internal_log
 
 def load_config(profile, specific_flags=None):
     """Semantic helper to match Go LoadConfig()"""
@@ -21,10 +22,10 @@ class AppConfig:
         # Phase 2: Layered logic matching Go implementation
         is_dev = profile in ["standalone", "test"]
         if is_dev:
-            print(f"Toolbox (Python): Dev Mode detected. Re-applying Local File as Hard Override.")
+            print_internal_log("INFO", "loader.py", "loader.py", "24", "Dev Mode detected. Re-applying Local File as Hard Override.")
             self._apply_file_override(filename)
         else:
-            print(f"Toolbox (Python): Production Mode detected. Config Server remains authoritative.")
+            print_internal_log("INFO", "loader.py", "loader.py", "27", "Production Mode detected. Config Server remains authoritative.")
 
         # Phase 3: CLI Overrides (Highest)
         self._apply_cli_overrides()

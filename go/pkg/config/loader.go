@@ -7,6 +7,7 @@ import (
 
 	distconf "github.com/Bastien-Antigravity/distributed-config"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,7 +23,7 @@ type AppConfig struct {
 // 2. Layered Merge (File/Server based on Profile)
 // 3. Env Vars (Lowest)
 func LoadConfig(profile string, specificFlags []string) (*AppConfig, error) {
-	fmt.Printf("Toolbox: Initializing Config with Profile: %s\n", profile)
+	utils.PrintInternalLog("INFO", "loader.go", "loader.go", "25", fmt.Sprintf("Initializing Config with Profile: %s", profile))
 
 	// Phase 1: Initialize Distributed Config (Base + Env Templates + Server Sync)
 	dConf := distconf.New(profile)
@@ -43,10 +44,10 @@ func LoadConfig(profile string, specificFlags []string) (*AppConfig, error) {
 	isDev := (profile == "standalone" || profile == "test")
 
 	if isDev {
-		fmt.Println("Toolbox: Dev Mode detected. Re-applying Local File as Hard Override.")
+		utils.PrintInternalLog("INFO", "loader.go", "loader.go", "46", "Dev Mode detected. Re-applying Local File as Hard Override.")
 		ac.applyFileOverride(profile + ".yaml")
 	} else {
-		fmt.Println("Toolbox: Production Mode detected. Config Server remains authoritative.")
+		utils.PrintInternalLog("INFO", "loader.go", "loader.go", "49", "Production Mode detected. Config Server remains authoritative.")
 	}
 
 	// Phase 4: Apply CLI Overrides (Highest)

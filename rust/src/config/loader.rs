@@ -26,11 +26,23 @@ impl AppConfig {
         // Phase 2: Layered logic matching Go implementation
         let is_dev = profile == "standalone" || profile == "test";
         if is_dev {
-            println!("Toolbox (Rust): Dev Mode detected. Re-applying Local File as Hard Override.");
+            crate::utils::terminal_ui::print_internal_log(
+                "INFO",
+                "loader.rs",
+                "loader.rs",
+                "33",
+                "Dev Mode detected. Re-applying Local File as Hard Override.",
+            );
             // Re-apply file capabilities as hard override (matching Go applyFileOverride)
             ac.apply_file_override(&format!("{}.yaml", profile));
         } else {
-            println!("Toolbox (Rust): Production Mode detected. Config Server remains authoritative.");
+            crate::utils::terminal_ui::print_internal_log(
+                "INFO",
+                "loader.rs",
+                "loader.rs",
+                "43",
+                "Production Mode detected. Config Server remains authoritative.",
+            );
         }
 
         ac.apply_cli_overrides();
