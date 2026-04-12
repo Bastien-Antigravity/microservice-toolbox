@@ -2,7 +2,7 @@ use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use tokio::time::sleep;
 use crate::conn_manager::manager::NetworkManager;
 use crate::conn_manager::errors::Error;
 

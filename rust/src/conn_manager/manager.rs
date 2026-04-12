@@ -1,4 +1,5 @@
 use tokio::time::{sleep, Duration};
+use tokio::net::TcpStream;
 use std::sync::Arc;
 use rand::Rng;
 use crate::conn_manager::connection::ManagedConnection;
@@ -57,7 +58,7 @@ impl NetworkManager {
     ) -> Result<ManagedConnection, Error> {
         let mut mc = ManagedConnection::new(ip, port, self.clone());
 
-        let mut delay = self.base_delay;
+        let _delay = self.base_delay;
         let mut last_error = None;
 
         let mut i = 0;
