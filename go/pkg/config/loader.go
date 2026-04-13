@@ -16,14 +16,22 @@ type AppConfig struct {
 	*distconf.Config
 	Resolver *connectivity.Resolver
 	Profile  string
+	Logger   utils.Logger
 }
 
 // LoadConfig loads the configuration with layered priority:
 // 1. CLI Flags (Highest)
 // 2. Layered Merge (File/Server based on Profile)
 // 3. Env Vars (Lowest)
+// LoadConfig loads the configuration with layered priority.
 func LoadConfig(profile string, specificFlags []string) (*AppConfig, error) {
-	utils.PrintInternalLog("INFO", "loader.go", "loader.go", "25", fmt.Sprintf("Initializing Config with Profile: %s", profile))
+	return LoadConfigWithLogger(profile, nil, specificFlags)
+}
+
+// LoadConfigWithLogger loads the configuration with an explicit logger and layered priority.
+func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []string) (*AppConfig, error) {
+	safeLogger := utils.EnsureSafeLogger(logger)
+	safeLogger.Info("Initializing Config with Profile: %s", profile)
 
 	// Phase 1: Initialize Distributed Config (Base + Env Templates + Server Sync)
 	dConf := distconf.New(profile)
@@ -35,6 +43,7 @@ func LoadConfig(profile string, specificFlags []string) (*AppConfig, error) {
 		Config:   dConf,
 		Resolver: connectivity.NewResolver(),
 		Profile:  profile,
+		Logger:   safeLogger,
 	}
 
 	// Phase 2: Handle CLI Flags
@@ -44,10 +53,10 @@ func LoadConfig(profile string, specificFlags []string) (*AppConfig, error) {
 	isDev := (profile == "standalone" || profile == "test")
 
 	if isDev {
-		utils.PrintInternalLog("INFO", "loader.go", "loader.go", "46", "Dev Mode detected. Re-applying Local File as Hard Override.")
+		ac.Logger.Info("Dev Mode detected. Re-applying Local File as Hard Override.")
 		ac.applyFileOverride(profile + ".yaml")
 	} else {
-		utils.PrintInternalLog("INFO", "loader.go", "loader.go", "49", "Production Mode detected. Config Server remains authoritative.")
+		ac.Logger.Info("Production Mode detected. Config Server remains authoritative.")
 	}
 
 	// Phase 4: Apply CLI Overrides (Highest)

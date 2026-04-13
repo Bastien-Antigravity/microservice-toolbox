@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
 	safesocket "github.com/Bastien-Antigravity/safe-socket"
 )
 
@@ -26,11 +27,17 @@ type NetworkManager struct {
 
 	// OnError is an optional hook for custom error reporting (e.g. to a logger or alert system).
 	OnError OnErrorHandler
+	Logger  utils.Logger
 }
 
 // -----------------------------------------------------------------------------
 // NewNetworkManager creates a manager with provided retry policies (durations in milliseconds).
 func NewNetworkManager(maxRetries int, baseDelayMs, maxDelayMs, connectTimeoutMs int, backoff, jitter float64) *NetworkManager {
+	return NewNetworkManagerWithLogger(maxRetries, baseDelayMs, maxDelayMs, connectTimeoutMs, backoff, jitter, nil)
+}
+
+// NewNetworkManagerWithLogger creates a manager with provided retry policies and an explicit logger.
+func NewNetworkManagerWithLogger(maxRetries int, baseDelayMs, maxDelayMs, connectTimeoutMs int, backoff, jitter float64, logger utils.Logger) *NetworkManager {
 	return &NetworkManager{
 		MaxRetries:     maxRetries,
 		BaseDelay:      time.Duration(baseDelayMs) * time.Millisecond,
@@ -38,6 +45,7 @@ func NewNetworkManager(maxRetries int, baseDelayMs, maxDelayMs, connectTimeoutMs
 		ConnectTimeout: time.Duration(connectTimeoutMs) * time.Millisecond,
 		Backoff:        backoff,
 		Jitter:         jitter,
+		Logger:         utils.EnsureSafeLogger(logger),
 	}
 }
 
@@ -86,7 +94,7 @@ func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile s
 			delay += jitterVal
 		}
 
-		fmt.Printf("ManagedConnection: Initial connection to %s failed: %v. Retrying in %v...\n", address, err, time.Duration(delay))
+		nm.Logger.Warning("ManagedConnection: Initial connection to %s failed: %v. Retrying in %v...", address, err, time.Duration(delay))
 		time.Sleep(time.Duration(delay))
 		address = fmt.Sprintf("%s:%s", cleanIP, cleanPort)
 	}

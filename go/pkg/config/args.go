@@ -44,7 +44,7 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 		if err == pflag.ErrHelp {
 			os.Exit(0)
 		}
-		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+		ac.Logger.Error("Error parsing flags: %v", err)
 	}
 
 	result := &CLIArgs{
@@ -57,7 +57,7 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 	// Apply Docker Guard
 	if ac.Resolver.IsDocker {
 		if *host != "" || *port != 0 || *grpcHost != "" || *grpcPort != 0 {
-			fmt.Println("Toolbox: Running in Docker. Ignoring CLI overrides for network flags to preserve network-aware resolution.")
+			ac.Logger.Info("Toolbox: Running in Docker. Ignoring CLI overrides for network flags to preserve network-aware resolution.")
 		}
 		result.Host = ""
 		result.Port = 0

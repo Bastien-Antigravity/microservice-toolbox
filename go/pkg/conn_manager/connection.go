@@ -34,7 +34,7 @@ func (mc *ManagedConnection) Write(p []byte) (n int, err error) {
 
 	n, err = mc.currentConn.Write(p)
 	if err != nil {
-		fmt.Printf("ManagedConnection: Write failed (%v). Reconnecting...\n", err)
+		mc.nm.Logger.Warning("ManagedConnection: Write failed (%v). Reconnecting...", err)
 		mc.currentConn.Close()
 		mc.currentConn = nil
 
@@ -68,7 +68,7 @@ func (mc *ManagedConnection) reconnect() error {
 		conn, err := mc.nm.EstablishConnection(mc.ip, mc.port, mc.publicIP, mc.profile)
 		if err == nil {
 			address = fmt.Sprintf("%s:%s", *mc.ip, *mc.port)
-			fmt.Printf("ManagedConnection: Reconnected to %s\n", address)
+			mc.nm.Logger.Info("ManagedConnection: Reconnected to %s", address)
 			mc.currentConn = conn
 			return nil
 		}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -12,15 +13,22 @@ import (
 type GRPCServer struct {
 	Server *grpc.Server
 	Addr   string
+	Logger utils.Logger
 }
 
-// NewGRPCServer creates a new gRPC server wrapper.
+// NewGRPCServer creates a new gRPC server wrapper with default logging.
 func NewGRPCServer(addr string, opts ...grpc.ServerOption) *GRPCServer {
+	return NewGRPCServerWithLogger(addr, nil, opts...)
+}
+
+// NewGRPCServerWithLogger creates a new gRPC server wrapper with an explicit logger.
+func NewGRPCServerWithLogger(addr string, logger utils.Logger, opts ...grpc.ServerOption) *GRPCServer {
 	s := grpc.NewServer(opts...)
 	reflection.Register(s) // Enable reflection by default for debugging
 	return &GRPCServer{
 		Server: s,
 		Addr:   addr,
+		Logger: utils.EnsureSafeLogger(logger),
 	}
 }
 
@@ -30,12 +38,12 @@ func (s *GRPCServer) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to listen: %v", err)
 	}
-	fmt.Printf("Toolbox: GRPC Server listening on %s\n", s.Addr)
+	s.Logger.Info("Toolbox: GRPC Server listening on %s", s.Addr)
 	return s.Server.Serve(lis)
 }
 
 // Stop performs a graceful shutdown.
 func (s *GRPCServer) Stop() {
-	fmt.Println("Toolbox: Stopping GRPC Server...")
+	s.Logger.Info("Toolbox: Stopping GRPC Server...")
 	s.Server.GracefulStop()
 }
