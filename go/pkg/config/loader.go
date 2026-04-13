@@ -143,58 +143,10 @@ func (ac *AppConfig) ensurePath(path string) {
 }
 
 func (ac *AppConfig) GetListenAddr(capability string) (string, error) {
-	return ac.getAddr(capability, "ip", "port")
+	return ac.Config.GetAddress(capability)
 }
 
 func (ac *AppConfig) GetGRPCListenAddr(capability string) (string, error) {
-	addr, err := ac.getAddr(capability, "grpc_ip", "grpc_port")
-	if err == nil {
-		return addr, nil
-	}
-
-	// Fallback to convention: ip:port+1
-	capRaw, ok := ac.Config.Capabilities[capability]
-	if !ok {
-		return "", fmt.Errorf("capability %s not found for gRPC fallback", capability)
-	}
-	cap := capRaw.(map[string]interface{})
-
-	host := "0.0.0.0"
-	if h, ok := cap["ip"].(string); ok && h != "" {
-		host = h
-	}
-
-	port := 8080
-	if p, ok := cap["port"].(string); ok && p != "" {
-		fmt.Sscanf(p, "%d", &port)
-	}
-
-	return fmt.Sprintf("%s:%d", host, port+1), nil
+	return ac.Config.GetGRPCAddress(capability)
 }
 
-func (ac *AppConfig) getAddr(capability, hostKey, portKey string) (string, error) {
-	if ac.Config.Capabilities == nil {
-		return "", fmt.Errorf("no capabilities found")
-	}
-	capRaw, ok := ac.Config.Capabilities[capability]
-	if !ok {
-		return "", fmt.Errorf("capability %s not found", capability)
-	}
-
-	cap, ok := capRaw.(map[string]interface{})
-	if !ok {
-		return "", fmt.Errorf("invalid capability format for %s", capability)
-	}
-
-	host := "0.0.0.0"
-	if h, ok := cap[hostKey].(string); ok && h != "" {
-		host = h
-	}
-
-	p, ok := cap[portKey].(string)
-	if !ok || p == "" {
-		return "", fmt.Errorf("port key %s missing or empty in capability %s", portKey, capability)
-	}
-
-	return fmt.Sprintf("%s:%s", host, p), nil
-}
