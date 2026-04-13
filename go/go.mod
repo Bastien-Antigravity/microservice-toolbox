@@ -1,6 +1,6 @@
 module github.com/Bastien-Antigravity/microservice-toolbox/go
 
-go 1.25.3
+go 1.25.4
 
 require (
 	github.com/Bastien-Antigravity/distributed-config v1.6.0
