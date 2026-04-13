@@ -63,8 +63,16 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 		return
 	}
 
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return
+	}
+
+	// Expand Environment Variables and force types using Distributed Config's logic
+	distconf.ProcessNode(&root)
+
 	var raw map[string]interface{}
-	if err := yaml.Unmarshal(data, &raw); err == nil {
+	if err := root.Decode(&raw); err == nil {
 		if caps, ok := raw["capabilities"].(map[string]interface{}); ok {
 			ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
 		}
