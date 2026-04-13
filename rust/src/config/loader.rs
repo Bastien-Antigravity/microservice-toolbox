@@ -1,23 +1,50 @@
 use serde_yml::Value;
 use std::fs;
+use std::sync::Arc;
 use crate::config::args::ToolboxArgs;
+use crate::utils::logger::{Logger, ensure_safe_logger, UniLogger};
+use unilog_rs::LogLevel;
 
 pub struct AppConfig {
     pub profile: String,
     pub data: Value,
     pub cli_args: ToolboxArgs,
+    pub logger: Arc<dyn Logger>,
 }
 
 pub fn load_config(profile: &str) -> Result<AppConfig, Box<dyn std::error::Error>> {
-    AppConfig::load_config(profile)
+    AppConfig::load_config(profile, None)
+}
+
+pub fn load_config_with_logger(profile: &str, logger: Option<Arc<dyn Logger>>) -> Result<AppConfig, Box<dyn std::error::Error>> {
+    AppConfig::load_config(profile, logger)
 }
 
 impl AppConfig {
-    pub fn load_config(profile: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load_config(profile: &str, logger: Option<Arc<dyn Logger>>) -> Result<Self, Box<dyn std::error::Error>> {
+        let cli_args = ToolboxArgs::parse_cli_args();
+        
+        // If no logger provided, try to bootstrap UniLogger (modernized DLL)
+        let final_logger = match logger {
+            Some(l) => l,
+            None => {
+                let app_name = cli_args.name.as_deref().unwrap_or("rust-app");
+                match unilog_rs::UniLog::new(profile, app_name, "standard", LogLevel::Info, false) {
+                    Ok(unilog) => Arc::new(UniLogger::new(unilog)),
+                    Err(e) => {
+                        let fallback = ensure_safe_logger(None);
+                        fallback.warning(&format!("Failed to bootstrap UniLogger: {}. Falling back to default.", e));
+                        fallback
+                    }
+                }
+            }
+        };
+
         let mut ac = AppConfig {
             profile: profile.to_string(),
             data: Value::Mapping(serde_yml::Mapping::new()),
-            cli_args: ToolboxArgs::parse_cli_args(),
+            cli_args,
+            logger: final_logger,
         };
 
         // Phase 1: Load base config from file (full merge of all sections)
@@ -26,23 +53,11 @@ impl AppConfig {
         // Phase 2: Layered logic matching Go implementation
         let is_dev = profile == "standalone" || profile == "test";
         if is_dev {
-            crate::utils::terminal_ui::print_internal_log(
-                "INFO",
-                "loader.rs",
-                "loader.rs",
-                "33",
-                "Dev Mode detected. Re-applying Local File as Hard Override.",
-            );
+            ac.logger.info("Dev Mode detected. Re-applying Local File as Hard Override.");
             // Re-apply file capabilities as hard override (matching Go applyFileOverride)
             ac.apply_file_override(&format!("{}.yaml", profile));
         } else {
-            crate::utils::terminal_ui::print_internal_log(
-                "INFO",
-                "loader.rs",
-                "loader.rs",
-                "43",
-                "Production Mode detected. Config Server remains authoritative.",
-            );
+            ac.logger.info("Production Mode detected. Config Server remains authoritative.");
         }
 
         ac.apply_cli_overrides();

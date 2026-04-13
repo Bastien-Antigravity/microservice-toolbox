@@ -1,16 +1,22 @@
 import yaml
 import os
+from typing import Optional
 from .args import parse_cli_args
-from ..utils.terminal_ui import print_internal_log
+from ..utils.logger import Logger, EnsureSafeLogger
 
 def load_config(profile, specific_flags=None):
     """Semantic helper to match Go LoadConfig()"""
     return AppConfig(profile, specific_flags)
 
+def load_config_with_logger(profile, logger: Optional[Logger], specific_flags=None):
+    """Semantic helper to match Go LoadConfigWithLogger()"""
+    return AppConfig(profile, specific_flags, logger=logger)
+
 class AppConfig:
-    def __init__(self, profile, specific_flags=None):
+    def __init__(self, profile, specific_flags=None, logger: Optional[Logger] = None):
         self.profile = profile
         self.data = {}
+        self.logger = EnsureSafeLogger(logger)
         self.cli_args = parse_cli_args(specific_flags)
         
         # Phase 1: Load base config from file (full merge of all sections)
@@ -22,10 +28,10 @@ class AppConfig:
         # Phase 2: Layered logic matching Go implementation
         is_dev = profile in ["standalone", "test"]
         if is_dev:
-            print_internal_log("INFO", "loader.py", "loader.py", "24", "Dev Mode detected. Re-applying Local File as Hard Override.")
+            self.logger.info("Dev Mode detected. Re-applying Local File as Hard Override.")
             self._apply_file_override(filename)
         else:
-            print_internal_log("INFO", "loader.py", "loader.py", "27", "Production Mode detected. Config Server remains authoritative.")
+            self.logger.info("Production Mode detected. Config Server remains authoritative.")
 
         # Phase 3: CLI Overrides (Highest)
         self._apply_cli_overrides()

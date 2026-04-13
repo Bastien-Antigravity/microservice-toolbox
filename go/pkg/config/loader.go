@@ -158,4 +158,3 @@ func (ac *AppConfig) GetListenAddr(capability string) (string, error) {
 func (ac *AppConfig) GetGRPCListenAddr(capability string) (string, error) {
 	return ac.Config.GetGRPCAddress(capability)
 }
-

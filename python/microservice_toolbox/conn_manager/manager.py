@@ -10,6 +10,7 @@ except ImportError:
 
 from .errors import MaxRetriesReachedError
 from .connection import ManagedConnection
+from ..utils.logger import Logger, EnsureSafeLogger
 
 OnErrorHandler = Callable[[str, str, Exception, str], None]
 
@@ -25,7 +26,8 @@ class NetworkManager:
         connect_timeout_ms: int = 2000,
         backoff: float = 2.0,
         jitter: float = 0.0,
-        on_error: Optional[OnErrorHandler] = None
+        on_error: Optional[OnErrorHandler] = None,
+        logger: Optional[Logger] = None
     ):
         self.max_retries = max_retries
         self.base_delay = base_delay_ms / 1000.0
@@ -34,6 +36,7 @@ class NetworkManager:
         self.backoff = backoff
         self.jitter = jitter
         self.on_error = on_error
+        self.logger = EnsureSafeLogger(logger)
 
     def establish_connection(self, ip: str, port: str, public_ip: str, profile: str):
         """
@@ -77,7 +80,7 @@ class NetworkManager:
                 if self.jitter > 0:
                     delay += random.uniform(0, self.jitter * delay)
                 
-                print(f"ManagedConnection: Initial connection to {address} failed: {e}. Retrying in {delay:.2f}s...")
+                self.logger.info(f"ManagedConnection: Initial connection to {address} failed: {e}. Retrying in {delay:.2f}s...")
                 time.sleep(delay)
                 i += 1
 
@@ -107,3 +110,15 @@ def NewNetworkManager(
     on_error: Optional[OnErrorHandler] = None
 ) -> NetworkManager:
     return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error)
+
+def NewNetworkManagerWithLogger(
+    max_retries: int = 5,
+    base_delay_ms: int = 200,
+    max_delay_ms: int = 5000,
+    connect_timeout_ms: int = 2000,
+    backoff: float = 2.0,
+    jitter: float = 0.0,
+    on_error: Optional[OnErrorHandler] = None,
+    logger: Optional[Logger] = None
+) -> NetworkManager:
+    return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error, logger)

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use rand::Rng;
 use crate::conn_manager::connection::ManagedConnection;
 use crate::conn_manager::errors::Error;
+use crate::utils::logger::{Logger, ensure_safe_logger};
 
 pub type OnErrorHandler = Arc<dyn Fn(&str, &str, &(dyn std::error::Error + Send + Sync), &str) + Send + Sync>;
 
@@ -15,6 +16,7 @@ pub struct NetworkManager {
     pub backoff: f64,
     pub jitter: f64, // 0.0 to 1.0
     pub on_error: OptionalHandler,
+    pub logger: Arc<dyn Logger>,
 }
 
 pub struct OptionalHandler(pub Option<OnErrorHandler>);
@@ -28,6 +30,18 @@ impl NetworkManager {
         backoff: f64,
         jitter: f64,
     ) -> Self {
+        Self::new_with_logger(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, None)
+    }
+
+    pub fn new_with_logger(
+        max_retries: isize,
+        base_delay_ms: u64,
+        max_delay_ms: u64,
+        connect_timeout_ms: u64,
+        backoff: f64,
+        jitter: f64,
+        logger: Option<Arc<dyn Logger>>,
+    ) -> Self {
         Self {
             max_retries,
             base_delay: Duration::from_millis(base_delay_ms),
@@ -36,6 +50,7 @@ impl NetworkManager {
             backoff,
             jitter,
             on_error: OptionalHandler(None),
+            logger: ensure_safe_logger(logger),
         }
     }
 
@@ -85,10 +100,10 @@ impl NetworkManager {
 
                     let sleep_duration = Duration::from_secs_f64(current_delay);
 
-                    println!(
+                    self.logger.info(&format!(
                         "ManagedConnection: Initial connection to {}:{} failed. Retrying in {:?}...",
                         mc.ip, mc.port, sleep_duration
-                    );
+                    ));
                     sleep(sleep_duration).await;
                     i += 1;
                 }
@@ -130,4 +145,16 @@ pub fn new_network_manager(
     jitter: f64,
 ) -> Arc<NetworkManager> {
     Arc::new(NetworkManager::new(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter))
+}
+
+pub fn new_network_manager_with_logger(
+    max_retries: isize,
+    base_delay_ms: u64,
+    max_delay_ms: u64,
+    connect_timeout_ms: u64,
+    backoff: f64,
+    jitter: f64,
+    logger: Option<Arc<dyn Logger>>,
+) -> Arc<NetworkManager> {
+    Arc::new(NetworkManager::new_with_logger(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, logger))
 }
