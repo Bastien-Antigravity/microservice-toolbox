@@ -2,7 +2,12 @@ use serde_yml::Value;
 use std::fs;
 use std::sync::Arc;
 use crate::config::args::ToolboxArgs;
-use crate::utils::logger::{Logger, ensure_safe_logger, UniLogger};
+use crate::utils::logger::{Logger, ensure_safe_logger};
+
+#[cfg(feature = "unilog")]
+use crate::utils::logger::UniLogger;
+
+#[cfg(feature = "unilog")]
 use unilog_rs::LogLevel;
 
 pub struct AppConfig {
@@ -24,18 +29,25 @@ impl AppConfig {
     pub fn load_config(profile: &str, logger: Option<Arc<dyn Logger>>) -> Result<Self, Box<dyn std::error::Error>> {
         let cli_args = ToolboxArgs::parse_cli_args();
         
-        // If no logger provided, try to bootstrap UniLogger (modernized DLL)
+        // If no logger provided, try to bootstrap UniLogger if enabled, else default
         let final_logger = match logger {
             Some(l) => l,
             None => {
-                let app_name = cli_args.name.as_deref().unwrap_or("rust-app");
-                match unilog_rs::UniLog::new(profile, app_name, "standard", LogLevel::Info, false) {
-                    Ok(unilog) => Arc::new(UniLogger::new(unilog)),
-                    Err(e) => {
-                        let fallback = ensure_safe_logger(None);
-                        fallback.warning(&format!("Failed to bootstrap UniLogger: {}. Falling back to default.", e));
-                        fallback
+                #[cfg(feature = "unilog")]
+                {
+                    let app_name = cli_args.name.as_deref().unwrap_or("rust-app");
+                    match unilog_rs::UniLog::new(profile, app_name, "standard", LogLevel::Info, false) {
+                        Ok(unilog) => Arc::new(UniLogger::new(unilog)),
+                        Err(e) => {
+                            let fallback = ensure_safe_logger(None);
+                            fallback.warning(&format!("Failed to bootstrap UniLogger: {}. Falling back to default.", e));
+                            fallback
+                        }
                     }
+                }
+                #[cfg(not(feature = "unilog"))]
+                {
+                    ensure_safe_logger(None)
                 }
             }
         };

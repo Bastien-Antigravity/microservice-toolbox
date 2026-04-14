@@ -21,16 +21,19 @@ impl Logger for DefaultLogger {
 }
 
 /// Wrapper for the compiled universal-logger.
+#[cfg(feature = "unilog")]
 pub struct UniLogger {
     inner: unilog_rs::UniLog,
 }
 
+#[cfg(feature = "unilog")]
 impl UniLogger {
     pub fn new(inner: unilog_rs::UniLog) -> Self {
         Self { inner }
     }
 }
 
+#[cfg(feature = "unilog")]
 impl Logger for UniLogger {
     fn debug(&self, msg: &str) { self.inner.debug(msg); }
     fn info(&self, msg: &str) { self.inner.info(msg); }
