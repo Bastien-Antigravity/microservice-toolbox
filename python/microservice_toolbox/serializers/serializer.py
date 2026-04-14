@@ -3,9 +3,9 @@ from typing import Any, Type, TypeVar
 
 T = TypeVar('T')
 
-class Serializer(ABC):
+class ISerializer(ABC):
     """
-    Serializer manages transforming generic objects to bytes and vice-versa.
+    ISerializer manages transforming generic objects to bytes and vice-versa.
     """
     
     @abstractmethod

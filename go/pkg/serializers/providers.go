@@ -1,10 +1,10 @@
 package serializers
 
 import (
-	"bytes"
-	"encoding/gob"
 	"encoding/json"
 	"fmt"
+
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // -----------------------------------------------------------------------------
@@ -31,7 +31,8 @@ func (s *JSONSerializer) Unmarshal(data []byte, ptr interface{}) error {
 }
 
 // -----------------------------------------------------------------------------
-// BinSerializer implements Serializer using Go's gob encoding.
+// -----------------------------------------------------------------------------
+// BinSerializer implements Serializer using msgpack encoding.
 type BinSerializer struct{}
 
 func NewBinSerializer() Serializer {
@@ -39,19 +40,16 @@ func NewBinSerializer() Serializer {
 }
 
 func (g *BinSerializer) Marshal(obj interface{}) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	if err := enc.Encode(obj); err != nil {
-		return nil, fmt.Errorf("gob marshal error: %w", err)
+	b, err := msgpack.Marshal(obj)
+	if err != nil {
+		return nil, fmt.Errorf("msgpack marshal error: %w", err)
 	}
-	return buf.Bytes(), nil
+	return b, nil
 }
 
 func (g *BinSerializer) Unmarshal(data []byte, obj interface{}) error {
-	buf := bytes.NewBuffer(data)
-	dec := gob.NewDecoder(buf)
-	if err := dec.Decode(obj); err != nil {
-		return fmt.Errorf("gob unmarshal error: %w", err)
+	if err := msgpack.Unmarshal(data, obj); err != nil {
+		return fmt.Errorf("msgpack unmarshal error: %w", err)
 	}
 	return nil
 }

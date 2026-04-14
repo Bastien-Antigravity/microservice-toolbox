@@ -10,7 +10,7 @@ except ImportError:
 
 from .errors import MaxRetriesReachedError
 from .connection import ManagedConnection
-from ..utils.logger import Logger, EnsureSafeLogger
+from ..utils.logger import ILogger, ensure_safe_logger
 
 OnErrorHandler = Callable[[str, str, Exception, str], None]
 
@@ -27,7 +27,7 @@ class NetworkManager:
         backoff: float = 2.0,
         jitter: float = 0.0,
         on_error: Optional[OnErrorHandler] = None,
-        logger: Optional[Logger] = None
+        logger: Optional[ILogger] = None
     ):
         self.max_retries = max_retries
         self.base_delay = base_delay_ms / 1000.0
@@ -36,7 +36,7 @@ class NetworkManager:
         self.backoff = backoff
         self.jitter = jitter
         self.on_error = on_error
-        self.logger = EnsureSafeLogger(logger)
+        self.logger = ensure_safe_logger(logger)
 
     def establish_connection(self, ip: str, port: str, public_ip: str, profile: str):
         """
@@ -100,7 +100,7 @@ class NetworkManager:
         
         return mc
 
-def NewNetworkManager(
+def new_network_manager(
     max_retries: int = 5,
     base_delay_ms: int = 200,
     max_delay_ms: int = 5000,
@@ -111,7 +111,7 @@ def NewNetworkManager(
 ) -> NetworkManager:
     return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error)
 
-def NewNetworkManagerWithLogger(
+def new_network_manager_with_logger(
     max_retries: int = 5,
     base_delay_ms: int = 200,
     max_delay_ms: int = 5000,
@@ -119,6 +119,6 @@ def NewNetworkManagerWithLogger(
     backoff: float = 2.0,
     jitter: float = 0.0,
     on_error: Optional[OnErrorHandler] = None,
-    logger: Optional[Logger] = None
+    logger: Optional[ILogger] = None
 ) -> NetworkManager:
     return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error, logger)

@@ -3,7 +3,7 @@ import sys
 import os
 
 @runtime_checkable
-class Logger(Protocol):
+class ILogger(Protocol):
     def debug(self, msg: str) -> None: ...
     def info(self, msg: str) -> None: ...
     def warning(self, msg: str) -> None: ...
@@ -39,7 +39,7 @@ class UniLogger:
     def error(self, msg: str): self._inner.error(msg)
     def critical(self, msg: str): self._inner.critical(msg)
 
-def EnsureSafeLogger(logger: Optional[Logger]) -> Logger:
+def ensure_safe_logger(logger: Optional[ILogger]) -> ILogger:
     """Ensures a valid logger is returned, falling back to DefaultLogger if None."""
     if logger is None:
         return DefaultLogger()

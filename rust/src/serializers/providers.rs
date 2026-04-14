@@ -1,6 +1,6 @@
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json;
-use bincode;
+use rmp_serde;
 use crate::serializers::serializer::Serializer;
 
 /// JsonSerializer implements Serializer natively over JSON.
@@ -53,8 +53,8 @@ impl Serializer for JsonSerializer {
     }
 }
 
-/// BinSerializer implements Serializer using bincode encoding.
-/// Note: matched with Go's 'BinSerializer' but using bincode as gob equivalent.
+/// BinSerializer implements Serializer using msgpack encoding.
+/// Note: matched with Go's 'BinSerializer' using msgpack.
 pub struct BinSerializer;
 
 impl BinSerializer {
@@ -65,11 +65,11 @@ impl BinSerializer {
 
 impl Serializer for BinSerializer {
     fn marshal<T: Serialize>(&self, data: &T) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        bincode::serialize(data).map_err(|e| e.into())
+        rmp_serde::to_vec(data).map_err(|e| e.into())
     }
 
     fn unmarshal<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T, Box<dyn std::error::Error + Send + Sync>> {
-        bincode::deserialize(data).map_err(|e| e.into())
+        rmp_serde::from_slice(data).map_err(|e| e.into())
     }
 }
 

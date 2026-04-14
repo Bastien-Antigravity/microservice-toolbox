@@ -55,5 +55,5 @@ class Resolver:
         except Exception:
             raise RuntimeError("no primary network interface found")
 
-def NewResolver() -> Resolver:
+def new_resolver() -> Resolver:
     return Resolver()

@@ -1,9 +1,9 @@
 import json
-import pickle
+import msgpack
 from typing import Any, Type, TypeVar
-from .serializer import Serializer, T
+from .serializer import ISerializer, T
 
-class JSONSerializer(Serializer):
+class JSONSerializer(ISerializer):
     """
     JSONSerializer implements Serializer natively over JSON.
     """
@@ -19,25 +19,25 @@ class JSONSerializer(Serializer):
         except (TypeError, ValueError, json.JSONDecodeError) as e:
             raise ValueError(f"json unmarshal error: {e}")
 
-class BinSerializer(Serializer):
+class BinSerializer(ISerializer):
     """
-    BinSerializer implements Serializer using Python's pickle encoding.
-    Note: matched with Go's 'BinSerializer' but using pickle as gob equivalent.
+    BinSerializer implements Serializer using Python's msgpack encoding.
+    Note: matched with Go's 'BinSerializer' using msgpack.
     """
     def marshal(self, data: Any) -> bytes:
         try:
-            return pickle.dumps(data)
-        except (pickle.PickleError, TypeError) as e:
-            raise ValueError(f"pickle marshal error: {e}")
+            return msgpack.packb(data, use_bin_type=True)
+        except (TypeError, ValueError, Exception) as e:
+            raise ValueError(f"msgpack marshal error: {e}")
 
     def unmarshal(self, data: bytes, cls: Type[T]) -> T:
         try:
-            return pickle.loads(data)
-        except (pickle.PickleError, TypeError) as e:
-            raise ValueError(f"pickle unmarshal error: {e}")
+            return msgpack.unpackb(data, raw=False)
+        except (TypeError, ValueError, Exception) as e:
+            raise ValueError(f"msgpack unmarshal error: {e}")
 
-def NewJSONSerializer() -> Serializer:
+def new_json_serializer() -> ISerializer:
     return JSONSerializer()
 
-def NewBinSerializer() -> Serializer:
+def new_bin_serializer() -> ISerializer:
     return BinSerializer()

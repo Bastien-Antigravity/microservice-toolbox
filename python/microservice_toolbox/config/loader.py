@@ -2,21 +2,21 @@ import yaml
 import os
 from typing import Optional
 from .args import parse_cli_args
-from ..utils.logger import Logger, EnsureSafeLogger
+from ..utils.logger import ILogger, ensure_safe_logger
 
 def load_config(profile, specific_flags=None):
     """Semantic helper to match Go LoadConfig()"""
     return AppConfig(profile, specific_flags)
 
-def load_config_with_logger(profile, logger: Optional[Logger], specific_flags=None):
+def load_config_with_logger(profile, logger: Optional[ILogger], specific_flags=None):
     """Semantic helper to match Go LoadConfigWithLogger()"""
     return AppConfig(profile, specific_flags, logger=logger)
 
 class AppConfig:
-    def __init__(self, profile, specific_flags=None, logger: Optional[Logger] = None):
+    def __init__(self, profile, specific_flags=None, logger: Optional[ILogger] = None):
         self.profile = profile
         self.data = {}
-        self.logger = EnsureSafeLogger(logger)
+        self.logger = ensure_safe_logger(logger)
         self.cli_args = parse_cli_args(specific_flags)
         
         # Phase 1: Load base config from file (full merge of all sections)
