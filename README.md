@@ -40,8 +40,8 @@ A robust connection wrapper designed for microservice resilience:
 ### Go
 Located in `/go`.
 ```go
-import "github.com/Bastien-Antigravity/microservice-toolbox/pkg/conn_manager"
-import "github.com/Bastien-Antigravity/microservice-toolbox/pkg/serializers"
+import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/conn_manager"
+import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/serializers"
 
 // 1. Initialize Connection Manager (indefinite retry with jitter)
 nm := conn_manager.NewNetworkManager(-1, 200, 5000, 2000, 2.0, 0.1)
