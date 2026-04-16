@@ -3,8 +3,8 @@ module github.com/Bastien-Antigravity/microservice-toolbox/go
 go 1.25.4
 
 require (
-	github.com/Bastien-Antigravity/distributed-config v1.6.4
-	github.com/Bastien-Antigravity/safe-socket v1.7.3
+	github.com/Bastien-Antigravity/distributed-config v1.6.5
+	github.com/Bastien-Antigravity/safe-socket v1.7.4
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
