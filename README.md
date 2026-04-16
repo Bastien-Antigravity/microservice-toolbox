@@ -1,3 +1,13 @@
+---
+microservice: microservice-toolbox
+type: repository
+status: active
+language: polyglot
+tags:
+  - domain/architecture
+  - domain/configuration
+---
+
 # Microservice Toolbox
 
 A unified infrastructure library for the Bastien-Antigravity microservices ecosystem. Supporting Go, Python, and Rust.

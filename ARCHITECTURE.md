@@ -1,3 +1,12 @@
+---
+microservice: microservice-toolbox
+type: architecture
+status: active
+tags:
+  - domain/architecture
+  - domain/configuration
+---
+
 # Architecture Standards: Microservice Toolbox
 
 The `microservice-toolbox` serves as the standardized entry point and underlying framework for all cross-language services in the Bastien-Antigravity ecosystem. It offers shared abstractions and foundational utilities needed to orchestrate microservices effectively.
