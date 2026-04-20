@@ -21,8 +21,9 @@ The `microservice-toolbox` serves as the standardized entry point and underlying
 
 - **Configuration (`config`)**: Reads global standalone configurations using `LoadConfig(profile)` and adapts to overrides securely.
 - **Connectivity (`connectivity` / `network`)**: Networking primitives for service lookups, IP resolution, and gRPC server builder patterns.
-- **Lifecycle (`lifecycle`)**: Utilities and standardized contexts/hooks for proper graceful shutdown of services and inter-thread signaling.
-- **Serialization (`serializers`)**: Abstractions for binary messaging integrations, primarily geared toward Cap'n Proto.
+- **Connection Manager (`conn_manager`)**: Resilient TCP connection wrapper with multiplicative backoff, randomized jitter, indefinite retry support (`max_retries = -1`), and transparent reconnection on write failures. Available in Go, Python, and Rust.
+- **Lifecycle (`lifecycle`)** *(Go only)*: OS signal handling (`SIGINT`, `SIGTERM`) and graceful shutdown orchestration for sub-goroutines. Python and Rust equivalents are planned (see `TODO.md`).
+- **Serialization (`serializers`)**: Cross-language serialization abstractions with an identical `marshal`/`unmarshal` API surface. Provides `JSONSerializer` (human-readable payloads) and `BinSerializer` (msgpack, for high-performance binary encoding). Compatible across all three languages.
 
 ## 3. Structural Design
 
