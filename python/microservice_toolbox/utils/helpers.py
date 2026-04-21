@@ -1,5 +1,6 @@
-import socket
 import functools
+import socket
+
 
 @functools.lru_cache(maxsize=1)
 def get_hostname():

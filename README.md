@@ -42,6 +42,7 @@ A robust connection wrapper designed for microservice resilience:
 - **Advanced Retry Strategy**: Supports multiplicative backoff and randomized jitter to prevent "thundering herd" issues.
 - **Infinite Retries**: Option to retry indefinitely (`max_retries = -1`) for critical background services.
 - **Transparent Reconnection**: Automatically handles reconnections during write failures.
+- **Background Support**: `ConnectNonBlocking` allows establishing connections in the background without stalling the main thread.
 
 ---
 
@@ -53,8 +54,14 @@ Located in `/go`.
 import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/conn_manager"
 import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/serializers"
 
-// 1. Initialize Connection Manager (indefinite retry with jitter)
+// 1. Initialize Connection Manager with an OnError hook
 nm := conn_manager.NewNetworkManager(-1, 200, 5000, 2000, 2.0, 0.1)
+nm.OnError = func(attempt int, err error, source string, msg string) {
+    if attempt == 3 {
+        // Run specific logic after 3 failures
+        fmt.Printf("Critical Error at %s: %s (attempt %d): %v\n", source, msg, attempt, err)
+    }
+}
 
 // 2. Use Serializers
 jsonSer := serializers.NewJSONSerializer()
@@ -64,11 +71,15 @@ data, _ := jsonSer.Marshal(myObj)
 ### Python
 Located in `/python`.
 ```python
-from microservice_toolbox.conn_manager import NewNetworkManager
+from microservice_toolbox.conn_manager import new_network_manager
 from microservice_toolbox.serializers.providers import JSONSerializer
 
-# 1. Initialize Connection Manager (all 6 params: max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter)
-nm = NewNetworkManager(max_retries=5, base_delay_ms=200, max_delay_ms=5000, connect_timeout_ms=2000, backoff=2.0, jitter=0.1)
+# 1. Initialize Connection Manager with an on_error callback
+def my_hook(attempt, err, source, msg):
+    if attempt >= 2:
+        print(f"Action required after {attempt} failures. Last error: {err}")
+
+nm = new_network_manager(max_retries=10, on_error=my_hook)
 
 # 2. Use Serializers
 serializer = JSONSerializer()
@@ -78,18 +89,46 @@ payload = serializer.marshal({"status": "ok"})
 ### Rust
 Located in `/rust`.
 ```rust
-use microservice_toolbox::conn_manager::manager::new_network_manager;
-use microservice_toolbox::serializers::providers::{JsonSerializer, BinSerializer};
+use microservice_toolbox::conn_manager::manager::new_network_manager_with_all;
+use microservice_toolbox::serializers::providers::{JsonSerializer};
+use std::sync::Arc;
 
-// 1. Initialize Connection Manager
-let nm = new_network_manager(5, 200, 5000, 2000, 2.0, 0.1);
+// 1. Initialize Connection Manager with a unified hook
+let on_error = Arc::new(|attempt, err: &(dyn std::error::Error + Send + Sync), _src: &str, _msg: &str| {
+    if attempt == 2 {
+        println!("Failure recovery logic triggered (attempt {}). Error: {:?}", attempt, err);
+    }
+});
+
+let nm = new_network_manager_with_all(5, 200, 5000, 2000, 2.0, 0.1, Some(on_error), None);
 
 // 2. Use Serializers
-// Note: JsonSerializer::new() and BinSerializer::new() return a SerializerEnum,
-// which dispatches to the concrete implementation.
 let ser = JsonSerializer::new(); // returns SerializerEnum
 let bytes = ser.marshal(&my_struct)?;
 ```
+
+---
+
+## Development & Testing
+
+This repository uses a comprehensive, cross-language test suite to ensure architectural parity.
+
+### Running Unit Tests
+- **Go**: `cd go && go test ./...`
+- **Python**: `cd python && pytest` (requires `ruff` for linting)
+- **Rust**: `cd rust && cargo test`
+
+### Integration Tests
+Cross-language compatibility (e.g., Go -> Python serialization) is validated via the integration runner:
+```bash
+chmod +x integration/run_tests.sh
+./integration/run_tests.sh
+```
+
+### CI/CD
+All pull requests and pushes to `main` or `develop` are automatically validated via GitHub Actions in `.github/workflows/ci.yml`. This includes:
+- Parallel Test & Linting for Go, Python, and Rust.
+- Execution of the cross-language integration suite.
 
 ## Security Best Practices
 Services using this toolbox should NOT publish internal ports in `docker-compose.yaml`. Inter-service discovery is handled via the internal `teleremote_network` using service names.

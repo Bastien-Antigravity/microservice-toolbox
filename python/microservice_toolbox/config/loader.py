@@ -1,39 +1,63 @@
-import yaml
 import os
 from typing import Optional
-from .args import parse_cli_args
+
+import yaml
+
 from ..utils.logger import ILogger, ensure_safe_logger
+from .args import parse_cli_args
 
-def load_config(profile, specific_flags=None):
-    """Semantic helper to match Go LoadConfig()"""
-    return AppConfig(profile, specific_flags)
 
-def load_config_with_logger(profile, logger: Optional[ILogger], specific_flags=None):
-    """Semantic helper to match Go LoadConfigWithLogger()"""
+def load_config(profile: str, specific_flags: Optional[list] = None, input_args: Optional[list] = None) -> 'AppConfig':
+    """
+    Initializes a configuration loader following the Microservice Toolbox 'Hierarchy of Truth'.
+    
+    Priority levels (highest to lowest):
+    1. CLI Overrides (e.g., --host, --port)
+    2. Context-Aware File Overrides (Dev Mode Hard Overrides)
+    3. Production/Fleet Source (Config Server or YAML)
+    4. Base environment/defaults
+    """
+    return AppConfig(profile, specific_flags, input_args=input_args)
+
+def load_config_with_logger(profile: str, logger: Optional[ILogger], specific_flags: Optional[list] = None) -> 'AppConfig':
+    """Semantic helper to match Go LoadConfigWithLogger()."""
     return AppConfig(profile, specific_flags, logger=logger)
 
 class AppConfig:
-    def __init__(self, profile, specific_flags=None, logger: Optional[ILogger] = None):
+    """
+    AppConfig wraps configuration data and provides layered resolution logic.
+    It ensures that service settings remain consistent whether running in 
+    standalone development mode or across a containerized production fleet.
+    """
+    def __init__(self, profile: str, specific_flags: Optional[list] = None, logger: Optional[ILogger] = None, input_args: Optional[list] = None):
         self.profile = profile
         self.data = {}
         self.logger = ensure_safe_logger(logger)
-        self.cli_args = parse_cli_args(specific_flags)
-        
-        # Phase 1: Load base config from file (full merge of all sections)
+        self.cli_args = parse_cli_args(specific_flags, input_args=input_args)
+
+        # ---------------------------------------------------------------------
+        # PHASE 1: Load base configuration from YAML
+        # ---------------------------------------------------------------------
         filename = f"{profile}.yaml"
         if not os.path.exists(filename):
             raise FileNotFoundError(f"Toolbox (Python): Config file '{filename}' not found for profile '{profile}'")
         self._load_from_file(filename)
 
-        # Phase 2: Layered logic matching Go implementation
+        # ---------------------------------------------------------------------
+        # PHASE 2: Apply context-aware overrides
+        # In standalone/test modes, we ensure the local file is authoritative 
+        # over any previous merges (matching Go behavior).
+        # ---------------------------------------------------------------------
         is_dev = profile in ["standalone", "test"]
         if is_dev:
             self.logger.info("Dev Mode detected. Re-applying Local File as Hard Override.")
             self._apply_file_override(filename)
         else:
-            self.logger.info("Production Mode detected. Config Server remains authoritative.")
+            self.logger.info("Production Mode detected. Configuration state remains stable.")
 
-        # Phase 3: CLI Overrides (Highest)
+        # ---------------------------------------------------------------------
+        # PHASE 3: Apply CLI Overrides (The absolute Highest Priority)
+        # ---------------------------------------------------------------------
         self._apply_cli_overrides()
 
 
@@ -57,13 +81,13 @@ class AppConfig:
         if self.cli_args.name:
             self.data['common'] = self.data.get('common', {})
             self.data['common']['name'] = self.cli_args.name
-            
+
         # If network flags provided and not blocked by Docker Guard
         if any([self.cli_args.host, self.cli_args.port, self.cli_args.grpc_host, self.cli_args.grpc_port]):
             target = self.cli_args.name or self.data.get('common', {}).get('name') or "config_server"
             self.data['capabilities'] = self.data.get('capabilities', {})
             cap = self.data['capabilities'].get(target, {})
-            
+
             if self.cli_args.host:
                 cap['ip'] = self.cli_args.host
             if self.cli_args.port:
@@ -72,7 +96,7 @@ class AppConfig:
                 cap['grpc_ip'] = self.cli_args.grpc_host
             if self.cli_args.grpc_port:
                 cap['grpc_port'] = str(self.cli_args.grpc_port)
-                
+
             self.data['capabilities'][target] = cap
 
     @staticmethod
@@ -89,17 +113,17 @@ class AppConfig:
     def get_grpc_listen_addr(self, capability):
         caps = self.data.get('capabilities', {})
         cap = caps.get(capability)
-        
+
         if not cap:
             raise ValueError(f"capability {capability} not found for gRPC fallback")
 
         # 1. Try explicit grpc config
         grpc_ip = cap.get('grpc_ip')
         grpc_port = cap.get('grpc_port')
-        
+
         if grpc_ip and grpc_port:
             return f"{grpc_ip}:{grpc_port}"
-            
+
         # 2. Fallback to convention: ip:port+1 (matching Go implementation)
         ip = cap.get('ip', '0.0.0.0')
         port_str = cap.get('port', '8080')
@@ -107,7 +131,7 @@ class AppConfig:
             port = int(port_str)
         except (ValueError, TypeError):
             port = 8080
-            
+
         return f"{ip}:{port + 1}"
 
     def _get_addr(self, capability, host_key, port_key):
@@ -115,10 +139,10 @@ class AppConfig:
         cap = caps.get(capability)
         if not cap:
             raise ValueError(f"capability {capability} not found")
-            
+
         host = cap.get(host_key, '0.0.0.0')
         port = cap.get(port_key)
         if not port:
             raise ValueError(f"port key {port_key} missing or empty in capability {capability}")
-            
+
         return f"{host}:{port}"

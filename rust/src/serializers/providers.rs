@@ -38,8 +38,14 @@ impl Serializer for SerializerEnum {
 }
 
 impl JsonSerializer {
-    pub fn new() -> SerializerEnum {
-        SerializerEnum::new_json()
+    pub fn new() -> Self {
+        JsonSerializer
+    }
+}
+
+impl Default for JsonSerializer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -58,14 +64,20 @@ impl Serializer for JsonSerializer {
 pub struct BinSerializer;
 
 impl BinSerializer {
-    pub fn new() -> SerializerEnum {
-        SerializerEnum::new_bin()
+    pub fn new() -> Self {
+        BinSerializer
+    }
+}
+
+impl Default for BinSerializer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl Serializer for BinSerializer {
     fn marshal<T: Serialize>(&self, data: &T) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        rmp_serde::to_vec(data).map_err(|e| e.into())
+        rmp_serde::to_vec_named(data).map_err(|e| e.into())
     }
 
     fn unmarshal<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T, Box<dyn std::error::Error + Send + Sync>> {
@@ -79,4 +91,39 @@ pub fn new_json_serializer() -> SerializerEnum {
 
 pub fn new_bin_serializer() -> SerializerEnum {
     SerializerEnum::new_bin()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    struct TestData {
+        name: String,
+        value: i32,
+    }
+
+    #[test]
+    fn test_serializers_roundtrip() {
+        let data = TestData {
+            name: "Toolbox".to_string(),
+            value: 42,
+        };
+
+        let serializers = vec![
+            SerializerEnum::new_json(),
+            SerializerEnum::new_bin(),
+        ];
+
+        for s in serializers {
+            // Marshal
+            let encoded = s.marshal(&data).expect("Marshal failed");
+            assert!(!encoded.is_empty());
+
+            // Unmarshal
+            let decoded: TestData = s.unmarshal(&encoded).expect("Unmarshal failed");
+            assert_eq!(data, decoded);
+        }
+    }
 }

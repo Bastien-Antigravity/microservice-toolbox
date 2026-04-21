@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Add universal-logger/python to sys.path to find 'unilog' package
@@ -8,14 +8,15 @@ sys.path.append(uni_logger_path)
 
 try:
     from unilog.facade import UniLog
-    from microservice_toolbox.utils.logger import UniLogger
-    from microservice_toolbox.conn_manager.manager import NewNetworkManagerWithLogger
+
     from microservice_toolbox.config.loader import load_config_with_logger
-    
+    from microservice_toolbox.conn_manager.manager import NewNetworkManagerWithLogger
+    from microservice_toolbox.utils.logger import UniLogger
+
     print(">>> Initializing UniLog (compiled)...")
     native_log = UniLog(config_profile="standalone", app_name="test-python")
     logger = UniLogger(native_log)
-    
+
     print(">>> Testing NetworkManager with UniLogger...")
     nm = NewNetworkManagerWithLogger(max_retries=2, logger=logger)
     try:

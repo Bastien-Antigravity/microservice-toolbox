@@ -12,8 +12,12 @@ import (
 	safesocket "github.com/Bastien-Antigravity/safe-socket"
 )
 
-// OnErrorHandler is a callback for reporting errors to the consumer of the toolbox.
-type OnErrorHandler func(name string, source string, err error, originalMsg string)
+// OnErrorHandler is a callback triggered on every connection attempt failure.
+// attempt: current failure count (starting at 1 for first error).
+// err: the specific error that triggered the failure.
+// source: the component where the error occurred (e.g. "ManagedConnection.reconnect").
+// msg: a descriptive message providing additional context.
+type OnErrorHandler func(attempt int, err error, source string, msg string)
 
 // -----------------------------------------------------------------------------
 // NetworkManager handles reliable connection establishment with retries.
@@ -25,8 +29,10 @@ type NetworkManager struct {
 	Backoff        float64
 	Jitter         float64 // 0.0 to 1.0 (multiplier for delay added as randomness)
 
-	// OnError is an optional hook for custom error reporting (e.g. to a logger or alert system).
+	// OnError is an optional hook for fine-grained error reporting and retry logic 
+	// (e.g., execute after X errors, or on specific error types).
 	OnError OnErrorHandler
+	// Logger is the logger to use for logging.
 	Logger  utils.Logger
 }
 
@@ -95,6 +101,9 @@ func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile s
 		}
 
 		nm.Logger.Warning("ManagedConnection: Initial connection to %s failed: %v. Retrying in %v...", address, err, time.Duration(delay))
+		if nm.OnError != nil {
+			nm.OnError(i+1, err, "NetworkManager", fmt.Sprintf("Initial connection failure to %s", address))
+		}
 		time.Sleep(time.Duration(delay))
 		address = fmt.Sprintf("%s:%s", cleanIP, cleanPort)
 	}
@@ -116,8 +125,30 @@ func (nm *NetworkManager) ConnectBlocking(ip, port, publicIP *string, profile st
 	// Use internal reconnect logic to establish initial connection
 	if err := mc.reconnect(); err != nil {
 		if nm.OnError != nil {
-			nm.OnError("NetworkManager", "ConnectBlocking", err, fmt.Sprintf("Failed to connect to %s:%s", *ip, *port))
+			nm.OnError(1, err, "NetworkManager", fmt.Sprintf("Failed to connect to %s:%s", *ip, *port))
 		}
 	}
+	return mc
+}
+
+// ConnectNonBlocking immediately returns a ManagedConnection and attempts to connect in the background.
+func (nm *NetworkManager) ConnectNonBlocking(ip, port, publicIP *string, profile string) io.WriteCloser {
+	mc := &ManagedConnection{
+		ip:       ip,
+		port:     port,
+		publicIP: publicIP,
+		profile:  profile,
+		nm:       nm,
+	}
+
+	// Start reconnection loop in background
+	go func() {
+		if err := mc.reconnect(); err != nil {
+			if nm.OnError != nil {
+				nm.OnError(1, err, "NetworkManager", fmt.Sprintf("Failed to connect to %s:%s in background", *ip, *port))
+			}
+		}
+	}()
+
 	return mc
 }

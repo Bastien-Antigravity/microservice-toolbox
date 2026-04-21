@@ -6,15 +6,19 @@ T = TypeVar('T')
 class ISerializer(ABC):
     """
     ISerializer manages transforming generic objects to bytes and vice-versa.
+
+    Implemented Providers:
+    - JSON: Standard human-readable interchange.
+    - Bin (MsgPack): High-performance cross-language binary serialization.
     """
-    
+
     @abstractmethod
     def marshal(self, data: Any) -> bytes:
         """
         Transforms data into a byte representation.
         """
         pass
-    
+
     @abstractmethod
     def unmarshal(self, data: bytes, cls: Type[T]) -> T:
         """

@@ -21,3 +21,15 @@ unilog-rs = { git = "https://github.com/Bastien-Antigravity/universal-logger", b
 [features]
 default = []
 unilog = ["dep:unilog-rs"]
+
+[[bin]]
+name = "integration_gen"
+path = "../integration/rust_gen.rs"
+
+[[bin]]
+name = "integration_con"
+path = "../integration/rust_con.rs"
+
+[[example]]
+name = "test_logger"
+required-features = ["unilog"]

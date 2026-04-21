@@ -10,12 +10,25 @@ pub struct Resolver {
 impl Resolver {
     /// Creates a new network resolver.
     pub fn new() -> Self {
-        let is_docker = Path::new("/.dockerenv").exists() || env::var("DOCKER_ENV").unwrap_or_default() == "true";
+        let is_docker = Path::new("/.dockerenv").exists() || env::var("DOCKER_ENV").is_ok_and(|v| v == "true");
         Self { is_docker }
     }
+}
 
+impl Default for Resolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Resolver {
     /// Resolves the requested IP into an actual address to bind to.
-    /// If in Docker, it ignores loopback requests and finds the container's primary IP.
+    /// 
+    /// Docker Connectivity Logic:
+    /// If running in a Docker container and a loopback address (127.0.0.1) is 
+    /// provided, this method translates it to the container's internal 
+    /// primary interface IP. This ensures that the service is actually 
+    /// reachable by other containers in the same network/fleet.
     pub fn resolve_bind_addr(&self, requested_ip: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let requested_ip = requested_ip.trim_matches('"');
 
@@ -51,4 +64,32 @@ impl Resolver {
 
 pub fn new_resolver() -> Resolver {
     Resolver::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_loopback() {
+        let r = Resolver { is_docker: false };
+        assert!(r.is_loopback("127.0.0.1"));
+        assert!(r.is_loopback("127.2.3.4"));
+        assert!(r.is_loopback("::1"));
+        assert!(r.is_loopback("localhost"));
+        assert!(!r.is_loopback("8.8.8.8"));
+    }
+
+    #[test]
+    fn test_resolve_bind_addr_native() {
+        let r = Resolver { is_docker: false };
+        assert_eq!(r.resolve_bind_addr("127.0.0.1").unwrap(), "127.0.0.1");
+        assert_eq!(r.resolve_bind_addr("8.8.8.8").unwrap(), "8.8.8.8");
+    }
+
+    #[test]
+    fn test_resolve_bind_addr_docker_external() {
+        let r = Resolver { is_docker: true };
+        assert_eq!(r.resolve_bind_addr("8.8.8.8").unwrap(), "8.8.8.8");
+    }
 }

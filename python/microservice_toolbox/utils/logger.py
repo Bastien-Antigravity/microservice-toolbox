@@ -1,6 +1,5 @@
-from typing import Protocol, runtime_checkable, Any, Optional
-import sys
-import os
+from typing import Any, Optional, Protocol, runtime_checkable
+
 
 @runtime_checkable
 class ILogger(Protocol):

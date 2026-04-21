@@ -21,17 +21,20 @@ The `microservice-toolbox` serves as the standardized entry point and underlying
 
 - **Configuration (`config`)**: Reads global standalone configurations using `LoadConfig(profile)` and adapts to overrides securely.
 - **Connectivity (`connectivity` / `network`)**: Networking primitives for service lookups, IP resolution, and gRPC server builder patterns.
-- **Connection Manager (`conn_manager`)**: Resilient TCP connection wrapper with multiplicative backoff, randomized jitter, indefinite retry support (`max_retries = -1`), and transparent reconnection on write failures. Available in Go, Python, and Rust.
+- **Connection Manager (`conn_manager`)**: Resilient TCP connection wrapper with multiplicative backoff, randomized jitter, indefinite retry support (`max_retries = -1`), and transparent reconnection on write failures. Supports both blocking and background modes, with a unified `OnError` hook providing attempt tracking and failure context across all languages.
 - **Lifecycle (`lifecycle`)** *(Go only)*: OS signal handling (`SIGINT`, `SIGTERM`) and graceful shutdown orchestration for sub-goroutines. Python and Rust equivalents are planned (see `TODO.md`).
 - **Serialization (`serializers`)**: Cross-language serialization abstractions with an identical `marshal`/`unmarshal` API surface. Provides `JSONSerializer` (human-readable payloads) and `BinSerializer` (msgpack, for high-performance binary encoding). Compatible across all three languages.
 
-## 3. Structural Design
+## 3. Technical Deep Dives
 
-The repository is modularized strictly by target languages:
-- `/go`: Reference implementation. Go source of truth.
-- `/rust`: Implementation mapping natively to Cargo and standard crates.
-- `/python`: Implementation utilizing native type hints and standard packages.
+### The Hierarchy of Truth (Configuration)
+The toolbox enforces a deterministic configuration priority to ensure consistency across environments:
+1.  **CLI Flags**: Highest priority. Standard flags like `--host`, `--port`, and `--conf` override everything else.
+2.  **Dev Mode Overrides**: In `standalone` or `test` profiles, the local YAML file is re-applied over remote state to allow rapid local iteration.
+3.  **Fleet State**: In production profiles, the central Configuration Server remains the authoritative source of truth.
+4.  **Base Defaults**: Hardcoded environment defaults.
 
-## 4. Usage Rules
-
-This module sits below the `universal-logger` and above native generic capabilities. It should remain stateless and strictly focused on utilities, leaving business logic processing fully decoupled.
+### The Docker Guard (Networking)
+To prevent "brittle" hardcoded networking from breaking automated container orchestration, the toolbox implements a strict Docker Guard:
+- **Loopback Translation**: If a service requests a bind to `127.0.0.1` inside a container, the toolbox automatically resolves this to the container's primary network interface IP.
+- **Override Suppression**: CLI flags for networking (`--host`, `--port`, etc.) are **strictly ignored** when `/.dockerenv` is detected. This ensures that only the orchestrated container network is used for inter-service communication.

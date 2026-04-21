@@ -6,8 +6,20 @@ use crate::conn_manager::connection::ManagedConnection;
 use crate::conn_manager::errors::Error;
 use crate::utils::logger::{Logger, ensure_safe_logger};
 
-pub type OnErrorHandler = Arc<dyn Fn(&str, &str, &(dyn std::error::Error + Send + Sync), &str) + Send + Sync>;
+/// OnErrorHandler is a callback triggered on every connection attempt failure.
+/// It receives:
+/// - attempt: The current failure count (starting at 1).
+/// - error: The specific error that triggered the failure.
+/// - source: The component where the error occurred.
+/// - msg: A descriptive message providing additional context.
+pub type OnErrorHandler = Arc<dyn Fn(isize, &(dyn std::error::Error + Send + Sync), &str, &str) + Send + Sync>;
 
+/// NetworkManager handles reliable connection establishment with retries.
+/// 
+/// It implements a resilient strategy using:
+/// - Multiplicative Backoff: Increasing delay between attempts.
+/// - Randomized Jitter: Prevents thundering herd issues in large fleets.
+/// - Context-Aware Recovery: Unified error reporting via on_error.
 pub struct NetworkManager {
     pub max_retries: isize, // Supports -1 for infinite retries
     pub base_delay: Duration,
@@ -30,16 +42,17 @@ impl NetworkManager {
         backoff: f64,
         jitter: f64,
     ) -> Self {
-        Self::new_with_logger(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, None)
+        Self::new_with_all(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, None, None)
     }
 
-    pub fn new_with_logger(
+    pub fn new_with_all(
         max_retries: isize,
         base_delay_ms: u64,
         max_delay_ms: u64,
         connect_timeout_ms: u64,
         backoff: f64,
         jitter: f64,
+        on_error: Option<OnErrorHandler>,
         logger: Option<Arc<dyn Logger>>,
     ) -> Self {
         Self {
@@ -49,7 +62,7 @@ impl NetworkManager {
             connect_timeout: Duration::from_millis(connect_timeout_ms),
             backoff,
             jitter,
-            on_error: OptionalHandler(None),
+            on_error: OptionalHandler(on_error),
             logger: ensure_safe_logger(logger),
         }
     }
@@ -84,6 +97,9 @@ impl NetworkManager {
                     return Ok(mc);
                 }
                 Err(e) => {
+                    if let OptionalHandler(Some(ref hook)) = self.on_error {
+                        hook(i + 1, &e, "NetworkManager", &format!("Initial connection failure to {}:{}", mc.ip, mc.port));
+                    }
                     last_error = Some(e);
                     
                     // Calculate backoff
@@ -116,19 +132,31 @@ impl NetworkManager {
         )))
     }
 
-    pub fn connect_blocking(
+    pub async fn connect_blocking(
         self: Arc<Self>,
         ip: String,
         port: String,
     ) -> ManagedConnection {
-        let mc = ManagedConnection::new(ip, port, self.clone());
+        let mc = ManagedConnection::new(ip.clone(), port.clone(), self.clone());
+        if let Err(e) = mc.reconnect().await
+            && let OptionalHandler(Some(ref handler)) = self.on_error {
+                handler(1, &e, "NetworkManager", &format!("Failed to connect to {}:{}", ip, port));
+        }
+        mc
+    }
+
+    pub fn connect_non_blocking(
+        self: Arc<Self>,
+        ip: String,
+        port: String,
+    ) -> ManagedConnection {
+        let mc = ManagedConnection::new(ip.clone(), port.clone(), self.clone());
         let mc_clone = mc.clone();
         
         tokio::spawn(async move {
-            if let Err(e) = mc_clone.reconnect().await {
-                if let OptionalHandler(Some(ref handler)) = mc_clone.nm.on_error {
-                    handler("NetworkManager", "connect_blocking", &e, &format!("Failed to connect to {}:{}", mc_clone.ip, mc_clone.port));
-                }
+            if let Err(e) = mc_clone.reconnect().await
+                && let OptionalHandler(Some(ref handler)) = mc_clone.nm.on_error {
+                    handler(1, &e, "NetworkManager", &format!("Failed to connect to {}:{}", mc_clone.ip, mc_clone.port));
             }
         });
         
@@ -147,14 +175,55 @@ pub fn new_network_manager(
     Arc::new(NetworkManager::new(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter))
 }
 
-pub fn new_network_manager_with_logger(
+pub fn new_network_manager_with_all(
     max_retries: isize,
     base_delay_ms: u64,
     max_delay_ms: u64,
     connect_timeout_ms: u64,
     backoff: f64,
     jitter: f64,
+    on_error: Option<OnErrorHandler>,
     logger: Option<Arc<dyn Logger>>,
 ) -> Arc<NetworkManager> {
-    Arc::new(NetworkManager::new_with_logger(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, logger))
+    Arc::new(NetworkManager::new_with_all(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error, logger))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_connect_non_blocking_returns_immediately() {
+        let nm = new_network_manager(5, 100, 1000, 500, 2.0, 0.0);
+        let start = std::time::Instant::now();
+        let _mc = nm.connect_non_blocking("127.0.0.1".to_string(), "9999".to_string());
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_millis() < 100, "connect_non_blocking took too long: {:?}", elapsed);
+    }
+
+    #[tokio::test]
+    async fn test_on_error_unified_hook() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let retry_count = Arc::new(AtomicUsize::new(0));
+        let last_attempt = Arc::new(AtomicUsize::new(0));
+        
+        let rc_clone = retry_count.clone();
+        let la_clone = last_attempt.clone();
+        
+        let on_error = Arc::new(move |attempt, _err: &(dyn std::error::Error + Send + Sync), _src: &str, _msg: &str| {
+            rc_clone.fetch_add(1, Ordering::SeqCst);
+            la_clone.store(attempt as usize, Ordering::SeqCst);
+        });
+        
+        let nm = new_network_manager_with_all(
+            2, 10, 100, 50, 1.0, 0.0, 
+            Some(on_error), None
+        );
+        
+        // This will fail (port 9999)
+        let _result = nm.clone().connect_with_retry("127.0.0.1".to_string(), "9999".to_string()).await;
+        
+        assert_eq!(retry_count.load(Ordering::SeqCst), 2);
+        assert_eq!(last_attempt.load(Ordering::SeqCst), 2);
+    }
 }

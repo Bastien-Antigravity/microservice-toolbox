@@ -42,7 +42,7 @@ impl Logger for UniLogger {
     fn critical(&self, msg: &str) { self.inner.critical(msg); }
 }
 
-/// Ensures a valid logger is returned, falling back to Arc<DefaultLogger> if None.
+/// Ensures a valid logger is returned, falling back to `Arc<DefaultLogger>` if None.
 pub fn ensure_safe_logger(logger: Option<Arc<dyn Logger>>) -> Arc<dyn Logger> {
     logger.unwrap_or_else(|| Arc::new(DefaultLogger))
 }

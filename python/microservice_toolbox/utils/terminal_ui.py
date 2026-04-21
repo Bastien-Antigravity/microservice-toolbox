@@ -1,12 +1,14 @@
 import datetime
+
 from .helpers import get_hostname
+
 
 def print_internal_log(level, module, filename, line, message):
     """Formats and prints an internal toolbox log message"""
     # Precision timestamp in ISO 8601 format
     timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "000Z"
     hostname = get_hostname()
-    
+
     # Colorize level
     colors = {
         "DEBUG": "\033[36m",

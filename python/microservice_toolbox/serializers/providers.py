@@ -1,7 +1,10 @@
 import json
+from typing import Any, Type
+
 import msgpack
-from typing import Any, Type, TypeVar
+
 from .serializer import ISerializer, T
+
 
 class JSONSerializer(ISerializer):
     """

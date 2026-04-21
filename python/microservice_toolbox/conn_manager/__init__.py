@@ -1,16 +1,16 @@
-from .manager import NetworkManager, NewNetworkManager
 from .connection import ManagedConnection
 from .errors import (
     ConnectionManagerError,
     ConnectionRefusedError,
     MaxRetriesReachedError,
     NoConnectionError,
-    WriteFailedError
+    WriteFailedError,
 )
+from .manager import NetworkManager, new_network_manager
 
 __all__ = [
     'NetworkManager',
-    'NewNetworkManager',
+    'new_network_manager',
     'ManagedConnection',
     'ConnectionManagerError',
     'ConnectionRefusedError',

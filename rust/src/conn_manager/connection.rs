@@ -7,6 +7,10 @@ use crate::conn_manager::manager::NetworkManager;
 use crate::conn_manager::errors::Error;
 
 #[derive(Clone)]
+/// ManagedConnection wraps an asynchronous TCP stream and handles automated recovery.
+/// 
+/// It provides a 'self-healing' interface that automatically triggers 
+/// background reconnections if a network failure is detected during use.
 pub struct ManagedConnection {
     pub ip: String,
     pub port: String,
@@ -62,6 +66,7 @@ impl ManagedConnection {
 
     pub async fn reconnect(&self) -> Result<(), Error> {
         let mut delay = self.nm.base_delay;
+        let mut i = 0;
 
         loop {
             match self.nm.establish_connection(&self.ip, &self.port).await {
@@ -73,11 +78,12 @@ impl ManagedConnection {
                 }
                 Err(e) => {
                     if let Some(ref handler) = self.nm.on_error.0 {
-                        handler("NetworkManager", "ManagedConnection.reconnect", &e, &format!("Failed to recover connection to {}:{}", self.ip, self.port));
+                        handler(i + 1, &e, "NetworkManager", &format!("Failed to recover connection to {}:{}", self.ip, self.port));
                     }
                     
                     sleep(delay).await;
                     delay = std::cmp::min(delay * 2, self.nm.max_delay);
+                    i += 1;
                     if delay > self.nm.max_delay {
                         delay = self.nm.max_delay;
                     }

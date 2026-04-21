@@ -1,6 +1,7 @@
 import os
 import socket
 
+
 class Resolver:
     """
     Resolver handles environment-aware network address translation.
@@ -12,12 +13,17 @@ class Resolver:
     def resolve_bind_addr(self, requested_ip: str) -> str:
         """
         Resolves the requested IP into an actual address to bind to.
-        If in Docker, it ignores loopback requests and finds the container's primary IP.
+
+        Docker Connectivity Logic:
+        If running in a Docker container and a loopback address (127.0.0.1) is 
+        provided, this method translates it to the container's internal 
+        primary interface IP. This ensures that the service is actually 
+        reachable by other containers in the same network/fleet.
         """
         requested_ip = requested_ip.strip('"')
 
         # If not in Docker, or if the IP isn't a loopback placeholder, use it directly.
-        if not self.is_docker or not self._is_loopback(requested_ip):
+        if not self.is_docker or not self.is_loopback(requested_ip):
             return requested_ip
 
         # In Docker, we need the internal container IP (e.g., eth0) for other containers to reach us.
@@ -27,7 +33,7 @@ class Resolver:
             # Fallback or re-raise depending on criticality. Matching Go's error handling.
             raise RuntimeError(f"failed to resolve container IP for bind: {e}")
 
-    def _is_loopback(self, ip: str) -> bool:
+    def is_loopback(self, ip: str) -> bool:
         """
         Checks if the IP is a loopback address.
         """

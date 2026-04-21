@@ -32,6 +32,12 @@ pub struct RawArgs {
 }
 
 #[derive(Debug, Default)]
+/// ToolboxArgs provides a standardized CLI interface for microservices.
+/// 
+/// Security & Reliability (Docker Guard):
+/// If DOCKER_ENV=true, settings for host, port, grpc_host, and grpc_port 
+/// are strictly IGNORED. This prevents brittle hardcoded overrides from breaking 
+/// internal network-aware resolution in dynamic container environments.
 pub struct ToolboxArgs {
     pub name: Option<String>,
     pub host: Option<String>,
@@ -50,7 +56,7 @@ impl ToolboxArgs {
 
         // Docker Guard
         let is_docker = Path::new("/.dockerenv").exists()
-            || std::env::var("DOCKER_ENV").map_or(false, |v| v == "true");
+            || std::env::var("DOCKER_ENV").is_ok_and(|v| v == "true");
 
         result.name = raw.name;
         result.conf = raw.conf;
