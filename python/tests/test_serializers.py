@@ -1,11 +1,13 @@
 import pytest
-from microservice_toolbox.serializers.providers import new_json_serializer, new_bin_serializer
+
+from microservice_toolbox.serializers.providers import new_bin_serializer, new_json_serializer
+
 
 class DataForTest:
     def __init__(self, name, value):
         self.name = name
         self.value = value
-    
+
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
 

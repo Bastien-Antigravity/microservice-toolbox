@@ -11,8 +11,8 @@ def parse_cli_args(specific_args=None, input_args=None):
     Standard: --name, --host, --port, --grpc_host, --grpc_port, --conf, --log_level
 
     Security & Reliability (Docker Guard):
-    If DOCKER_ENV=true, settings for --host, --port, --grpc_host, and --grpc_port 
-    are strictly IGNORED. This prevents brittle hardcoded overrides from breaking 
+    If DOCKER_ENV=true, settings for --host, --port, --grpc_host, and --grpc_port
+    are strictly IGNORED. This prevents brittle hardcoded overrides from breaking
     internal network-aware resolution in dynamic container environments.
     """
     parser = argparseArgumentParser(description="Microservice Toolbox CLI Parser")

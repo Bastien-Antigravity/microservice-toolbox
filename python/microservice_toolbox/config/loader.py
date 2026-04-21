@@ -10,7 +10,7 @@ from .args import parse_cli_args
 def load_config(profile: str, specific_flags: Optional[list] = None, input_args: Optional[list] = None) -> 'AppConfig':
     """
     Initializes a configuration loader following the Microservice Toolbox 'Hierarchy of Truth'.
-    
+
     Priority levels (highest to lowest):
     1. CLI Overrides (e.g., --host, --port)
     2. Context-Aware File Overrides (Dev Mode Hard Overrides)
@@ -19,17 +19,25 @@ def load_config(profile: str, specific_flags: Optional[list] = None, input_args:
     """
     return AppConfig(profile, specific_flags, input_args=input_args)
 
-def load_config_with_logger(profile: str, logger: Optional[ILogger], specific_flags: Optional[list] = None) -> 'AppConfig':
+def load_config_with_logger(
+    profile: str, logger: Optional[ILogger], specific_flags: Optional[list] = None
+) -> 'AppConfig':
     """Semantic helper to match Go LoadConfigWithLogger()."""
     return AppConfig(profile, specific_flags, logger=logger)
 
 class AppConfig:
     """
     AppConfig wraps configuration data and provides layered resolution logic.
-    It ensures that service settings remain consistent whether running in 
+    It ensures that service settings remain consistent whether running in
     standalone development mode or across a containerized production fleet.
     """
-    def __init__(self, profile: str, specific_flags: Optional[list] = None, logger: Optional[ILogger] = None, input_args: Optional[list] = None):
+    def __init__(
+        self,
+        profile: str,
+        specific_flags: Optional[list] = None,
+        logger: Optional[ILogger] = None,
+        input_args: Optional[list] = None
+    ):
         self.profile = profile
         self.data = {}
         self.logger = ensure_safe_logger(logger)
@@ -45,7 +53,7 @@ class AppConfig:
 
         # ---------------------------------------------------------------------
         # PHASE 2: Apply context-aware overrides
-        # In standalone/test modes, we ensure the local file is authoritative 
+        # In standalone/test modes, we ensure the local file is authoritative
         # over any previous merges (matching Go behavior).
         # ---------------------------------------------------------------------
         is_dev = profile in ["standalone", "test"]

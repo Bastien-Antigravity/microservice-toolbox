@@ -1,14 +1,17 @@
 import os
+
 import pytest
 import yaml
-from microservice_toolbox.config.loader import load_config, AppConfig
+
+from microservice_toolbox.config.loader import AppConfig, load_config
+
 
 def test_app_config_deep_merge():
     dst = {"a": 1, "b": {"c": 2}}
     src = {"b": {"d": 3}, "e": 4}
-    
+
     AppConfig.deep_merge(dst, src)
-    
+
     assert dst["a"] == 1
     assert dst["e"] == 4
     assert dst["b"]["c"] == 2
@@ -28,16 +31,16 @@ def test_app_config_loading(tmp_path):
     }
     with open(config_file, "w") as f:
         yaml.dump(config_data, f)
-    
+
     # Change CWD to tmp_path so load_config finds the file
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
-    
+
     try:
         ac = load_config("test-profile", input_args=[])
         assert ac.profile == "test-profile"
         assert ac.get_listen_addr("test-service") == "1.2.3.4:8080"
-        
+
         # Test gRPC fallback
         assert ac.get_grpc_listen_addr("test-service") == "1.2.3.4:8081"
     finally:

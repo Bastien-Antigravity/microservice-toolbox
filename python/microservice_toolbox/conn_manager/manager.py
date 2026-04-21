@@ -36,7 +36,7 @@ class NetworkManager:
         logger: Optional[ILogger] = None
     ):
         """
-        :param on_error: Optional callback func(attempt, err, source, msg). 
+        :param on_error: Optional callback func(attempt, err, source, msg).
                          Triggers on every failure, including background recoveries.
         """
         self.max_retries = max_retries

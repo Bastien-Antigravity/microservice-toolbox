@@ -1,3 +1,3 @@
-from .resolver import new_resolver, Resolver
+from .resolver import Resolver, new_resolver
 
-__all__ = ['Resolver', 'NewResolver']
+__all__ = ['Resolver', 'new_resolver']
