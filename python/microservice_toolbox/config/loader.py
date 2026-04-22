@@ -16,28 +16,35 @@ KEY PARAMETERS:
 """
 
 from os.path import exists as osPathExists
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 
 from ..utils.logger import ILogger, ensure_safe_logger
 from .args import parse_cli_args
 
-#-----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
 
-def load_config(profile: str, specific_flags: Optional[List[str]] = None, input_args: Optional[List[str]] = None) -> 'AppConfig':
+
+def load_config(
+    profile: str, specific_flags: Optional[List[str]] = None, input_args: Optional[List[str]] = None
+) -> "AppConfig":
     """Semantic helper to match Go LoadConfig()."""
     return AppConfig(profile, specific_flags, input_args=input_args)
 
-#-----------------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------------
+
 
 def load_config_with_logger(
     profile: str, logger: Optional[ILogger], specific_flags: Optional[List[str]] = None
-) -> 'AppConfig':
+) -> "AppConfig":
     """Semantic helper to match Go LoadConfigWithLogger()."""
     return AppConfig(profile, specific_flags, logger=logger)
 
-#-----------------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------------
+
 
 class AppConfig:
     """
@@ -45,16 +52,17 @@ class AppConfig:
     It ensures that service settings remain consistent whether running in
     standalone development mode or across a containerized production fleet.
     """
+
     Name = "AppConfig"
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def __init__(
         self,
         profile: str,
         specific_flags: Optional[List[str]] = None,
         logger: Optional[ILogger] = None,
-        input_args: Optional[List[str]] = None
+        input_args: Optional[List[str]] = None,
     ):
         self.profile = profile
         self.data: Dict[str, Any] = {}
@@ -86,50 +94,50 @@ class AppConfig:
         # ---------------------------------------------------------------------
         self._apply_cli_overrides()
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def _load_from_file(self, filename: str) -> None:
         """Full merge of all file data into self.data"""
-        with open(filename, 'r') as f:
+        with open(filename, "r") as f:
             file_data = yaml.safe_load(f)
             if file_data:
                 self.deep_merge(self.data, file_data)
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def _apply_file_override(self, filename: str) -> None:
         """Re-reads file and merges ONLY capabilities as hard override (matches Go applyFileOverride)"""
-        with open(filename, 'r') as f:
+        with open(filename, "r") as f:
             file_data = yaml.safe_load(f)
-            if file_data and 'capabilities' in file_data:
-                self.data['capabilities'] = self.data.get('capabilities', {})
-                self.deep_merge(self.data['capabilities'], file_data['capabilities'])
+            if file_data and "capabilities" in file_data:
+                self.data["capabilities"] = self.data.get("capabilities", {})
+                self.deep_merge(self.data["capabilities"], file_data["capabilities"])
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def _apply_cli_overrides(self) -> None:
         if self.cli_args.name:
-            self.data['common'] = self.data.get('common', {})
-            self.data['common']['name'] = self.cli_args.name
+            self.data["common"] = self.data.get("common", {})
+            self.data["common"]["name"] = self.cli_args.name
 
         # If network flags provided and not blocked by Docker Guard
         if any([self.cli_args.host, self.cli_args.port, self.cli_args.grpc_host, self.cli_args.grpc_port]):
-            target = self.cli_args.name or self.data.get('common', {}).get('name') or "config_server"
-            self.data['capabilities'] = self.data.get('capabilities', {})
-            cap = self.data['capabilities'].get(target, {})
+            target = self.cli_args.name or self.data.get("common", {}).get("name") or "config_server"
+            self.data["capabilities"] = self.data.get("capabilities", {})
+            cap = self.data["capabilities"].get(target, {})
 
             if self.cli_args.host:
-                cap['ip'] = self.cli_args.host
+                cap["ip"] = self.cli_args.host
             if self.cli_args.port:
-                cap['port'] = str(self.cli_args.port)
+                cap["port"] = str(self.cli_args.port)
             if self.cli_args.grpc_host:
-                cap['grpc_ip'] = self.cli_args.grpc_host
+                cap["grpc_ip"] = self.cli_args.grpc_host
             if self.cli_args.grpc_port:
-                cap['grpc_port'] = str(self.cli_args.grpc_port)
+                cap["grpc_port"] = str(self.cli_args.grpc_port)
 
-            self.data['capabilities'][target] = cap
+            self.data["capabilities"][target] = cap
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     @staticmethod
     def deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
@@ -139,30 +147,30 @@ class AppConfig:
             else:
                 dst[key] = value
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def get_listen_addr(self, capability: str) -> str:
-        return self._get_addr(capability, 'ip', 'port')
+        return self._get_addr(capability, "ip", "port")
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def get_grpc_listen_addr(self, capability: str) -> str:
-        caps = self.data.get('capabilities', {})
+        caps = self.data.get("capabilities", {})
         cap = caps.get(capability)
 
         if not cap:
             raise ValueError(f"capability {capability} not found for gRPC fallback")
 
         # 1. Try explicit grpc config
-        grpc_ip = cap.get('grpc_ip')
-        grpc_port = cap.get('grpc_port')
+        grpc_ip = cap.get("grpc_ip")
+        grpc_port = cap.get("grpc_port")
 
         if grpc_ip and grpc_port:
             return f"{grpc_ip}:{grpc_port}"
 
         # 2. Fallback to convention: ip:port+1 (matching Go implementation)
-        ip = cap.get('ip', '0.0.0.0')
-        port_str = cap.get('port', '8080')
+        ip = cap.get("ip", "0.0.0.0")
+        port_str = cap.get("port", "8080")
         try:
             port = int(port_str)
         except (ValueError, TypeError):
@@ -170,15 +178,15 @@ class AppConfig:
 
         return f"{ip}:{port + 1}"
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def _get_addr(self, capability: str, host_key: str, port_key: str) -> str:
-        caps = self.data.get('capabilities', {})
+        caps = self.data.get("capabilities", {})
         cap = caps.get(capability)
         if not cap:
             raise ValueError(f"capability {capability} not found")
 
-        host = cap.get(host_key, '0.0.0.0')
+        host = cap.get(host_key, "0.0.0.0")
         port = cap.get(port_key)
         if not port:
             raise ValueError(f"port key {port_key} missing or empty in capability {capability}")

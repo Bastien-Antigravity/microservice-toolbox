@@ -20,7 +20,7 @@ KEY PARAMETERS:
 from math import pow as mathPow
 from random import uniform as randomUniform
 from time import sleep as timeSleep
-from typing import Callable, Optional, Any
+from typing import Any, Callable, Optional
 
 try:
     from safesocket import safesocket
@@ -34,15 +34,17 @@ from .errors import MaxRetriesReachedError
 
 OnErrorHandler = Callable[[int, Exception, str, str], None]
 
-#-----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
 
 class NetworkManager:
     """
     NetworkManager handles reliable connection establishment with retries.
     """
+
     Name = "NetworkManager"
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def __init__(
         self,
@@ -53,7 +55,7 @@ class NetworkManager:
         backoff: float = 2.0,
         jitter: float = 0.0,
         on_error: Optional[OnErrorHandler] = None,
-        logger: Optional[ILogger] = None
+        logger: Optional[ILogger] = None,
     ):
         self.max_retries = max_retries
         self.base_delay = base_delay_ms / 1000.0
@@ -64,7 +66,7 @@ class NetworkManager:
         self.on_error = on_error
         self.logger = ensure_safe_logger(logger)
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def establish_connection(self, ip: str, port: str, public_ip: str, profile: str) -> Any:
         """
@@ -80,7 +82,7 @@ class NetworkManager:
         # In Python safesocket.create returns a SafeSocket object
         return safesocket.create(profile, address, public_ip, "client", True)
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def connect_with_retry(self, ip: str, port: str, public_ip: str, profile: str) -> ManagedConnection:
         """
@@ -114,14 +116,17 @@ class NetworkManager:
                 if self.jitter > 0:
                     delay += randomUniform(0, self.jitter * delay)
 
-                self.logger.info("{0} : Initial connection to {1} failed: {2}. Retrying in {3:.2f}s...".format(
-                    self.Name, address, e, delay))
+                self.logger.info(
+                    "{0} : Initial connection to {1} failed: {2}. Retrying in {3:.2f}s...".format(
+                        self.Name, address, e, delay
+                    )
+                )
                 timeSleep(delay)
                 i += 1
 
         raise MaxRetriesReachedError(f"{address} after {self.max_retries} attempts (last error: {last_err})")
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def connect_blocking(self, ip: str, port: str, public_ip: str, profile: str) -> ManagedConnection:
         """
@@ -137,13 +142,14 @@ class NetworkManager:
 
         return mc
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def connect_non_blocking(self, ip: str, port: str, public_ip: str, profile: str) -> ManagedConnection:
         """
         Immediately returns a ManagedConnection and attempts to connect in the background.
         """
         import threading
+
         mc = ManagedConnection(ip, port, public_ip, profile, self)
 
         def run_reconnect():
@@ -151,15 +157,16 @@ class NetworkManager:
                 mc.reconnect()
             except Exception as e:
                 if self.on_error:
-                    self.on_error(1, e, "NetworkManager",
-                                  f"Failed to connect to {ip}:{port} in background")
+                    self.on_error(1, e, "NetworkManager", f"Failed to connect to {ip}:{port} in background")
 
         thread = threading.Thread(target=run_reconnect, daemon=True)
         thread.start()
 
         return mc
 
-#-----------------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------------
+
 
 def new_network_manager(
     max_retries: int = 5,
@@ -168,13 +175,14 @@ def new_network_manager(
     connect_timeout_ms: int = 2000,
     backoff: float = 2.0,
     jitter: float = 0.0,
-    on_error: Optional[OnErrorHandler] = None
+    on_error: Optional[OnErrorHandler] = None,
 ) -> NetworkManager:
     """Semantic helper to match Go NewNetworkManager()."""
-    return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms,
-                          backoff, jitter, on_error)
+    return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error)
 
-#-----------------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------------
+
 
 def new_network_manager_with_logger(
     max_retries: int = 5,
@@ -184,8 +192,9 @@ def new_network_manager_with_logger(
     backoff: float = 2.0,
     jitter: float = 0.0,
     on_error: Optional[OnErrorHandler] = None,
-    logger: Optional[ILogger] = None
+    logger: Optional[ILogger] = None,
 ) -> NetworkManager:
     """Semantic helper to match Go NewNetworkManagerWithLogger()."""
-    return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms,
-                          backoff, jitter, on_error, logger)
+    return NetworkManager(
+        max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error, logger
+    )

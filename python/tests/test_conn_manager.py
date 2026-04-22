@@ -18,6 +18,7 @@ def test_network_manager_connect_blocking():
     assert mc.current_conn == mock_conn
     assert nm.establish_connection.called
 
+
 def test_network_manager_retry_logic():
     nm = new_network_manager(max_retries=2, base_delay_ms=10)
 
@@ -30,11 +31,13 @@ def test_network_manager_retry_logic():
     assert mc.current_conn == mock_conn
     assert nm.establish_connection.call_count == 3
 
+
 def test_network_manager_connect_non_blocking():
     nm = new_network_manager(max_retries=1, base_delay_ms=10)
 
     # Mock establish_connection with a delay
     mock_conn = MagicMock()
+
     def slow_connect(*args, **kwargs):
         time.sleep(0.1)
         return mock_conn
@@ -49,6 +52,7 @@ def test_network_manager_connect_non_blocking():
     # Wait for background thread
     time.sleep(0.2)
     assert mc.current_conn == mock_conn
+
 
 def test_managed_connection_write_failure_retry():
     nm = new_network_manager(max_retries=1, base_delay_ms=10)
@@ -68,6 +72,7 @@ def test_managed_connection_write_failure_retry():
     assert bytes_sent == 10
     assert nm.establish_connection.call_count == 2
     assert mock_conn_1.close.called
+
 
 def test_on_error_unified_hook():
     attempts = []

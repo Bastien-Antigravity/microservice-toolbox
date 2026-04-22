@@ -14,25 +14,31 @@ KEY PARAMETERS:
 - requested_ip: The IP address provided by configuration or user.
 """
 
-from os.path import exists as osPathExists
 from os import getenv as osGetenv
-from socket import socket as socketSocket, AF_INET as socketAF_INET, SOCK_DGRAM as socketSOCK_DGRAM, gethostbyname as socketGetHostByName, gethostname as socketGetHostName
+from os.path import exists as osPathExists
+from socket import AF_INET as socketAF_INET
+from socket import SOCK_DGRAM as socketSOCK_DGRAM
+from socket import gethostbyname as socketGetHostByName
+from socket import gethostname as socketGetHostName
+from socket import socket as socketSocket
 
-#-----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
 
 class Resolver:
     """
     Resolver handles environment-aware network address translation.
     """
+
     Name = "Resolver"
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def __init__(self):
         # Detect Docker environment
-        self.is_docker = osPathExists('/.dockerenv') or osGetenv('DOCKER_ENV') == 'true'
+        self.is_docker = osPathExists("/.dockerenv") or osGetenv("DOCKER_ENV") == "true"
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def resolve_bind_addr(self, requested_ip: str) -> str:
         """
@@ -51,15 +57,15 @@ class Resolver:
             # Fallback or re-raise depending on criticality. Matching Go's error handling.
             raise RuntimeError("{0} : failed to resolve container IP for bind: {1}".format(self.Name, e))
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def is_loopback(self, ip: str) -> bool:
         """
         Checks if the IP is a loopback address.
         """
-        return ip.startswith('127.') or ip == '::1' or ip.lower() == 'localhost'
+        return ip.startswith("127.") or ip == "::1" or ip.lower() == "localhost"
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def _get_primary_interface_ip(self) -> str:
         """
@@ -68,7 +74,7 @@ class Resolver:
         s = socketSocket(socketAF_INET, socketSOCK_DGRAM)
         try:
             # doesn't even have to be reachable
-            s.connect(('10.255.255.255', 1))
+            s.connect(("10.255.255.255", 1))
             ip = s.getsockname()[0]
             if ip and not self.is_loopback(ip):
                 return ip
@@ -83,7 +89,9 @@ class Resolver:
         except Exception:
             raise RuntimeError("{0} : no primary network interface found".format(self.Name))
 
-#-----------------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------------
+
 
 def new_resolver() -> Resolver:
     """Factory method for Resolver."""

@@ -3,7 +3,8 @@ from collections import namedtuple
 from os import environ as osEnviron
 from os.path import exists as osPathExists
 
-CLIArgs = namedtuple('CLIArgs', ['name', 'host', 'port', 'grpc_host', 'grpc_port', 'conf', 'log_level', 'extras'])
+CLIArgs = namedtuple("CLIArgs", ["name", "host", "port", "grpc_host", "grpc_port", "conf", "log_level", "extras"])
+
 
 def parse_cli_args(specific_args=None, input_args=None):
     """
@@ -46,11 +47,13 @@ def parse_cli_args(specific_args=None, input_args=None):
     log_level = args.log_level
 
     # Docker Guard for network flags
-    is_docker = osPathExists('/.dockerenv') or osEnviron.get('DOCKER_ENV') == 'true'
+    is_docker = osPathExists("/.dockerenv") or osEnviron.get("DOCKER_ENV") == "true"
     if is_docker:
         if args.host or args.port or args.grpc_host or args.grpc_port:
-            print("Toolbox (Python): Running in Docker. "
-                  "Ignoring CLI network overrides to preserve network-aware resolution.")
+            print(
+                "Toolbox (Python): Running in Docker. "
+                "Ignoring CLI network overrides to preserve network-aware resolution."
+            )
         host = None
         port = None
         grpc_host = None
@@ -69,5 +72,5 @@ def parse_cli_args(specific_args=None, input_args=None):
         grpc_port=grpc_port,
         conf=conf,
         log_level=log_level,
-        extras=extras
+        extras=extras,
     )

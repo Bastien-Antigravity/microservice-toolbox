@@ -18,17 +18,19 @@ KEY PARAMETERS:
 from abc import ABC, abstractmethod
 from typing import Any, Type, TypeVar
 
-T = TypeVar('T')
+T = TypeVar("T")
 
-#-----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
 
 class ISerializer(ABC):
     """
     ISerializer manages transforming generic objects to bytes and vice-versa.
     """
+
     Name = "ISerializer"
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     @abstractmethod
     def marshal(self, data: Any) -> bytes:
@@ -37,7 +39,7 @@ class ISerializer(ABC):
         """
         pass
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     @abstractmethod
     def unmarshal(self, data: bytes, cls: Type[T]) -> T:

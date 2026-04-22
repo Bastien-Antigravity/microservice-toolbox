@@ -11,6 +11,7 @@ class DataForTest:
     def __eq__(self, other):
         return self.__dict__ == other.__dict__
 
+
 def test_serializers_roundtrip():
     # Note: MsgPack unmarshals into dicts by default in the BinSerializer implementation
     data = {"name": "Toolbox", "value": 42}
@@ -28,10 +29,12 @@ def test_serializers_roundtrip():
         decoded = s.unmarshal(encoded, dict)
         assert decoded == data
 
+
 def test_json_serializer_error():
     json_s = new_json_serializer()
     with pytest.raises(ValueError, match="json unmarshal error"):
         json_s.unmarshal(b"invalid json", dict)
+
 
 def test_bin_serializer_error():
     bin_s = new_bin_serializer()

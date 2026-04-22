@@ -17,11 +17,11 @@ KEY PARAMETERS:
 """
 
 from datetime import datetime as datetimeDateTime
-from typing import Any
 
 from .helpers import get_hostname
 
-#-----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
 
 def print_internal_log(level: str, module: str, filename: str, line: str, message: str) -> None:
     """Formats and prints an internal toolbox log message"""
@@ -54,7 +54,9 @@ def print_internal_log(level: str, module: str, filename: str, line: str, messag
         f"{message}"
     )
 
-#-----------------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------------
+
 
 def truncate(s: str, max_len: int) -> str:
     """Helper to truncate strings to a maximum length."""

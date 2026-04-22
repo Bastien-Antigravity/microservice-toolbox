@@ -15,7 +15,8 @@ None
 from functools import lru_cache as functoolsLruCache
 from socket import gethostname as socketGetHostName
 
-#-----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
 
 @functoolsLruCache(maxsize=1)
 def get_hostname() -> str:

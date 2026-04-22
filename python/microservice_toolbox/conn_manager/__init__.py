@@ -9,12 +9,12 @@ from .errors import (
 from .manager import NetworkManager, new_network_manager
 
 __all__ = [
-    'NetworkManager',
-    'new_network_manager',
-    'ManagedConnection',
-    'ConnectionManagerError',
-    'ConnectionRefusedError',
-    'MaxRetriesReachedError',
-    'NoConnectionError',
-    'WriteFailedError'
+    "NetworkManager",
+    "new_network_manager",
+    "ManagedConnection",
+    "ConnectionManagerError",
+    "ConnectionRefusedError",
+    "MaxRetriesReachedError",
+    "NoConnectionError",
+    "WriteFailedError",
 ]

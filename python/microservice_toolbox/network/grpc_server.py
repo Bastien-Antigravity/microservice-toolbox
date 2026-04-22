@@ -8,6 +8,7 @@ class GRPCServer:
     Standardized gRPC server wrapper for the microservice-toolbox.
     Provides basic start/stop functionality with consistent logging.
     """
+
     def __init__(self, addr, max_workers=10):
         self.addr = addr
         self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))

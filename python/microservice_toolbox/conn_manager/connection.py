@@ -17,22 +17,24 @@ KEY PARAMETERS:
 
 from threading import Lock as threadingLock
 from time import sleep as timeSleep
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .errors import WriteFailedError
 
 if TYPE_CHECKING:
     from .manager import NetworkManager
 
-#-----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
 
 class ManagedConnection:
     """
     ManagedConnection wraps a connection and handles automatic reconnection.
     """
+
     Name = "ManagedConnection"
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def __init__(self, ip: str, port: str, public_ip: str, profile: str, nm: "NetworkManager"):
         self.ip = ip
@@ -44,7 +46,7 @@ class ManagedConnection:
         self._reconnecting = False
         self._lock = threadingLock()
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def write(self, data: bytes) -> Any:
         """
@@ -83,7 +85,7 @@ class ManagedConnection:
                     raise WriteFailedError("reconnection succeeded but current_conn is still None")
                 return self.current_conn.send(data)
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def close(self) -> None:
         """
@@ -96,7 +98,7 @@ class ManagedConnection:
                 finally:
                     self.current_conn = None
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def reconnect(self) -> None:
         """
@@ -131,8 +133,9 @@ class ManagedConnection:
             except Exception as e:
                 # Report failure to the optional hook
                 if self.nm.on_error:
-                    self.nm.on_error(i + 1, e, "NetworkManager",
-                                     f"Failed to recover connection to {self.ip}:{self.port}")
+                    self.nm.on_error(
+                        i + 1, e, "NetworkManager", f"Failed to recover connection to {self.ip}:{self.port}"
+                    )
 
                 timeSleep(delay)
                 delay *= 2

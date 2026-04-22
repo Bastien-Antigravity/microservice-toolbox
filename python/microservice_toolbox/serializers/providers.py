@@ -14,47 +14,55 @@ KEY PARAMETERS:
 - cls: The target type for deserialization.
 """
 
-from json import dumps as jsonDumps, loads as jsonLoads, JSONDecodeError as jsonJSONDecodeError
+from json import JSONDecodeError as jsonJSONDecodeError
+from json import dumps as jsonDumps
+from json import loads as jsonLoads
 from typing import Any, Type
 
-from msgpack import packb as msgpackPackb, unpackb as msgpackUnpackb
+from msgpack import packb as msgpackPackb
+from msgpack import unpackb as msgpackUnpackb
 
 from .serializer import ISerializer, T
 
-#-----------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
 
 class JSONSerializer(ISerializer):
     """
     JSONSerializer implements Serializer natively over JSON.
     """
+
     Name = "JSONSerializer"
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def marshal(self, data: Any) -> bytes:
         try:
-            return jsonDumps(data).encode('utf-8')
+            return jsonDumps(data).encode("utf-8")
         except (TypeError, ValueError) as e:
             raise ValueError("{0} : json marshal error: {1}".format(self.Name, e))
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def unmarshal(self, data: bytes, cls: Type[T]) -> T:
         try:
-            return jsonLoads(data.decode('utf-8'))
+            return jsonLoads(data.decode("utf-8"))
         except (TypeError, ValueError, jsonJSONDecodeError) as e:
             raise ValueError("{0} : json unmarshal error: {1}".format(self.Name, e))
 
-#-----------------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------------
+
 
 class BinSerializer(ISerializer):
     """
     BinSerializer implements Serializer using Python's msgpack encoding.
     Note: matched with Go's 'BinSerializer' using msgpack.
     """
+
     Name = "BinSerializer"
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def marshal(self, data: Any) -> bytes:
         try:
@@ -62,7 +70,7 @@ class BinSerializer(ISerializer):
         except (TypeError, ValueError, Exception) as e:
             raise ValueError("{0} : msgpack marshal error: {1}".format(self.Name, e))
 
-    #-----------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def unmarshal(self, data: bytes, cls: Type[T]) -> T:
         try:
@@ -70,13 +78,17 @@ class BinSerializer(ISerializer):
         except (TypeError, ValueError, Exception) as e:
             raise ValueError("{0} : msgpack unmarshal error: {1}".format(self.Name, e))
 
-#-----------------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------------
+
 
 def new_json_serializer() -> ISerializer:
     """Factory method for JSON serializer."""
     return JSONSerializer()
 
-#-----------------------------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------------------------
+
 
 def new_bin_serializer() -> ISerializer:
     """Factory method for MessagePack serializer."""

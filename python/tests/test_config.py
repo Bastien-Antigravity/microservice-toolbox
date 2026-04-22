@@ -17,18 +17,11 @@ def test_app_config_deep_merge():
     assert dst["b"]["c"] == 2
     assert dst["b"]["d"] == 3
 
+
 def test_app_config_loading(tmp_path):
     # Create temp config file
     config_file = tmp_path / "test-profile.yaml"
-    config_data = {
-        "common": {"name": "test-app"},
-        "capabilities": {
-            "test-service": {
-                "ip": "1.2.3.4",
-                "port": "8080"
-            }
-        }
-    }
+    config_data = {"common": {"name": "test-app"}, "capabilities": {"test-service": {"ip": "1.2.3.4", "port": "8080"}}}
     with open(config_file, "w") as f:
         yaml.dump(config_data, f)
 
@@ -45,6 +38,7 @@ def test_app_config_loading(tmp_path):
         assert ac.get_grpc_listen_addr("test-service") == "1.2.3.4:8081"
     finally:
         os.chdir(old_cwd)
+
 
 def test_app_config_missing_file():
     with pytest.raises(FileNotFoundError):
