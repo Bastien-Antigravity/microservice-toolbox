@@ -59,6 +59,14 @@ let bytes = ser.marshal(&my_struct)?;
 
 ## Advanced Features
 
+## Architecture & Design Decisions
+
+### Polyglot API Parity
+A core design goal of the `microservice-toolbox` is to provide a near-identical developer experience across Go, Python, and Rust. 
+
+- **Constructor Signatures**: You may notice that `NetworkManager::new_with_all` exceeds the common Rust limit of 7 arguments. This is an intentional choice to maintain 1:1 parity with the Go and Python implementations.
+- **Transparency**: We prioritize explicit configuration and cross-language consistency over the introduction of language-specific configuration objects that would diverge the API surface.
+
 ### Docker Guard
 The Rust implementation automatically detects `/.dockerenv` or the `DOCKER_ENV` environment variable. When active, it ignores manual CLI network overrides to prevent breaking automated inter-service resolution.
 

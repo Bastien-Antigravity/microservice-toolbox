@@ -45,6 +45,11 @@ impl NetworkManager {
         Self::new_with_all(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, None, None)
     }
 
+    // NOTE: This constructor exceeds the Clippy limit of 7 arguments.
+    // We intentionally allow this to maintain 1:1 API parity with the Go and Python 
+    // implementations of the toolbox, ensuring a consistent developer experience 
+    // across the polyglot ecosystem.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_all(
         max_retries: isize,
         base_delay_ms: u64,
@@ -175,6 +180,8 @@ pub fn new_network_manager(
     Arc::new(NetworkManager::new(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter))
 }
 
+// NOTE: Matches NetworkManager::new_with_all argument count for polyglot parity.
+#[allow(clippy::too_many_arguments)]
 pub fn new_network_manager_with_all(
     max_retries: isize,
     base_delay_ms: u64,
