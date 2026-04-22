@@ -11,7 +11,7 @@ run_gen() {
     local lang=$1
     local format=$2
     if [ "$lang" == "go" ]; then
-        cd go && /usr/local/go/bin/go run ../integration/matrix_gen.go "$format" > "../integration/$TEMP_FILE" && cd ..
+        cd go && go run ../integration/matrix_gen.go "$format" > "../integration/$TEMP_FILE" && cd ..
     elif [ "$lang" == "python" ]; then
         PYTHONPATH=python python3 integration/matrix_gen.py "$format" > "integration/$TEMP_FILE"
     elif [ "$lang" == "rust" ]; then
@@ -24,7 +24,7 @@ run_con() {
     local lang=$1
     local format=$2
     if [ "$lang" == "go" ]; then
-        cd go && /usr/local/go/bin/go run ../integration/matrix_con.go "$format" < "../integration/$TEMP_FILE" && cd ..
+        cd go && go run ../integration/matrix_con.go "$format" < "../integration/$TEMP_FILE" && cd ..
     elif [ "$lang" == "python" ]; then
         PYTHONPATH=python python3 integration/matrix_con.py "$format" < "integration/$TEMP_FILE"
     elif [ "$lang" == "rust" ]; then
