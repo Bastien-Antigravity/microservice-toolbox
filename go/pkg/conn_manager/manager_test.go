@@ -25,7 +25,7 @@ func TestConnectNonBlocking(t *testing.T) {
 		t.Error("ConnectNonBlocking returned nil")
 	}
 
-	mc.Close()
+	_ = mc.Close()
 }
 
 func TestOnErrorUnifiedHook(t *testing.T) {

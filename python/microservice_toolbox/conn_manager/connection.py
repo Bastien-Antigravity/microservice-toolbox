@@ -1,21 +1,39 @@
-import threading
-import time
-from typing import TYPE_CHECKING
+#!/usr/bin/env python
+# coding:utf-8
+"""
+ESSENTIAL PROCESS:
+ManagedConnection wraps a connection and handles automatic reconnection.
+Provides a 'self-healing' interface that triggers background recovery upon failure.
+
+DATA FLOW:
+1. Operations (write) check for active connection.
+2. If failure occurs, triggers reconnect loop.
+3. Retries operation once connection is restored.
+
+KEY PARAMETERS:
+- ip/port: Targeted connection endpoint.
+- nm: Parent NetworkManager providing reconnection policies.
+"""
+
+from threading import Lock as threadingLock
+from time import sleep as timeSleep
+from typing import Any, TYPE_CHECKING
 
 from .errors import WriteFailedError
 
 if TYPE_CHECKING:
     from .manager import NetworkManager
 
+#-----------------------------------------------------------------------------------------------
 
 class ManagedConnection:
     """
     ManagedConnection wraps a connection and handles automatic reconnection.
-
-    It provides a 'self-healing' interface: if a write fails, it automatically
-    triggers a background recovery and retries the operation (if applicable).
-    Reconnection logic follows the parent NetworkManager's backoff policy.
     """
+    Name = "ManagedConnection"
+
+    #-----------------------------------------------------------------------------------------------
+
     def __init__(self, ip: str, port: str, public_ip: str, profile: str, nm: "NetworkManager"):
         self.ip = ip
         self.port = port
@@ -24,9 +42,11 @@ class ManagedConnection:
         self.nm = nm
         self.current_conn = None
         self._reconnecting = False
-        self._lock = threading.Lock()
+        self._lock = threadingLock()
 
-    def write(self, data: bytes):
+    #-----------------------------------------------------------------------------------------------
+
+    def write(self, data: bytes) -> Any:
         """
         Writes data to the connection, attempting reconnection if it fails.
         """
@@ -43,7 +63,7 @@ class ManagedConnection:
                 # Assuming safesocket has a 'send' method
                 return self.current_conn.send(data)
             except Exception as e:
-                print(f"ManagedConnection: Write failed ({e}). Reconnecting...")
+                print("{0} : Write failed ({1}). Reconnecting...".format(self.Name, e))
                 try:
                     self.current_conn.close()
                 except Exception:
@@ -63,7 +83,9 @@ class ManagedConnection:
                     raise WriteFailedError("reconnection succeeded but current_conn is still None")
                 return self.current_conn.send(data)
 
-    def close(self):
+    #-----------------------------------------------------------------------------------------------
+
+    def close(self) -> None:
         """
         Closes the underlying connection.
         """
@@ -74,7 +96,9 @@ class ManagedConnection:
                 finally:
                     self.current_conn = None
 
-    def reconnect(self):
+    #-----------------------------------------------------------------------------------------------
+
+    def reconnect(self) -> None:
         """
         Indefinitely attempts to reconnect with exponential backoff.
         """
@@ -83,7 +107,7 @@ class ManagedConnection:
                 # Wait for current reconnection
                 while True:
                     self._lock.release()
-                    time.sleep(0.1)
+                    timeSleep(0.1)
                     self._lock.acquire()
                     if self.current_conn is not None:
                         return
@@ -99,7 +123,7 @@ class ManagedConnection:
         while True:
             try:
                 conn = self.nm.establish_connection(self.ip, self.port, self.public_ip, self.profile)
-                print(f"ManagedConnection: Reconnected to {self.ip}:{self.port}")
+                print("{0} : Reconnected to {1}:{2}".format(self.Name, self.ip, self.port))
                 with self._lock:
                     self.current_conn = conn
                     self._reconnecting = False
@@ -110,7 +134,7 @@ class ManagedConnection:
                     self.nm.on_error(i + 1, e, "NetworkManager",
                                      f"Failed to recover connection to {self.ip}:{self.port}")
 
-                time.sleep(delay)
+                timeSleep(delay)
                 delay *= 2
                 i += 1
                 if delay > self.nm.max_delay:

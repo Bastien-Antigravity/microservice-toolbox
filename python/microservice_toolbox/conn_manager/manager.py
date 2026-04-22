@@ -1,7 +1,26 @@
-import math
-import random
-import time
-from typing import Callable, Optional
+#!/usr/bin/env python
+# coding:utf-8
+
+"""
+ESSENTIAL PROCESS:
+NetworkManager handles reliable connection establishment with retries.
+Implements resilient strategies including backoff, jitter, and unified error reporting.
+
+DATA FLOW:
+1. Attempts to establish connection via EstablishConnection.
+2. If failure occurs, calculates backoff/jitter and retries until max_retries or success.
+3. Provides blocking and non-blocking entry points for connection management.
+
+KEY PARAMETERS:
+- max_retries: Support for infinite retries (-1).
+- base_delay_ms: Initial delay before first retry.
+- jitter: Randomness factor (0.0 to 1.0).
+"""
+
+from math import pow as mathPow
+from random import uniform as randomUniform
+from time import sleep as timeSleep
+from typing import Callable, Optional, Any
 
 try:
     from safesocket import safesocket
@@ -15,15 +34,16 @@ from .errors import MaxRetriesReachedError
 
 OnErrorHandler = Callable[[int, Exception, str, str], None]
 
+#-----------------------------------------------------------------------------------------------
+
 class NetworkManager:
     """
     NetworkManager handles reliable connection establishment with retries.
-
-    It implements a resilient strategy using:
-    - Multiplicative Backoff: Increasing delay between attempts.
-    - Randomized Jitter: Prevents thundering herd issues in large fleets.
-    - Context-Aware Recovery: Unified error reporting via on_error.
     """
+    Name = "NetworkManager"
+
+    #-----------------------------------------------------------------------------------------------
+
     def __init__(
         self,
         max_retries: int = 5,
@@ -35,10 +55,6 @@ class NetworkManager:
         on_error: Optional[OnErrorHandler] = None,
         logger: Optional[ILogger] = None
     ):
-        """
-        :param on_error: Optional callback func(attempt, err, source, msg).
-                         Triggers on every failure, including background recoveries.
-        """
         self.max_retries = max_retries
         self.base_delay = base_delay_ms / 1000.0
         self.max_delay = max_delay_ms / 1000.0
@@ -48,7 +64,9 @@ class NetworkManager:
         self.on_error = on_error
         self.logger = ensure_safe_logger(logger)
 
-    def establish_connection(self, ip: str, port: str, public_ip: str, profile: str):
+    #-----------------------------------------------------------------------------------------------
+
+    def establish_connection(self, ip: str, port: str, public_ip: str, profile: str) -> Any:
         """
         Attempts a single connection to the resolved address.
         """
@@ -61,6 +79,8 @@ class NetworkManager:
 
         # In Python safesocket.create returns a SafeSocket object
         return safesocket.create(profile, address, public_ip, "client", True)
+
+    #-----------------------------------------------------------------------------------------------
 
     def connect_with_retry(self, ip: str, port: str, public_ip: str, profile: str) -> ManagedConnection:
         """
@@ -86,20 +106,22 @@ class NetworkManager:
                     self.on_error(i + 1, e, "NetworkManager", f"Initial connection failure to {address}")
 
                 # Calculate backoff
-                delay = self.base_delay * math.pow(self.backoff, i)
+                delay = self.base_delay * mathPow(self.backoff, i)
                 if delay > self.max_delay:
                     delay = self.max_delay
 
                 # Apply jitter
                 if self.jitter > 0:
-                    delay += random.uniform(0, self.jitter * delay)
+                    delay += randomUniform(0, self.jitter * delay)
 
-                self.logger.info(f"ManagedConnection: Initial connection to {address} failed: {e}. "
-                                 f"Retrying in {delay:.2f}s...")
-                time.sleep(delay)
+                self.logger.info("{0} : Initial connection to {1} failed: {2}. Retrying in {3:.2f}s...".format(
+                    self.Name, address, e, delay))
+                timeSleep(delay)
                 i += 1
 
         raise MaxRetriesReachedError(f"{address} after {self.max_retries} attempts (last error: {last_err})")
+
+    #-----------------------------------------------------------------------------------------------
 
     def connect_blocking(self, ip: str, port: str, public_ip: str, profile: str) -> ManagedConnection:
         """
@@ -114,6 +136,8 @@ class NetworkManager:
                 self.on_error(1, e, "NetworkManager", f"Failed to connect to {ip}:{port}")
 
         return mc
+
+    #-----------------------------------------------------------------------------------------------
 
     def connect_non_blocking(self, ip: str, port: str, public_ip: str, profile: str) -> ManagedConnection:
         """
@@ -135,6 +159,8 @@ class NetworkManager:
 
         return mc
 
+#-----------------------------------------------------------------------------------------------
+
 def new_network_manager(
     max_retries: int = 5,
     base_delay_ms: int = 200,
@@ -144,8 +170,11 @@ def new_network_manager(
     jitter: float = 0.0,
     on_error: Optional[OnErrorHandler] = None
 ) -> NetworkManager:
+    """Semantic helper to match Go NewNetworkManager()."""
     return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms,
                           backoff, jitter, on_error)
+
+#-----------------------------------------------------------------------------------------------
 
 def new_network_manager_with_logger(
     max_retries: int = 5,
@@ -157,5 +186,6 @@ def new_network_manager_with_logger(
     on_error: Optional[OnErrorHandler] = None,
     logger: Optional[ILogger] = None
 ) -> NetworkManager:
+    """Semantic helper to match Go NewNetworkManagerWithLogger()."""
     return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms,
                           backoff, jitter, on_error, logger)

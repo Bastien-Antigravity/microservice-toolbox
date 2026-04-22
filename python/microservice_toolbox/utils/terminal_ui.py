@@ -1,12 +1,32 @@
-import datetime
+#!/usr/bin/env python
+# coding:utf-8
+
+"""
+ESSENTIAL PROCESS:
+Formats and prints internal toolbox log messages to the terminal.
+Ensures consistent visual output with Go/Rust implementations.
+
+DATA FLOW:
+1. Receives log metadata (level, module, filename, line, message).
+2. Generates precision timestamp and retrieves hostname.
+3. Colorizes output and prints in fixed-column format.
+
+KEY PARAMETERS:
+- level: Logging level (DEBUG, INFO, etc.).
+- message: The log content.
+"""
+
+from datetime import datetime as datetimeDateTime
+from typing import Any
 
 from .helpers import get_hostname
 
+#-----------------------------------------------------------------------------------------------
 
-def print_internal_log(level, module, filename, line, message):
+def print_internal_log(level: str, module: str, filename: str, line: str, message: str) -> None:
     """Formats and prints an internal toolbox log message"""
     # Precision timestamp in ISO 8601 format
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "000Z"
+    timestamp = datetimeDateTime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "000Z"
     hostname = get_hostname()
 
     # Colorize level
@@ -34,5 +54,8 @@ def print_internal_log(level, module, filename, line, message):
         f"{message}"
     )
 
-def truncate(s, max_len):
+#-----------------------------------------------------------------------------------------------
+
+def truncate(s: str, max_len: int) -> str:
+    """Helper to truncate strings to a maximum length."""
     return s[:max_len] if len(s) > max_len else s

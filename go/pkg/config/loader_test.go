@@ -20,7 +20,7 @@ capabilities:
 `
 	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer os.Remove("test.yaml")
+	defer func() { _ = os.Remove("test.yaml") }()
 
 	// Load config
 	ac, err := LoadConfig("test", nil)
