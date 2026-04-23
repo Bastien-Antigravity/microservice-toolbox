@@ -79,13 +79,7 @@ func (nm *NetworkManager) EstablishConnection(ip, port, publicIP *string, profil
 // -----------------------------------------------------------------------------
 // ConnectWithRetry attempts to connect and returns a ManagedConnection.
 func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile string) (io.WriteCloser, error) {
-	mc := &ManagedConnection{
-		ip:       ip,
-		port:     port,
-		publicIP: publicIP,
-		profile:  profile,
-		nm:       nm,
-	}
+	mc := NewManagedConnection(nm, ip, port, publicIP, profile)
 
 	// Try initial connection
 	cleanIP := strings.Trim(*ip, "\"")
@@ -126,13 +120,7 @@ func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile s
 // -----------------------------------------------------------------------------
 // ConnectBlocking indefinitely retries connection until successful and returns ManagedConnection.
 func (nm *NetworkManager) ConnectBlocking(ip, port, publicIP *string, profile string) io.WriteCloser {
-	mc := &ManagedConnection{
-		ip:       ip,
-		port:     port,
-		publicIP: publicIP,
-		profile:  profile,
-		nm:       nm,
-	}
+	mc := NewManagedConnection(nm, ip, port, publicIP, profile)
 
 	// Use internal reconnect logic to establish initial connection
 	if err := mc.reconnect(); err != nil {
@@ -145,13 +133,7 @@ func (nm *NetworkManager) ConnectBlocking(ip, port, publicIP *string, profile st
 
 // ConnectNonBlocking immediately returns a ManagedConnection and attempts to connect in the background.
 func (nm *NetworkManager) ConnectNonBlocking(ip, port, publicIP *string, profile string) io.WriteCloser {
-	mc := &ManagedConnection{
-		ip:       ip,
-		port:     port,
-		publicIP: publicIP,
-		profile:  profile,
-		nm:       nm,
-	}
+	mc := NewManagedConnection(nm, ip, port, publicIP, profile)
 
 	// Start reconnection loop in background
 	go func() {
@@ -172,13 +154,7 @@ func (nm *NetworkManager) Connect(ip, port, publicIP *string, profile string, mo
 		mc, err := nm.ConnectWithRetry(ip, port, publicIP, profile)
 		if err != nil {
 			// Return a ManagedConnection that can be used later (reconnect on Write)
-			return &ManagedConnection{
-				ip:       ip,
-				port:     port,
-				publicIP: publicIP,
-				profile:  profile,
-				nm:       nm,
-			}
+			return NewManagedConnection(nm, ip, port, publicIP, profile)
 		}
 		return mc
 	case ModeNonBlocking:

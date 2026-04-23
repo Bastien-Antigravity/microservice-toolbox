@@ -21,6 +21,18 @@ type ManagedConnection struct {
 	mu           sync.Mutex
 }
 
+
+func NewManagedConnection(nm *NetworkManager, ip, port, publicIP *string, profile string) *ManagedConnection {
+	return &ManagedConnection{
+		nm:       nm,
+		ip:       ip,
+		port:     port,
+		publicIP: publicIP,
+		profile:  profile,
+		closing:  make(chan struct{}),
+	}
+}
+
 // -----------------------------------------------------------------------------
 
 func (mc *ManagedConnection) Write(p []byte) (n int, err error) {
@@ -77,9 +89,6 @@ func (mc *ManagedConnection) isClosing() bool {
 
 func (mc *ManagedConnection) Close() error {
 	mc.mu.Lock()
-	if mc.closing == nil {
-		mc.closing = make(chan struct{})
-	}
 	select {
 	case <-mc.closing:
 		// Already closed
