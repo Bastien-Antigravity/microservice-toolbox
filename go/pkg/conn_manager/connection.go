@@ -17,6 +17,7 @@ type ManagedConnection struct {
 	nm           *NetworkManager
 	currentConn  io.WriteCloser
 	reconnecting bool
+	closing      chan struct{}
 	mu           sync.Mutex
 }
 
@@ -58,14 +59,40 @@ func (mc *ManagedConnection) Write(p []byte) (n int, err error) {
 	return n, nil
 }
 
+func (mc *ManagedConnection) isClosing() bool {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+	if mc.closing == nil {
+		return false
+	}
+	select {
+	case <-mc.closing:
+		return true
+	default:
+		return false
+	}
+}
+
 // -----------------------------------------------------------------------------
 
 func (mc *ManagedConnection) Close() error {
 	mc.mu.Lock()
-	defer mc.mu.Unlock()
-	if mc.currentConn != nil {
-		return mc.currentConn.Close()
+	if mc.closing == nil {
+		mc.closing = make(chan struct{})
 	}
+	select {
+	case <-mc.closing:
+		// Already closed
+	default:
+		close(mc.closing)
+	}
+	
+	if mc.currentConn != nil {
+		err := mc.currentConn.Close()
+		mc.mu.Unlock()
+		return err
+	}
+	mc.mu.Unlock()
 	return nil
 }
 
@@ -109,6 +136,14 @@ func (mc *ManagedConnection) reconnect() error {
 	i := 0
 
 	for {
+		// Check if we are closing
+		if mc.isClosing() {
+			mc.mu.Lock()
+			mc.reconnecting = false
+			mc.mu.Unlock()
+			return fmt.Errorf("connection closed")
+		}
+
 		conn, err := mc.nm.EstablishConnection(mc.ip, mc.port, mc.publicIP, mc.profile)
 		if err == nil {
 			mc.mu.Lock()
@@ -120,12 +155,29 @@ func (mc *ManagedConnection) reconnect() error {
 			return nil
 		}
 
+		// Check if we reached max retries (if not infinite)
+		if mc.nm.MaxRetries != -1 && i >= mc.nm.MaxRetries {
+			mc.mu.Lock()
+			mc.reconnecting = false
+			mc.mu.Unlock()
+			return fmt.Errorf("%w: reached max retries %d", ErrMaxRetriesReached, mc.nm.MaxRetries)
+		}
+
 		// Report failure to the optional hook
 		if mc.nm.OnError != nil {
 			mc.nm.OnError(i+1, err, "NetworkManager", fmt.Sprintf("Failed to recover connection to %s:%s", *mc.ip, *mc.port))
 		}
 
-		time.Sleep(delay)
+		// Sleep with cancellation check
+		select {
+		case <-time.After(delay):
+		case <-mc.closing:
+			mc.mu.Lock()
+			mc.reconnecting = false
+			mc.mu.Unlock()
+			return fmt.Errorf("connection closed during retry sleep")
+		}
+
 		delay *= 2
 		i++
 		if delay > mc.nm.MaxDelay {
