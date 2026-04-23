@@ -40,9 +40,12 @@ Standardized serialization interfaces for seamless data exchange:
 ### 5. Reliable Connection Manager (`conn_manager`)
 A robust connection wrapper designed for microservice resilience:
 - **Advanced Retry Strategy**: Supports multiplicative backoff and randomized jitter to prevent "thundering herd" issues.
-- **Infinite Retries**: Option to retry indefinitely (`max_retries = -1`) for critical background services.
+- **Connection Modes**:
+    - `ModeBlocking`: Blocks until initial connection succeeds or retries are exhausted.
+    - `ModeNonBlocking`: Returns immediately and connects in the background (ideal for high-perf apps).
+    - `ModeIndefinite`: Blocks forever until the connection is established (ideal for audit/critical apps).
+- **Strategy Presets**: Standardized configurations for `Critical`, `Standard`, and `Performance` scenarios.
 - **Transparent Reconnection**: Automatically handles reconnections during write failures.
-- **Background Support**: `ConnectNonBlocking` allows establishing connections in the background without stalling the main thread.
 
 ---
 
@@ -54,18 +57,17 @@ Located in `/go`.
 import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/conn_manager"
 import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/serializers"
 
-// 1. Initialize Connection Manager with an OnError hook
-nm := conn_manager.NewNetworkManager(-1, 200, 5000, 2000, 2.0, 0.1)
+// 1. Initialize with a Standard Strategy
+nm := conn_manager.NewStandardStrategy(nil)
 nm.OnError = func(attempt int, err error, source string, msg string) {
-    if attempt == 3 {
-        // Run specific logic after 3 failures
-        fmt.Printf("Critical Error at %s: %s (attempt %d): %v\n", source, msg, attempt, err)
+    if attempt == nm.MaxRetries {
+        fmt.Printf("Final failure after %d attempts: %v\n", attempt, err)
     }
 }
 
-// 2. Use Serializers
-jsonSer := serializers.NewJSONSerializer()
-data, _ := jsonSer.Marshal(myObj)
+// 2. Connect using a specific mode
+conn := nm.Connect(&ip, &port, &publicIP, "my-profile", conn_manager.ModeBlocking)
+defer conn.Close()
 ```
 
 ### Python
@@ -74,12 +76,13 @@ Located in `/python`.
 from microservice_toolbox.conn_manager import new_network_manager
 from microservice_toolbox.serializers.providers import JSONSerializer
 
-# 1. Initialize Connection Manager with an on_error callback
-def my_hook(attempt, err, source, msg):
-    if attempt >= 2:
-        print(f"Action required after {attempt} failures. Last error: {err}")
+# 1. Initialize with a Performance Strategy
+from microservice_toolbox.conn_manager import new_performance_strategy, ConnectionMode
 
-nm = new_network_manager(max_retries=10, on_error=my_hook)
+nm = new_performance_strategy()
+
+# 2. Connect in the background
+conn = nm.connect("127.0.0.1", "8080", "1.2.3.4", "test", ConnectionMode.NON_BLOCKING)
 
 # 2. Use Serializers
 serializer = JSONSerializer()
@@ -93,14 +96,12 @@ use microservice_toolbox::conn_manager::manager::new_network_manager_with_all;
 use microservice_toolbox::serializers::providers::{JsonSerializer};
 use std::sync::Arc;
 
-// 1. Initialize Connection Manager with a unified hook
-let on_error = Arc::new(|attempt, err: &(dyn std::error::Error + Send + Sync), _src: &str, _msg: &str| {
-    if attempt == 2 {
-        println!("Failure recovery logic triggered (attempt {}). Error: {:?}", attempt, err);
-    }
-});
+// 1. Initialize with a Critical Strategy
+use microservice_toolbox::conn_manager::manager::{NetworkManager, ConnectionMode};
+let nm = NetworkManager::new_critical(None);
 
-let nm = new_network_manager_with_all(5, 200, 5000, 2000, 2.0, 0.1, Some(on_error), None);
+// 2. Connect indefinitely (blocks until success)
+let conn = nm.connect("127.0.0.1".into(), "8080".into(), ConnectionMode::Indefinite).await;
 
 // 2. Use Serializers
 let ser = JsonSerializer::new(); // returns SerializerEnum
