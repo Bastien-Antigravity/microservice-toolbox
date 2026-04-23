@@ -18,6 +18,18 @@ import (
 // source: the component where the error occurred (e.g. "ManagedConnection.reconnect").
 // msg: a descriptive message providing additional context.
 type OnErrorHandler func(attempt int, err error, source string, msg string)
+ 
+// ConnectionMode defines how the manager handles the initial connection.
+type ConnectionMode int
+ 
+const (
+	// ModeBlocking blocks until connection is successful (or MaxRetries reached).
+	ModeBlocking ConnectionMode = iota
+	// ModeNonBlocking returns immediately and retries in the background.
+	ModeNonBlocking
+	// ModeIndefinite blocks indefinitely until connection is successful.
+	ModeIndefinite
+)
 
 // -----------------------------------------------------------------------------
 // NetworkManager handles reliable connection establishment with retries.
@@ -151,4 +163,49 @@ func (nm *NetworkManager) ConnectNonBlocking(ip, port, publicIP *string, profile
 	}()
 
 	return mc
+}
+// Connect establishes a connection using the specified mode.
+func (nm *NetworkManager) Connect(ip, port, publicIP *string, profile string, mode ConnectionMode) io.WriteCloser {
+	switch mode {
+	case ModeBlocking:
+		mc, err := nm.ConnectWithRetry(ip, port, publicIP, profile)
+		if err != nil {
+			// Return a ManagedConnection that can be used later (reconnect on Write)
+			return &ManagedConnection{
+				ip:       ip,
+				port:     port,
+				publicIP: publicIP,
+				profile:  profile,
+				nm:       nm,
+			}
+		}
+		return mc
+	case ModeNonBlocking:
+		return nm.ConnectNonBlocking(ip, port, publicIP, profile)
+	case ModeIndefinite:
+		return nm.ConnectBlocking(ip, port, publicIP, profile)
+	default:
+		return nm.ConnectBlocking(ip, port, publicIP, profile)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Strategies
+
+// NewCriticalStrategy creates a manager configured for critical services: 
+// Infinite retries, aggressive backoff.
+func NewCriticalStrategy(logger utils.Logger) *NetworkManager {
+	return NewNetworkManagerWithLogger(-1, 200, 10000, 5000, 2.0, 0.2, logger)
+}
+
+// NewStandardStrategy creates a manager for standard services:
+// Limited retries, moderate backoff.
+func NewStandardStrategy(logger utils.Logger) *NetworkManager {
+	return NewNetworkManagerWithLogger(10, 500, 30000, 5000, 1.5, 0.1, logger)
+}
+
+// NewPerformanceStrategy creates a manager for high-performance services:
+// Short timeouts, low delay, background reconnection.
+func NewPerformanceStrategy(logger utils.Logger) *NetworkManager {
+	return NewNetworkManagerWithLogger(-1, 100, 2000, 1000, 1.2, 0.0, logger)
 }

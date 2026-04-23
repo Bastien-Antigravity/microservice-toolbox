@@ -17,6 +17,7 @@ KEY PARAMETERS:
 - jitter: Randomness factor (0.0 to 1.0).
 """
 
+from enum import IntEnum
 from math import pow as mathPow
 from random import uniform as randomUniform
 from time import sleep as timeSleep
@@ -33,6 +34,16 @@ from .connection import ManagedConnection
 from .errors import MaxRetriesReachedError
 
 OnErrorHandler = Callable[[int, Exception, str, str], None]
+ 
+ 
+class ConnectionMode(IntEnum):
+    """
+    Defines how the manager handles the initial connection.
+    """
+ 
+    BLOCKING = 0
+    NON_BLOCKING = 1
+    INDEFINITE = 2
 
 # -----------------------------------------------------------------------------------------------
 
@@ -161,8 +172,28 @@ class NetworkManager:
 
         thread = threading.Thread(target=run_reconnect, daemon=True)
         thread.start()
-
+ 
         return mc
+ 
+    # -----------------------------------------------------------------------------------------------
+ 
+    def connect(self, ip: str, port: str, public_ip: str, profile: str, mode: ConnectionMode) -> ManagedConnection:
+        """
+        Establishes a connection using the specified mode.
+        """
+        if mode == ConnectionMode.BLOCKING:
+            try:
+                return self.connect_with_retry(ip, port, public_ip, profile)
+            except Exception:
+                # To match Go behavior, we return the mc even if it failed?
+                # Actually Go returns mc, _ = connect_with_retry
+                return ManagedConnection(ip, port, public_ip, profile, self)
+        elif mode == ConnectionMode.NON_BLOCKING:
+            return self.connect_non_blocking(ip, port, public_ip, profile)
+        elif mode == ConnectionMode.INDEFINITE:
+            return self.connect_blocking(ip, port, public_ip, profile)
+        else:
+            return self.connect_blocking(ip, port, public_ip, profile)
 
 
 # -----------------------------------------------------------------------------------------------
@@ -198,3 +229,31 @@ def new_network_manager_with_logger(
     return NetworkManager(
         max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error, logger
     )
+ 
+ 
+# -----------------------------------------------------------------------------------------------
+# Strategies
+ 
+ 
+def new_critical_strategy(logger: Optional[ILogger] = None) -> NetworkManager:
+    """
+    Creates a manager configured for critical services:
+    Infinite retries, aggressive backoff.
+    """
+    return new_network_manager_with_logger(-1, 200, 10000, 5000, 2.0, 0.2, None, logger)
+ 
+ 
+def new_standard_strategy(logger: Optional[ILogger] = None) -> NetworkManager:
+    """
+    Creates a manager for standard services:
+    Limited retries, moderate backoff.
+    """
+    return new_network_manager_with_logger(10, 500, 30000, 5000, 1.5, 0.1, None, logger)
+ 
+ 
+def new_performance_strategy(logger: Optional[ILogger] = None) -> NetworkManager:
+    """
+    Creates a manager for high-performance services:
+    Short timeouts, low delay, background reconnection.
+    """
+    return new_network_manager_with_logger(-1, 100, 2000, 1000, 1.2, 0.0, None, logger)

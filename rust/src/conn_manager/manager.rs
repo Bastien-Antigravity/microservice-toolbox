@@ -13,6 +13,17 @@ use crate::utils::logger::{Logger, ensure_safe_logger};
 /// - source: The component where the error occurred.
 /// - msg: A descriptive message providing additional context.
 pub type OnErrorHandler = Arc<dyn Fn(isize, &(dyn std::error::Error + Send + Sync), &str, &str) + Send + Sync>;
+ 
+/// ConnectionMode defines how the manager handles the initial connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionMode {
+    /// ModeBlocking blocks until connection is successful (or MaxRetries reached).
+    Blocking,
+    /// ModeNonBlocking returns immediately and retries in the background.
+    NonBlocking,
+    /// ModeIndefinite blocks indefinitely until connection is successful.
+    Indefinite,
+}
 
 /// NetworkManager handles reliable connection establishment with retries.
 /// 
@@ -167,6 +178,47 @@ impl NetworkManager {
         
         mc
     }
+ 
+    pub async fn connect(
+        self: Arc<Self>,
+        ip: String,
+        port: String,
+        mode: ConnectionMode,
+    ) -> ManagedConnection {
+        match mode {
+            ConnectionMode::Blocking => {
+                match self.clone().connect_with_retry(ip.clone(), port.clone()).await {
+                    Ok(mc) => mc,
+                    Err(_) => ManagedConnection::new(ip, port, self.clone()),
+                }
+            }
+            ConnectionMode::NonBlocking => self.connect_non_blocking(ip, port),
+            ConnectionMode::Indefinite => self.connect_blocking(ip, port).await,
+        }
+    }
+}
+ 
+// -----------------------------------------------------------------------------
+// Strategies
+ 
+impl NetworkManager {
+    /// NewCriticalStrategy creates a manager configured for critical services: 
+    /// Infinite retries, aggressive backoff.
+    pub fn new_critical(logger: Option<Arc<dyn Logger>>) -> Arc<Self> {
+        new_network_manager_with_all(-1, 200, 10000, 5000, 2.0, 0.2, None, logger)
+    }
+ 
+    /// NewStandardStrategy creates a manager for standard services:
+    /// Limited retries, moderate backoff.
+    pub fn new_standard(logger: Option<Arc<dyn Logger>>) -> Arc<Self> {
+        new_network_manager_with_all(10, 500, 30000, 5000, 1.5, 0.1, None, logger)
+    }
+ 
+    /// NewPerformanceStrategy creates a manager for high-performance services:
+    /// Short timeouts, low delay, background reconnection.
+    pub fn new_performance(logger: Option<Arc<dyn Logger>>) -> Arc<Self> {
+        new_network_manager_with_all(-1, 100, 2000, 1000, 1.2, 0.0, None, logger)
+    }
 }
 
 pub fn new_network_manager(
@@ -232,5 +284,50 @@ mod tests {
         
         assert_eq!(retry_count.load(Ordering::SeqCst), 2);
         assert_eq!(last_attempt.load(Ordering::SeqCst), 2);
+    }
+ 
+    #[tokio::test]
+    async fn test_strategies_presets() {
+        let nm_crit = NetworkManager::new_critical(None);
+        assert_eq!(nm_crit.max_retries, -1);
+        assert_eq!(nm_crit.jitter, 0.2);
+ 
+        let nm_std = NetworkManager::new_standard(None);
+        assert_eq!(nm_std.max_retries, 10);
+ 
+        let nm_perf = NetworkManager::new_performance(None);
+        assert_eq!(nm_perf.base_delay.as_millis(), 100);
+    }
+ 
+    #[tokio::test]
+    async fn test_unified_connect() {
+        let nm = new_network_manager(2, 10, 50, 50, 1.0, 0.0);
+        let ip = "127.0.0.1".to_string();
+        let port = "9999".to_string();
+ 
+        // Test NonBlocking
+        let start = std::time::Instant::now();
+        let _mc = nm.clone().connect(ip.clone(), port.clone(), ConnectionMode::NonBlocking).await;
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_millis() < 50, "connect(Mode::NonBlocking) took too long: {:?}", elapsed);
+ 
+        // Test Indefinite
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let error_count = Arc::new(AtomicUsize::new(0));
+        let ec_clone = error_count.clone();
+        
+        let on_error = Arc::new(move |_attempt, _err: &(dyn std::error::Error + Send + Sync), _src: &str, _msg: &str| {
+            ec_clone.fetch_add(1, Ordering::SeqCst);
+        });
+ 
+        let nm_indef = new_network_manager_with_all(2, 10, 50, 50, 1.0, 0.0, Some(on_error), None);
+        
+        // Run in background task
+        tokio::spawn(async move {
+            nm_indef.connect(ip, port, ConnectionMode::Indefinite).await;
+        });
+ 
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(error_count.load(Ordering::SeqCst) > 2);
     }
 }
