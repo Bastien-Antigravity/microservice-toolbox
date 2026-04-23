@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	distconf "github.com/Bastien-Antigravity/distributed-config"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestAppConfig_GetListenAddr(t *testing.T) {
@@ -49,10 +49,10 @@ func TestDeepMerge(t *testing.T) {
 	}
 
 	result := DeepMerge(dst, src)
-	
+
 	assert.Equal(t, 1, result["a"])
 	assert.Equal(t, 4, result["e"])
-	
+
 	bMap := result["b"].(map[string]interface{})
 	assert.Equal(t, 2, bMap["c"])
 	assert.Equal(t, 3, bMap["d"])
@@ -63,10 +63,10 @@ func TestAppConfig_EnsurePath(t *testing.T) {
 	ac := &AppConfig{
 		Config: distconf.New("test"),
 	}
-	
+
 	ac.ensurePath("capabilities.new-service")
 	assert.NotNil(t, ac.Capabilities["new-service"])
-	
+
 	_, ok := ac.Capabilities["new-service"].(map[string]interface{})
 	assert.True(t, ok)
 }

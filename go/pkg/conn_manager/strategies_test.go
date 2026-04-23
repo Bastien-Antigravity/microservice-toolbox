@@ -47,20 +47,20 @@ func TestUnifiedConnect(t *testing.T) {
 	nm2.OnError = func(attempt int, err error, source string, msg string) {
 		errorCount2++
 	}
-	
+
 	mc2 := nm2.Connect(&ip, &port, &publicIP, profile, ModeBlocking)
 	if errorCount2 != 2 {
 		t.Errorf("Expected 2 retries for ModeBlocking, got %d", errorCount2)
 	}
 	_ = mc2.Close()
 
-	// 3. Test Indefinite: should continue retrying. 
+	// 3. Test Indefinite: should continue retrying.
 	nm3 := NewNetworkManager(2, 10, 50, 50, 1.0, 0.0)
 	errorCount3 := 0
 	nm3.OnError = func(attempt int, err error, source string, msg string) {
 		errorCount3++
 	}
-	
+
 	// We'll run it in background because it blocks indefinitely
 	go nm3.Connect(&ip, &port, &publicIP, profile, ModeIndefinite)
 

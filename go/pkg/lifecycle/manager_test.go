@@ -10,7 +10,7 @@ import (
 
 func TestManager_Lifecycle(t *testing.T) {
 	m := NewManager()
-	
+
 	cleanupCalled := false
 	m.Register("test_cleanup", func() error {
 		cleanupCalled = true
@@ -19,7 +19,7 @@ func TestManager_Lifecycle(t *testing.T) {
 
 	// Use a context to trigger shutdown
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	// Start Wait in a goroutine
 	done := make(chan bool)
 	go func() {
@@ -31,9 +31,9 @@ func TestManager_Lifecycle(t *testing.T) {
 	cancel()
 
 	select {
-		case <-done:
-			assert.True(t, cleanupCalled, "Cleanup function should have been called")
-		case <-time.After(1 * time.Second):
-			t.Fatal("Shutdown timed out")
+	case <-done:
+		assert.True(t, cleanupCalled, "Cleanup function should have been called")
+	case <-time.After(1 * time.Second):
+		t.Fatal("Shutdown timed out")
 	}
 }

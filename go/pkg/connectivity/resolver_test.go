@@ -20,10 +20,10 @@ func TestResolver_ResolveBindAddr(t *testing.T) {
 
 	// Test Case 2: Docker Mode + Loopback
 	r = &Resolver{IsDocker: true}
-	// Note: Mocking getPrimaryInterfaceIP is hard without refactoring to interface, 
+	// Note: Mocking getPrimaryInterfaceIP is hard without refactoring to interface,
 	// but we can check if it attempts to resolve loopback.
 	// Since we can't easily mock network interfaces in unit tests, we'll check the logic flow.
-	
+
 	addr, err = r.ResolveBindAddr("1.2.3.4")
 	assert.NoError(t, err)
 	assert.Equal(t, "1.2.3.4", addr, "Docker mode should allow external IP directly")
@@ -40,7 +40,7 @@ func TestNewResolver(t *testing.T) {
 	// Mocking environment variable
 	os.Setenv("DOCKER_ENV", "true")
 	defer os.Unsetenv("DOCKER_ENV")
-	
+
 	r := NewResolver()
 	assert.True(t, r.IsDocker, "Should detect Docker from OS environment variable")
 }

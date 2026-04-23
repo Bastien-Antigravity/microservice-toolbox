@@ -1,6 +1,6 @@
 package config
 
-// DeepMerge merges source into destination. 
+// DeepMerge merges source into destination.
 // If a key exists in both and both are maps, it merges them recursively.
 // If a key exists in both and the source is not a map, the source value overwrites the destination.
 func DeepMerge(dst, src map[string]interface{}) map[string]interface{} {

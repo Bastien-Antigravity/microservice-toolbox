@@ -10,14 +10,14 @@ import (
 // -----------------------------------------------------------------------------
 // ManagedConnection wraps a connection and handles automatic reconnection.
 type ManagedConnection struct {
-	ip          *string
-	port        *string
-	publicIP    *string
-	profile     string
-	nm          *NetworkManager
-	currentConn io.WriteCloser
+	ip           *string
+	port         *string
+	publicIP     *string
+	profile      string
+	nm           *NetworkManager
+	currentConn  io.WriteCloser
 	reconnecting bool
-	mu          sync.Mutex
+	mu           sync.Mutex
 }
 
 // -----------------------------------------------------------------------------
@@ -49,7 +49,7 @@ func (mc *ManagedConnection) Write(p []byte) (n int, err error) {
 			return 0, fmt.Errorf("%w: base write error: %v; reconnect error: %v", ErrWriteFailed, err, rErr)
 		}
 		mc.mu.Lock()
-		
+
 		if mc.currentConn == nil {
 			return 0, fmt.Errorf("%w: reconnection succeeded but currentConn is still nil", ErrWriteFailed)
 		}
@@ -77,9 +77,9 @@ func (mc *ManagedConnection) reconnect() error {
 		// Already reconnecting. Wait for it or just block until it's done.
 		// For simplicity, we'll wait for the currentConn to become non-nil
 		// by checking in a loop or using a condition variable.
-		// Given the "easiest way" instruction, let's just let the caller loop a bit 
+		// Given the "easiest way" instruction, let's just let the caller loop a bit
 		// or block on the mutex after releasing it.
-		
+
 		// Actually, better: if already reconnecting, we should block until it's done.
 		mc.mu.Unlock()
 		for {
@@ -89,11 +89,11 @@ func (mc *ManagedConnection) reconnect() error {
 				return nil
 			}
 			if !mc.reconnecting {
-				// Reconnection failed or was canceled? 
+				// Reconnection failed or was canceled?
 				// Should we try again?
 				mc.reconnecting = true
 				mc.mu.Unlock()
-				break 
+				break
 			}
 			mc.mu.Unlock()
 			time.Sleep(100 * time.Millisecond)

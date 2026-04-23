@@ -22,11 +22,11 @@ func NewResolver() *Resolver {
 }
 
 // ResolveBindAddr resolves the requested IP into an actual address to bind to.
-// 
+//
 // Docker Connectivity Logic:
-// If running in a Docker container and a loopback address (127.0.0.1) is 
-// provided, this method translates it to the container's internal 
-// primary interface IP. This ensures that the service is actually 
+// If running in a Docker container and a loopback address (127.0.0.1) is
+// provided, this method translates it to the container's internal
+// primary interface IP. This ensures that the service is actually
 // reachable by other containers in the same network/fleet.
 func (r *Resolver) ResolveBindAddr(requestedIP string) (string, error) {
 	requestedIP = strings.Trim(requestedIP, "\"")

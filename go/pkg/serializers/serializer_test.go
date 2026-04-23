@@ -40,7 +40,7 @@ func TestSerializers_RoundTrip(t *testing.T) {
 
 func TestSerializers_Errors(t *testing.T) {
 	s := NewJSONSerializer()
-	
+
 	// Unmarshal invalid data
 	var data TestData
 	err := s.Unmarshal([]byte("invalid json"), &data)

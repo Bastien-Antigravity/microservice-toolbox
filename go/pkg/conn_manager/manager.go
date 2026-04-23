@@ -18,10 +18,10 @@ import (
 // source: the component where the error occurred (e.g. "ManagedConnection.reconnect").
 // msg: a descriptive message providing additional context.
 type OnErrorHandler func(attempt int, err error, source string, msg string)
- 
+
 // ConnectionMode defines how the manager handles the initial connection.
 type ConnectionMode int
- 
+
 const (
 	// ModeBlocking blocks until connection is successful (or MaxRetries reached).
 	ModeBlocking ConnectionMode = iota
@@ -41,11 +41,11 @@ type NetworkManager struct {
 	Backoff        float64
 	Jitter         float64 // 0.0 to 1.0 (multiplier for delay added as randomness)
 
-	// OnError is an optional hook for fine-grained error reporting and retry logic 
+	// OnError is an optional hook for fine-grained error reporting and retry logic
 	// (e.g., execute after X errors, or on specific error types).
 	OnError OnErrorHandler
 	// Logger is the logger to use for logging.
-	Logger  utils.Logger
+	Logger utils.Logger
 }
 
 // -----------------------------------------------------------------------------
@@ -164,6 +164,7 @@ func (nm *NetworkManager) ConnectNonBlocking(ip, port, publicIP *string, profile
 
 	return mc
 }
+
 // Connect establishes a connection using the specified mode.
 func (nm *NetworkManager) Connect(ip, port, publicIP *string, profile string, mode ConnectionMode) io.WriteCloser {
 	switch mode {
@@ -192,7 +193,7 @@ func (nm *NetworkManager) Connect(ip, port, publicIP *string, profile string, mo
 // -----------------------------------------------------------------------------
 // Strategies
 
-// NewCriticalStrategy creates a manager configured for critical services: 
+// NewCriticalStrategy creates a manager configured for critical services:
 // Infinite retries, aggressive backoff.
 func NewCriticalStrategy(logger utils.Logger) *NetworkManager {
 	return NewNetworkManagerWithLogger(-1, 200, 10000, 5000, 2.0, 0.2, logger)

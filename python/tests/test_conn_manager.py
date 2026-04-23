@@ -91,58 +91,62 @@ def test_on_error_unified_hook():
     assert attempts == [1, 2]
     assert len(errors) == 2
     assert str(errors[0]) == "Connection failed"
- 
- 
+
+
 def test_strategies_presets():
     from microservice_toolbox.conn_manager.manager import (
         new_critical_strategy,
-        new_standard_strategy,
         new_performance_strategy,
+        new_standard_strategy,
     )
- 
+
     nm_crit = new_critical_strategy()
     assert nm_crit.max_retries == -1
     assert nm_crit.jitter == 0.2
- 
+
     nm_std = new_standard_strategy()
     assert nm_std.max_retries == 10
- 
+
     nm_perf = new_performance_strategy()
     assert nm_perf.base_delay == 0.1
- 
- 
+
+
 def test_unified_connect():
     from microservice_toolbox.conn_manager.manager import ConnectionMode
- 
+
     nm = new_network_manager(max_retries=1, base_delay_ms=10)
     mock_conn = MagicMock()
     nm.establish_connection = MagicMock(return_value=mock_conn)
- 
+
     # Test BLOCKING
     mc = nm.connect("127.0.0.1", "8080", "1.2.3.4", "test", ConnectionMode.BLOCKING)
     assert mc.current_conn == mock_conn
- 
+
     # Test NON_BLOCKING
     nm.establish_connection.reset_mock()
     mc_async = nm.connect("127.0.0.1", "8080", "1.2.3.4", "test", ConnectionMode.NON_BLOCKING)
     time.sleep(0.1)
     assert nm.establish_connection.called
     assert mc_async.current_conn == mock_conn
- 
+
     # Test INDEFINITE
     error_count = 0
+
     def on_error(attempt, err, source, msg):
         nonlocal error_count
         error_count += 1
- 
+
     nm_indef = new_network_manager(max_retries=2, base_delay_ms=10)
     nm_indef.on_error = on_error
     nm_indef.establish_connection = MagicMock(side_effect=Exception("Fail"))
-    
+
     # Indefinite should continue past max_retries
     import threading
-    thread = threading.Thread(target=nm_indef.connect, args=("127.0.0.1", "8080", "1.2.3.4", "test", ConnectionMode.INDEFINITE), daemon=True)
+
+    thread = threading.Thread(
+        target=nm_indef.connect, args=("127.0.0.1", "8080", "1.2.3.4", "test", ConnectionMode.INDEFINITE), daemon=True
+    )
     thread.start()
-    
+
     time.sleep(0.1)
     assert error_count > 2
