@@ -1,7 +1,7 @@
 capnproto.org/go/capnp/v3 v3.1.0-alpha.2 h1:93ISpqHf2/3WQlfrBP0tT8Dg/RQc3uq6DV36vN0ePWk=
 capnproto.org/go/capnp/v3 v3.1.0-alpha.2/go.mod h1:2vT5D2dtG8sJGEoEKU17e+j7shdaYp1Myl8X03B3hmc=
-github.com/Bastien-Antigravity/distributed-config v1.7.8 h1:cB1yBMX9SQ0G5XmUXlGb+19qt4Ij7OLhkCazfHE1qpQ=
-github.com/Bastien-Antigravity/distributed-config v1.7.8/go.mod h1:Gxd0xl/AuUn9Lr+ZzCQowa8Lx4y4/fm3Xrj6B/XTm+M=
+github.com/Bastien-Antigravity/distributed-config v1.8.0 h1:BJ4E91+KeI4R6KTZ0sQ0+us0VJJmd5CBXDQELLeQEd0=
+github.com/Bastien-Antigravity/distributed-config v1.8.0/go.mod h1:Gxd0xl/AuUn9Lr+ZzCQowa8Lx4y4/fm3Xrj6B/XTm+M=
 github.com/Bastien-Antigravity/safe-socket v1.7.8 h1:dENtNXVJpyY3pYAsQLjV6MMzBw5ajrKwMyfgvGpEgN4=
 github.com/Bastien-Antigravity/safe-socket v1.7.8/go.mod h1:ngCgFarvn3V+o248h48A5u+7Z4OSu2TgEMrWu3YQXe0=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
