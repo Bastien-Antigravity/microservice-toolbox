@@ -17,10 +17,9 @@ A unified infrastructure library for the Bastien-Antigravity microservices ecosy
 ### 1. Smart Configuration Loader
 Implements a strict "Hierarchy of Truth" for service configuration:
 1.  **Command Line Overrides** (`--params`, `--host`, `--port`, `--grpc_host`, `--grpc_port`): Highest Priority.
-2.  **Context-Aware Overrides**:
-    *   **Dev Mode** (`standalone`, `test`): Local File > Config Server.
-    *   **Fleet Mode** (`production`, `preprod`): Config Server > Local File.
-3.  **Environment Variables**: Base layer (lowest priority).
+2.  **Local File Override** (`[profile].yaml`): Authritative local source (overrides Server).
+3.  **Config Server Baseline**: Fleet configuration.
+4.  **Environment Variables**: Base layer (lowest priority).
 
 ### 2. Network-Aware Resolver & Docker Guard
 *   **Docker Detection**: Automatically resolves `127.0.0.x` loopback addresses to the internal container interface.
