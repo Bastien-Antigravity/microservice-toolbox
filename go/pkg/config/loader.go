@@ -5,15 +5,17 @@ import (
 	"os"
 	"strings"
 
-	distconf "github.com/Bastien-Antigravity/distributed-config"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
+
+	distributed_config "github.com/Bastien-Antigravity/distributed-config"
+
 	"gopkg.in/yaml.v3"
 )
 
 // AppConfig wraps the distributed-config and provides toolbox enhancements.
 type AppConfig struct {
-	*distconf.Config
+	*distributed_config.Config
 	Resolver *connectivity.Resolver
 	Profile  string
 	Logger   utils.Logger
@@ -34,7 +36,7 @@ func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []s
 	safeLogger.Info("Initializing Config with Profile: %s", profile)
 
 	// Phase 1: Initialize Distributed Config (Base + Env Templates + Server Sync)
-	dConf := distconf.New(profile)
+	dConf := distributed_config.New(profile)
 	if dConf == nil {
 		return nil, fmt.Errorf("failed to load distributed config for profile: %s", profile)
 	}
@@ -78,7 +80,7 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 	}
 
 	// Expand Environment Variables and force types using Distributed Config's logic
-	distconf.ProcessNode(&root)
+	distributed_config.ProcessNode(&root)
 
 	var raw map[string]interface{}
 	if err := root.Decode(&raw); err == nil {

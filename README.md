@@ -53,11 +53,12 @@ A robust connection wrapper designed for microservice resilience:
 ### Go
 Located in `/go`.
 ```go
-import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/conn_manager"
-import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/serializers"
+import (
+	toolbox_conn_manager "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/conn_manager"
+)
 
 // 1. Initialize with a Standard Strategy
-nm := conn_manager.NewStandardStrategy(nil)
+nm := toolbox_conn_manager.NewStandardStrategy(nil)
 nm.OnError = func(attempt int, err error, source string, msg string) {
     if attempt == nm.MaxRetries {
         fmt.Printf("Final failure after %d attempts: %v\n", attempt, err)
@@ -65,7 +66,7 @@ nm.OnError = func(attempt int, err error, source string, msg string) {
 }
 
 // 2. Connect using a specific mode
-conn := nm.Connect(&ip, &port, &publicIP, "my-profile", conn_manager.ModeBlocking)
+conn := nm.Connect(&ip, &port, &publicIP, "my-profile", toolbox_conn_manager.ModeBlocking)
 defer conn.Close()
 ```
 
