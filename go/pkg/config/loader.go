@@ -74,8 +74,14 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 		return
 	}
 
+	// Decrypt secrets before parsing nodes
+	processedData, err := distributed_config.ProcessConfigSecrets(data)
+	if err != nil {
+		return
+	}
+
 	var root yaml.Node
-	if err := yaml.Unmarshal(data, &root); err != nil {
+	if err := yaml.Unmarshal(processedData, &root); err != nil {
 		return
 	}
 
