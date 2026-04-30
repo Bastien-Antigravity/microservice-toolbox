@@ -2,6 +2,7 @@ use serde_yml::Value;
 use std::fs;
 use std::sync::Arc;
 use crate::config::args::ToolboxArgs;
+use crate::config::merger::deep_merge;
 use crate::utils::logger::{Logger, ensure_safe_logger};
 
 #[cfg(feature = "unilog")]
@@ -90,7 +91,7 @@ impl AppConfig {
     fn load_from_file(&mut self, filename: &str) {
         if let Ok(content) = fs::read_to_string(filename)
             && let Ok(file_data) = serde_yml::from_str::<Value>(&content) {
-                Self::deep_merge(&mut self.data, &file_data);
+                deep_merge(&mut self.data, &file_data);
         }
     }
 
@@ -180,18 +181,9 @@ impl AppConfig {
         Ok(format!("{}:{}", host, port))
     }
 
+    /// Wrapper around standalone deep_merge for backward compatibility.
     pub fn deep_merge(dst: &mut Value, src: &Value) {
-        if let (Some(dst_map), Some(src_map)) = (dst.as_mapping_mut(), src.as_mapping()) {
-            for (k, v) in src_map {
-                if !dst_map.contains_key(k) || !v.is_mapping() {
-                    dst_map.insert(k.clone(), v.clone());
-                } else {
-                    Self::deep_merge(dst_map.get_mut(k).unwrap(), v);
-                }
-            }
-        } else {
-            *dst = src.clone();
-        }
+        deep_merge(dst, src);
     }
 
     fn set_value(&mut self, path: &str, value: Value) -> Result<(), Box<dyn std::error::Error>> {

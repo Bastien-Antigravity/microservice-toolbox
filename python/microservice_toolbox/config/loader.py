@@ -22,6 +22,7 @@ import yaml
 
 from ..utils.logger import ILogger, ensure_safe_logger
 from .args import parse_cli_args
+from .merger import deep_merge
 
 # -----------------------------------------------------------------------------------------------
 
@@ -141,11 +142,8 @@ class AppConfig:
 
     @staticmethod
     def deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
-        for key, value in src.items():
-            if isinstance(value, dict) and key in dst and isinstance(dst[key], dict):
-                AppConfig.deep_merge(dst[key], value)
-            else:
-                dst[key] = value
+        """Wrapper around standalone deep_merge for backward compatibility."""
+        deep_merge(dst, src)
 
     # -----------------------------------------------------------------------------------------------
 
