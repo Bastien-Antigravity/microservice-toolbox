@@ -26,6 +26,9 @@ pub struct RawArgs {
     #[arg(long)]
     pub log_level: Option<String>,
 
+    #[arg(long)]
+    pub key: Option<String>,
+
     /// Specific arguments in KEY=VALUE format
     #[arg(short, long)]
     pub extra: Vec<String>,
@@ -46,6 +49,7 @@ pub struct ToolboxArgs {
     pub grpc_port: Option<u16>,
     pub conf: Option<String>,
     pub log_level: Option<String>,
+    pub key: Option<String>,
     pub extras: HashMap<String, String>,
 }
 
@@ -61,6 +65,12 @@ impl ToolboxArgs {
         result.name = raw.name;
         result.conf = raw.conf;
         result.log_level = raw.log_level;
+        result.key = raw.key;
+
+        // If key provided, set it as ENV override for the decryption engine
+        if let Some(k) = &result.key {
+            std::env::set_var("BASTIEN_PRIVATE_KEY_PATH", k);
+        }
 
         if is_docker {
             if raw.host.is_some() || raw.port.is_some() || raw.grpc_host.is_some() || raw.grpc_port.is_some() {

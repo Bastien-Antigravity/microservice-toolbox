@@ -74,14 +74,8 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 		return
 	}
 
-	// Decrypt secrets before parsing nodes
-	processedData, err := distributed_config.ProcessConfigSecrets(data)
-	if err != nil {
-		return
-	}
-
 	var root yaml.Node
-	if err := yaml.Unmarshal(processedData, &root); err != nil {
+	if err := yaml.Unmarshal(data, &root); err != nil {
 		return
 	}
 
@@ -94,6 +88,11 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 			ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
 		}
 	}
+}
+
+// DecryptSecret decrypts a single ENC(...) ciphertext string.
+func (ac *AppConfig) DecryptSecret(ciphertext string) (string, error) {
+	return distributed_config.Decrypt(ciphertext)
 }
 
 func (ac *AppConfig) applyCLIOverrides(args *CLIArgs) {

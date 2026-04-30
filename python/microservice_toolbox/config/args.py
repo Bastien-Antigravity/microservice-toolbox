@@ -3,7 +3,7 @@ from collections import namedtuple
 from os import environ as osEnviron
 from os.path import exists as osPathExists
 
-CLIArgs = namedtuple("CLIArgs", ["name", "host", "port", "grpc_host", "grpc_port", "conf", "log_level", "extras"])
+CLIArgs = namedtuple("CLIArgs", ["name", "host", "port", "grpc_host", "grpc_port", "conf", "log_level", "key", "extras"])
 
 
 def parse_cli_args(specific_args=None, input_args=None):
@@ -26,6 +26,7 @@ def parse_cli_args(specific_args=None, input_args=None):
     parser.add_argument("--grpc_port", type=int, help="GRPC Binding port")
     parser.add_argument("--conf", type=str, help="Path to configuration file")
     parser.add_argument("--log_level", type=str, help="Logging level (DEBUG, INFO, etc.)")
+    parser.add_argument("--key", type=str, help="Path to RSA Public/Private key")
 
     # Specific arguments
     if specific_args:
@@ -45,6 +46,11 @@ def parse_cli_args(specific_args=None, input_args=None):
     name = args.name
     conf = args.conf
     log_level = args.log_level
+    key = args.key
+
+    # If key provided, set it as ENV override for the decryption engine
+    if key:
+        osEnviron["BASTIEN_PRIVATE_KEY_PATH"] = key
 
     # Docker Guard for network flags
     is_docker = osPathExists("/.dockerenv") or osEnviron.get("DOCKER_ENV") == "true"
@@ -72,5 +78,6 @@ def parse_cli_args(specific_args=None, input_args=None):
         grpc_port=grpc_port,
         conf=conf,
         log_level=log_level,
+        key=key,
         extras=extras,
     )

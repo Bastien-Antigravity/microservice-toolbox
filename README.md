@@ -45,6 +45,31 @@ A robust connection wrapper designed for microservice resilience:
     - `ModeIndefinite`: Blocks forever until the connection is established (ideal for audit/critical apps).
 - **Strategy Presets**: Standardized configurations for `Critical`, `Standard`, and `Performance` scenarios.
 - **Transparent Reconnection**: Automatically handles reconnections during write failures.
+- **Dynamic Context**: Supports custom `BASTIEN_PRIVATE_KEY_PATH` overrides for flexible secret management.
+
+### 6. RSA Secret Management (v1.1.9+)
+Standardized on-demand secret decryption engine across the ecosystem:
+- **On-Demand Decryption**: secrets remain encrypted as `ENC(...)` in the config object. Call `DecryptSecret()` (Go) / `decrypt_secret()` (Python/Rust) to get the plaintext.
+- **In-Memory Only**: Decrypted secrets are strictly volatile and should be cleared after use.
+- **Key Discovery**: Follows a standard search chain (`ENV` -> `/etc/bastien/` -> `./`).
+
+---
+
+## Polyglot Parity Matrix
+
+The toolbox ensures that architectural patterns are identical across languages.
+
+| Feature | Go | Python | Rust |
+| :--- | :---: | :---: | :---: |
+| Layered YAML Loading | ✅ | ✅ | ✅ |
+| CLI Flag Overrides | ✅ | ✅ | ✅ |
+| Environment Var Expansion | ✅ | ✅ | ✅ |
+| **RSA Secret Decryption** | ✅ | ✅ | ✅ |
+| **Remote Config Sync** | ✅ | ❌ | ❌ |
+| Connection Manager (Retries) | ✅ | ✅ | ✅ |
+| Universal Serializers (Msgpack) | ✅ | ✅ | ✅ |
+
+---
 
 ---
 
@@ -56,6 +81,10 @@ Located in `/go`.
 import (
 	toolbox_conn_manager "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/conn_manager"
 )
+
+// 0. Initialize Config (Hierarchical + RSA Decryption)
+cfg, _ := config.LoadConfig("standalone", nil)
+fmt.Printf("Service Name: %s\n", cfg.Common.Name)
 
 // 1. Initialize with a Standard Strategy
 nm := toolbox_conn_manager.NewStandardStrategy(nil)
@@ -76,6 +105,11 @@ Located in `/python`.
 from microservice_toolbox.conn_manager import new_network_manager
 from microservice_toolbox.serializers.providers import JSONSerializer
 
+# 0. Initialize Config (Hierarchical + RSA Decryption)
+from microservice_toolbox.config import load_config
+cfg = load_config("standalone")
+print(f"Service Name: {cfg.data['common']['name']}")
+
 # 1. Initialize with a Performance Strategy
 from microservice_toolbox.conn_manager import new_performance_strategy, ConnectionMode
 
@@ -95,6 +129,10 @@ Located in `/rust`.
 use microservice_toolbox::conn_manager::manager::new_network_manager_with_all;
 use microservice_toolbox::serializers::providers::{JsonSerializer};
 use std::sync::Arc;
+
+// 0. Initialize Config (Hierarchical + RSA Decryption)
+let cfg = AppConfig::load_config("standalone", None)?;
+println!("Service Name: {:?}", cfg.data["common"]["name"]);
 
 // 1. Initialize with a Critical Strategy
 use microservice_toolbox::conn_manager::manager::{NetworkManager, ConnectionMode};

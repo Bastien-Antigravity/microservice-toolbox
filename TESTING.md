@@ -20,6 +20,7 @@ Each language module maintains its own suite of unit tests focusing on internal 
 - **Framework**: Native `cargo test`.
 - **Command**: `cargo test`
 - **Focus**: Thread-safety (`Arc/Mutex`), `tokio` async task management, and `serde` compatibility.
+- **On-Demand RSA**: Verified explicit decryption parity with Go and Python.
 
 ---
 

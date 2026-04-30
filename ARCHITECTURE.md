@@ -24,6 +24,7 @@ The `microservice-toolbox` serves as the standardized entry point and underlying
 - **Connection Manager (`conn_manager`)**: Resilient TCP connection wrapper with multiplicative backoff, randomized jitter, and transparent reconnection on write failures. It formalizes three **Connection Modes**: `Blocking` (finite retries), `Non-Blocking` (background reconnection), and `Indefinite` (retry forever, blocking boot). To simplify usage, it provides **Strategy Presets** (`Critical`, `Standard`, `Performance`) that align the manager's internal timing and retry logic with the architectural intent of the service (e.g., Audit logs vs. telemetry).
 - **Lifecycle (`lifecycle`)** *(Go only)*: OS signal handling (`SIGINT`, `SIGTERM`) and graceful shutdown orchestration for sub-goroutines. Python and Rust equivalents are planned (see `TODO.md`).
 - **Serialization (`serializers`)**: Cross-language serialization abstractions with an identical `marshal`/`unmarshal` API surface. Provides `JSONSerializer` (human-readable payloads) and `BinSerializer` (msgpack, for high-performance binary encoding). Compatible across all three languages.
+- **Secret Management (v1.1.9+)**: Standardized **on-demand** RSA decryption engine. Secrets are stored as `ENC(...)` and decrypted via explicit helpers to minimize plaintext exposure. Supports a standardized search chain and the `--key` CLI override across all three languages.
 
 ## 3. Technical Deep Dives
 

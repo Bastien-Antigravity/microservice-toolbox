@@ -16,6 +16,7 @@ type CLIArgs struct {
 	GRPCPort int
 	Conf     string
 	LogLevel string
+	Key      string
 	Extra    map[string]string
 }
 
@@ -32,6 +33,7 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 	grpcPort := fs.Int("grpc_port", 0, "GRPC Binding port")
 	conf := fs.String("conf", "", "Path to configuration file")
 	logLevel := fs.String("log_level", "", "Logging level (DEBUG, INFO, etc.)")
+	key := fs.String("key", "", "Path to RSA Public/Private key")
 
 	// Dynamic flags for extra arguments
 	extras := make(map[string]*string)
@@ -51,7 +53,13 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 		Name:     *name,
 		Conf:     *conf,
 		LogLevel: *logLevel,
+		Key:      *key,
 		Extra:    make(map[string]string),
+	}
+
+	// If key provided, set it as ENV override for the decryption engine
+	if *key != "" {
+		os.Setenv("BASTIEN_PRIVATE_KEY_PATH", *key)
 	}
 
 	// Apply Docker Guard

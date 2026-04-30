@@ -100,9 +100,44 @@ class AppConfig:
         self._apply_cli_overrides()
 
         # ---------------------------------------------------------------------
-        # PHASE 4: Process Encrypted Secrets (v1.9.1 Parity)
+        # PHASE 4: Load Public Key
         # ---------------------------------------------------------------------
-        self._process_secrets(self.data)
+        self._load_public_key()
+
+    # -----------------------------------------------------------------------------------------------
+
+    def _load_public_key(self) -> None:
+        """Finds and loads public.pem into self.data['common']['public_key']."""
+        path = osGetenv("BASTIEN_PUBLIC_KEY_PATH")
+        if not path:
+            path = "/etc/bastien/public.pem"
+            if not osPathExists(path):
+                if osPathExists("./public.pem"):
+                    path = "./public.pem"
+                else:
+                    return
+
+        try:
+            if osPathExists(path):
+                with open(path, "r") as f:
+                    self.data["common"] = self.data.get("common", {})
+                    self.data["common"]["public_key"] = f.read().strip()
+                    self.logger.info(f"{self.Name} : Public Key Loaded from {path}")
+        except Exception as e:
+            self.logger.warning(f"{self.Name} : Failed to load public key from {path}: {e}")
+
+    # -----------------------------------------------------------------------------------------------
+
+    def decrypt_secret(self, ciphertext: str) -> str:
+        """Explicitly decrypts a single ENC(...) ciphertext string."""
+        if not isinstance(ciphertext, str) or "ENC(" not in ciphertext:
+            return ciphertext
+
+        match = ENC_REGEX.search(ciphertext)
+        if not match:
+            return ciphertext
+
+        return self._decrypt_single(match)
 
     # -----------------------------------------------------------------------------------------------
 
@@ -127,44 +162,45 @@ class AppConfig:
             self.logger.warning(f"{self.Name} : Failed to load private key from {key_path}: {e}")
             return None
 
-    def _process_secrets(self, target: Any) -> None:
-        """Recursively scans and decrypts ENC(...) blocks."""
-        priv_key = None
+    def _decrypt_single(self, match: Any) -> str:
+        """Core RSA-OAEP decryption logic for a single match."""
+        import base64
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
 
-        def decrypt_func(match):
-            import base64
-            from cryptography.hazmat.primitives import hashes
-            from cryptography.hazmat.primitives.asymmetric import padding
+        priv_key = self._get_private_key()
+        if priv_key is None:
+            return match.group(0)
 
-            nonlocal priv_key
-            if priv_key is None:
-                priv_key = self._get_private_key()
-                if priv_key is None:
-                    return match.group(0)
+        try:
+            ciphertext = base64.b64decode(match.group(1))
+            plaintext = priv_key.decrypt(
+                ciphertext,
+                padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+            )
+            return plaintext.decode("utf-8")
+        except Exception as e:
+            self.logger.warning(f"{self.Name} : Decryption failed: {e}")
+            return match.group(0)
 
-            try:
-                ciphertext = base64.b64decode(match.group(1))
-                plaintext = priv_key.decrypt(
-                    ciphertext,
-                    padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-                )
-                return plaintext.decode("utf-8")
-            except Exception as e:
-                self.logger.warning(f"{self.Name} : Decryption failed: {e}")
-                return match.group(0)
-
+    def process_secrets(self, target: Any) -> None:
+        """Recursively scans and decrypts ENC(...) blocks in a data structure."""
         if isinstance(target, dict):
             for k, v in target.items():
                 if isinstance(v, str) and "ENC(" in v:
-                    target[k] = ENC_REGEX.sub(decrypt_func, v)
+                    match = ENC_REGEX.search(v)
+                    if match:
+                        target[k] = self._decrypt_single(match)
                 else:
-                    self._process_secrets(v)
+                    self.process_secrets(v)
         elif isinstance(target, list):
             for i, v in enumerate(target):
                 if isinstance(v, str) and "ENC(" in v:
-                    target[i] = ENC_REGEX.sub(decrypt_func, v)
+                    match = ENC_REGEX.search(v)
+                    if match:
+                        target[i] = self._decrypt_single(match)
                 else:
-                    self._process_secrets(v)
+                    self.process_secrets(v)
 
     # -----------------------------------------------------------------------------------------------
 

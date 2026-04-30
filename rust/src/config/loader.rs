@@ -4,6 +4,10 @@ use std::sync::Arc;
 use crate::config::args::ToolboxArgs;
 use crate::config::merger::deep_merge;
 use crate::utils::logger::{Logger, ensure_safe_logger};
+use regex::Regex;
+use rsa::{RsaPrivateKey, pkcs1::DecodeRsaPrivateKey, Oaep};
+use sha2::Sha256;
+use base64::{Engine as _, engine::general_purpose};
 
 #[cfg(feature = "unilog")]
 use crate::utils::logger::UniLogger;
@@ -84,7 +88,150 @@ impl AppConfig {
         }
 
         ac.apply_cli_overrides();
+        
+        ac.load_public_key();
+        
         Ok(ac)
+    }
+
+    fn load_public_key(&mut self) {
+        let mut path = std::env::var("BASTIEN_PUBLIC_KEY_PATH").unwrap_or_default();
+        if path.is_empty() {
+            path = "/etc/bastien/public.pem".to_string();
+            if !std::path::Path::new(&path).exists() {
+                if std::path::Path::new("./public.pem").exists() {
+                    path = "./public.pem".to_string();
+                } else {
+                    return;
+                }
+            }
+        }
+
+        if let Ok(content) = fs::read_to_string(&path) {
+            let _ = self.set_value("common.public_key", Value::String(content.trim().to_string()));
+            self.logger.info(&format!("Public Key Loaded from {}", path));
+        }
+    }
+
+    /// Explicitly decrypts a single ENC(...) ciphertext string.
+    pub fn decrypt_secret(&self, ciphertext: &str) -> String {
+        if !ciphertext.contains("ENC(") {
+            return ciphertext.to_string();
+        }
+        
+        let re = Regex::new(r"ENC\(([^)]+)\)").unwrap();
+        if let Some(cap) = re.captures(ciphertext) {
+            let b64_data = &cap[1];
+            if let Ok(ciphertext_bytes) = general_purpose::STANDARD.decode(b64_data) {
+                if let Some(key) = self.get_private_key() {
+                    let padding = Oaep::new::<Sha256>();
+                    if let Ok(plaintext) = key.decrypt(padding, &ciphertext_bytes) {
+                        if let Ok(p_str) = String::from_utf8(plaintext) {
+                            return p_str;
+                        }
+                    }
+                }
+            }
+        }
+        ciphertext.to_string()
+    }
+
+    fn get_private_key(&self) -> Option<RsaPrivateKey> {
+        let mut key_path = std::env::var("BASTIEN_PRIVATE_KEY_PATH").unwrap_or_default();
+        if key_path.is_empty() {
+            key_path = "/etc/bastien/private.pem".to_string();
+            if !std::path::Path::new(&key_path).exists() {
+                if std::path::Path::new("./private.pem").exists() {
+                    key_path = "./private.pem".to_string();
+                } else {
+                    return None;
+                }
+            }
+        }
+
+        match fs::read_to_string(&key_path) {
+            Ok(pem) => {
+                match RsaPrivateKey::from_pkcs1_pem(&pem) {
+                    Ok(key) => Some(key),
+                    Err(e) => {
+                        self.logger.warning(&format!("Failed to parse private key from {}: {}", key_path, e));
+                        None
+                    }
+                }
+            },
+            Err(e) => {
+                self.logger.warning(&format!("Failed to read private key from {}: {}", key_path, e));
+                None
+            }
+        }
+    }
+
+    pub fn process_secrets(&mut self) {
+        let mut priv_key: Option<RsaPrivateKey> = None;
+        let re = Regex::new(r"ENC\(([^)]+)\)").unwrap();
+
+        Self::recursive_process_secrets(&mut self.data, &re, &mut priv_key, &self.logger, || {
+            let mut key_path = std::env::var("BASTIEN_PRIVATE_KEY_PATH").unwrap_or_default();
+            if key_path.is_empty() {
+                key_path = "/etc/bastien/private.pem".to_string();
+                if !std::path::Path::new(&key_path).exists() {
+                    if std::path::Path::new("./private.pem").exists() {
+                        key_path = "./private.pem".to_string();
+                    } else {
+                        return None;
+                    }
+                }
+            }
+            match fs::read_to_string(&key_path) {
+                Ok(pem) => RsaPrivateKey::from_pkcs1_pem(&pem).ok(),
+                Err(_) => None
+            }
+        });
+    }
+
+    fn recursive_process_secrets<F>(value: &mut Value, re: &Regex, priv_key: &mut Option<RsaPrivateKey>, logger: &Arc<dyn Logger>, get_key: F) 
+    where F: Fn() -> Option<RsaPrivateKey> {
+        match value {
+            Value::String(s) => {
+                if s.contains("ENC(") {
+                    let mut new_s = s.clone();
+                    let caps_vec: Vec<(String, String)> = re.captures_iter(s).map(|cap| {
+                        (cap[0].to_string(), cap[1].to_string())
+                    }).collect();
+
+                    for (full_match, b64_data) in caps_vec {
+                        if priv_key.is_none() {
+                            *priv_key = get_key();
+                        }
+
+                        if let Some(key) = priv_key {
+                            if let Ok(ciphertext) = general_purpose::STANDARD.decode(&b64_data) {
+                                let padding = Oaep::new::<Sha256>();
+                                if let Ok(plaintext) = key.decrypt(padding, &ciphertext) {
+                                    if let Ok(p_str) = String::from_utf8(plaintext) {
+                                        new_s = new_s.replace(&full_match, &p_str);
+                                    }
+                                } else {
+                                    logger.warning("RSA decryption failed for ENC block");
+                                }
+                            }
+                        }
+                    }
+                    *value = Value::String(new_s);
+                }
+            },
+            Value::Mapping(map) => {
+                for (_k, v) in map.iter_mut() {
+                    Self::recursive_process_secrets(v, re, priv_key, logger, &get_key);
+                }
+            },
+            Value::Sequence(seq) => {
+                for v in seq.iter_mut() {
+                    Self::recursive_process_secrets(v, re, priv_key, logger, &get_key);
+                }
+            },
+            _ => {}
+        }
     }
 
     /// Full merge of all file data into self.data
