@@ -15,16 +15,20 @@ KEY PARAMETERS:
 - specific_flags: Optional list of CLI flags to parse.
 """
 
+from os import getenv as osGetenv
 from os.path import exists as osPathExists
+from re import compile as reCompile
 from typing import Any, Dict, List, Optional
 
-import yaml
+from yaml import safe_load as yamlSafe_load
 
 from ..utils.logger import ILogger, ensure_safe_logger
 from .args import parse_cli_args
 from .merger import deep_merge
 
 # -----------------------------------------------------------------------------------------------
+
+ENC_REGEX = reCompile(r"ENC\(([^)]+)\)")
 
 
 def load_config(
@@ -95,12 +99,79 @@ class AppConfig:
         # ---------------------------------------------------------------------
         self._apply_cli_overrides()
 
+        # ---------------------------------------------------------------------
+        # PHASE 4: Process Encrypted Secrets (v1.9.1 Parity)
+        # ---------------------------------------------------------------------
+        self._process_secrets(self.data)
+
+    # -----------------------------------------------------------------------------------------------
+
+    def _get_private_key(self) -> Optional[Any]:
+        """Retrieves RSA Private Key with standard fallback logic."""
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives import serialization
+
+        key_path = osGetenv("BASTIEN_PRIVATE_KEY_PATH")
+        if not key_path:
+            key_path = "/etc/bastien/private.pem"
+            if not osPathExists(key_path):
+                if osPathExists("./private.pem"):
+                    key_path = "./private.pem"
+                else:
+                    return None
+
+        try:
+            with open(key_path, "rb") as f:
+                return serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
+        except Exception as e:
+            self.logger.warning(f"{self.Name} : Failed to load private key from {key_path}: {e}")
+            return None
+
+    def _process_secrets(self, target: Any) -> None:
+        """Recursively scans and decrypts ENC(...) blocks."""
+        priv_key = None
+
+        def decrypt_func(match):
+            import base64
+            from cryptography.hazmat.primitives import hashes
+            from cryptography.hazmat.primitives.asymmetric import padding
+
+            nonlocal priv_key
+            if priv_key is None:
+                priv_key = self._get_private_key()
+                if priv_key is None:
+                    return match.group(0)
+
+            try:
+                ciphertext = base64.b64decode(match.group(1))
+                plaintext = priv_key.decrypt(
+                    ciphertext,
+                    padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
+                )
+                return plaintext.decode("utf-8")
+            except Exception as e:
+                self.logger.warning(f"{self.Name} : Decryption failed: {e}")
+                return match.group(0)
+
+        if isinstance(target, dict):
+            for k, v in target.items():
+                if isinstance(v, str) and "ENC(" in v:
+                    target[k] = ENC_REGEX.sub(decrypt_func, v)
+                else:
+                    self._process_secrets(v)
+        elif isinstance(target, list):
+            for i, v in enumerate(target):
+                if isinstance(v, str) and "ENC(" in v:
+                    target[i] = ENC_REGEX.sub(decrypt_func, v)
+                else:
+                    self._process_secrets(v)
+
     # -----------------------------------------------------------------------------------------------
 
     def _load_from_file(self, filename: str) -> None:
         """Full merge of all file data into self.data"""
         with open(filename, "r") as f:
-            file_data = yaml.safe_load(f)
+            file_data = yamlSafe_load(f)
             if file_data:
                 self.deep_merge(self.data, file_data)
 
@@ -109,7 +180,7 @@ class AppConfig:
     def _apply_file_override(self, filename: str) -> None:
         """Re-reads file and merges ONLY capabilities as hard override (matches Go applyFileOverride)"""
         with open(filename, "r") as f:
-            file_data = yaml.safe_load(f)
+            file_data = yamlSafe_load(f)
             if file_data and "capabilities" in file_data:
                 self.data["capabilities"] = self.data.get("capabilities", {})
                 self.deep_merge(self.data["capabilities"], file_data["capabilities"])
