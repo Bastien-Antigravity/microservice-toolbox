@@ -103,7 +103,6 @@ class AppConfig:
                 filename = f"config/{profile}.yaml"
                 if not osPathExists(filename):
                     raise FileNotFoundError(f"Toolbox (Python): Config file not found for profile '{profile}' (Checked {profile}.yaml and config/{profile}.yaml)")
-            
             self._load_from_file(filename)
 
         # ---------------------------------------------------------------------
