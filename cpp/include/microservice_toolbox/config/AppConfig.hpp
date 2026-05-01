@@ -52,8 +52,8 @@ public:
             logger_->Info("libdistconf session initialized for profile: " + profile);
             
             // Phase 2: Manual loading of 'private' section (Parity with Go Toolbox)
-            // Note: distributed-config engine ignores 'private', so we handle it here.
-            LoadPrivateOverrides();
+            // Note: distributed-config engine ignores 'private', so we handle it here as 'local' config.
+            LoadLocalOverrides();
         } catch (const std::exception& e) {
             logger_->Error(std::string("Failed to initialize DistConf: ") + e.what());
             throw;
@@ -91,12 +91,12 @@ public:
     }
 
     /**
-     * Access service-specific private configuration.
+     * Access service-specific local configuration.
      * Manually extracted from local YAML files to maintain engine decoupling.
      */
-    std::string GetPrivate(const std::string& key) const {
-        auto it = private_config_.find(key);
-        if (it != private_config_.end()) {
+    std::string GetLocal(const std::string& key) const {
+        auto it = local_config_.find(key);
+        if (it != local_config_.end()) {
             return it->second;
         }
         return "";
@@ -109,9 +109,9 @@ private:
     std::string profile_;
     std::shared_ptr<Logger> logger_;
     std::unique_ptr<distconf::DistConfig> config_;
-    std::map<std::string, std::string> private_config_;
+    std::map<std::string, std::string> local_config_;
 
-    void LoadPrivateOverrides() {
+    void LoadLocalOverrides() {
         // We look for [profile].yaml or config/[profile].yaml (matching engine discovery)
         std::vector<std::string> candidates = {
             profile_ + ".yaml",
@@ -159,7 +159,7 @@ private:
 
                         // Basic ENV expansion: ${VAR} or ${VAR:default}
                         v = ExpandEnv(v);
-                        private_config_[k] = v;
+                        local_config_[k] = v;
                     }
                 }
             }

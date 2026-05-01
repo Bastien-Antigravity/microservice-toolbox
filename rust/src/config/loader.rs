@@ -110,6 +110,14 @@ impl AppConfig {
         }
 
         ac.apply_cli_overrides();
+        
+        // If --key flag provided, set it as ENV override for the Private Key (decryption engine)
+        if let Some(key) = &ac.cli_args.key {
+            unsafe {
+                std::env::set_var("BASTIEN_PRIVATE_KEY_PATH", key);
+            }
+        }
+
         ac.load_public_key();
         
         Ok(ac)
@@ -240,8 +248,16 @@ impl AppConfig {
         self.logger.info("Logger updated successfully");
     }
 
-    pub fn get_private(&self, key: &str) -> Option<&Value> {
+    pub fn get_local(&self, key: &str) -> Option<&Value> {
         self.get_value(&format!("private.{}", key))
+    }
+
+    /// Unmarshals the 'private' (local) configuration section into a target type.
+    /// Parity with Go's UnmarshalLocal.
+    pub fn unmarshal_local<T: serde::de::DeserializeOwned>(&self) -> Result<T, String> {
+        let priv_val = self.data.get(Value::String("private".to_string()))
+            .ok_or_else(|| "No local configuration found".to_string())?;
+        serde_yml::from_value(priv_val.clone()).map_err(|e| e.to_string())
     }
 
     pub fn get_listen_addr(&self, capability: &str) -> Result<String, String> {
@@ -450,8 +466,8 @@ mod tests {
     }
 
     #[test]
-    fn test_get_private() {
-        let yaml_str = "private:\n  api_key: secret123\n  nested:\n    a: 1";
+    fn test_get_local() {
+        let yaml_str = "private:\n  local_setting: value_xyz\n  nested:\n    a: 1";
         let data = serde_yml::from_str::<Value>(yaml_str).unwrap();
 
         let ac = AppConfig {
@@ -464,13 +480,35 @@ mod tests {
             _reg_cb: None,
         };
 
-        assert_eq!(ac.get_private("api_key").unwrap().as_str().unwrap(), "secret123");
-        assert!(ac.get_private("nested").is_some());
-        assert!(ac.get_private("missing").is_none());
+        assert_eq!(ac.get_local("local_setting").unwrap().as_str().unwrap(), "value_xyz");
+        assert!(ac.get_local("nested").is_some());
+        assert!(ac.get_local("missing").is_none());
     }
 
     #[test]
-    fn test_get_private_empty() {
+    fn test_unmarshal_local() -> Result<(), String> {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let yaml_str = "private:\n  local_setting: value_xyz\n  item_count: 5";
+        std::fs::write("unmarshal.yaml", yaml_str).map_err(|e| e.to_string())?;
+        
+        #[derive(serde::Deserialize)]
+        struct MyConfig {
+            local_setting: String,
+            item_count: u64,
+        }
+
+        let ac = AppConfig::load_config("unmarshal", None).map_err(|e| e.to_string())?;
+        let cfg: MyConfig = ac.unmarshal_local()?;
+        
+        assert_eq!(cfg.local_setting, "value_xyz");
+        assert_eq!(cfg.item_count, 5);
+        
+        std::fs::remove_file("unmarshal.yaml").ok();
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_local_empty() {
         let data = serde_yml::from_str::<Value>("common:\n  name: test").unwrap();
 
         let ac = AppConfig {
@@ -483,7 +521,7 @@ mod tests {
             _reg_cb: None,
         };
 
-        assert!(ac.get_private("anything").is_none());
+        assert!(ac.get_local("anything").is_none());
     }
 
     #[test]
@@ -629,7 +667,7 @@ mod tests {
         std::env::set_current_dir(&old_dir).unwrap();
         let _ = std::fs::remove_file(&config_path);
 
-        assert_eq!(ac.get_private("host").unwrap().as_str().unwrap(), "127.0.0.5");
-        assert_eq!(ac.get_private("port").unwrap().as_str().unwrap(), "8080");
+        assert_eq!(ac.get_local("host").unwrap().as_str().unwrap(), "127.0.0.5");
+        assert_eq!(ac.get_local("port").unwrap().as_str().unwrap(), "8080");
     }
 }

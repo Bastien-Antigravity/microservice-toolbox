@@ -121,34 +121,63 @@ def test_decrypt_secret_enc_raises(tmp_path):
         os.chdir(old_cwd)
 
 
-# ---- Private Config ----
+# ---- Local Config ----
 
-def test_get_private(tmp_path):
-    """Verify get_private() returns values from the private section."""
-    config_file = tmp_path / "priv.yaml"
-    yaml.dump({"private": {"api_key": "secret123", "nested": {"a": 1}}}, open(config_file, "w"))
+def test_get_local(tmp_path):
+    """Verify get_local() returns values from the 'private' YAML section."""
+    config_file = tmp_path / "local.yaml"
+    yaml.dump({"private": {"local_setting": "value_xyz", "nested": {"a": 1}}}, open(config_file, "w"))
 
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("priv", input_args=[])
-        assert ac.get_private("api_key") == "secret123"
-        assert ac.get_private("nested") == {"a": 1}
-        assert ac.get_private("missing") is None
+        ac = load_config("local", input_args=[])
+        assert ac.get_local("local_setting") == "value_xyz"
+        assert ac.get_local("nested") == {"a": 1}
+        assert ac.get_local("missing") is None
     finally:
         os.chdir(old_cwd)
 
 
-def test_get_private_empty(tmp_path):
-    """Verify get_private() returns None when no private section exists."""
-    config_file = tmp_path / "no-priv.yaml"
+def test_get_local_empty(tmp_path):
+    """Verify get_local() returns None when no private section exists."""
+    config_file = tmp_path / "no-local.yaml"
     yaml.dump({"common": {"name": "test"}}, open(config_file, "w"))
 
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("no-priv", input_args=[])
-        assert ac.get_private("anything") is None
+        ac = load_config("no-local", input_args=[])
+        assert ac.get_local("anything") is None
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_unmarshal_local(tmp_path):
+    """Verify unmarshal_local() maps the private section to a class."""
+    config_file = tmp_path / "unmarshal.yaml"
+    yaml.dump({"private": {"local_setting": "value_xyz", "item_count": 5}}, open(config_file, "w"))
+
+    class MyConfig:
+        def __init__(self, local_setting=None, item_count=0):
+            self.local_setting = local_setting
+            self.item_count = item_count
+
+    old_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        ac = load_config("unmarshal", input_args=[])
+        
+        # Test instantiating a type
+        cfg = ac.unmarshal_local(MyConfig)
+        assert cfg.local_setting == "value_xyz"
+        assert cfg.item_count == 5
+
+        # Test updating an existing instance
+        cfg2 = MyConfig()
+        ac.unmarshal_local(cfg2)
+        assert cfg2.local_setting == "value_xyz"
+        assert cfg2.item_count == 5
     finally:
         os.chdir(old_cwd)
 
@@ -221,8 +250,8 @@ def test_env_expansion(tmp_path):
     os.chdir(tmp_path)
     try:
         ac = load_config("env", input_args=[])
-        assert ac.get_private("host") == "127.0.0.5"
+        assert ac.get_local("host") == "127.0.0.5"
         # YAML parses 8080 as int unless quoted
-        assert int(ac.get_private("port")) == 8080
+        assert int(ac.get_local("port")) == 8080
     finally:
         os.chdir(old_cwd)

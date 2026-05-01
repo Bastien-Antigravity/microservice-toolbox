@@ -118,6 +118,11 @@ class AppConfig:
         # PHASE 3: Apply CLI Overrides (The absolute Highest Priority)
         # ---------------------------------------------------------------------
         self._apply_cli_overrides()
+        
+        # If --key flag provided, set it as ENV override for the Private Key (decryption engine)
+        if self.cli_args.key:
+            from os import environ as os_environ
+            os_environ["BASTIEN_PRIVATE_KEY_PATH"] = self.cli_args.key
 
         # ---------------------------------------------------------------------
         # PHASE 4: Load Public Key
@@ -329,12 +334,36 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def get_private(self, key: str) -> Any:
-        """Returns a value from the 'private' configuration section."""
+    def get_local(self, key: str) -> Any:
+        """Returns a value from the 'private' (local) configuration section."""
         priv = self.data.get("private")
         if priv is None:
             return None
         return priv.get(key)
+
+    # -----------------------------------------------------------------------------------------------
+
+    def unmarshal_local(self, target: Any) -> Any:
+        """
+        Unmarshals the 'private' (local) configuration section into a target type or instance.
+        Parity with Go's UnmarshalLocal.
+        """
+        priv = self.data.get("private")
+        if not priv:
+            raise ValueError("No private configuration found")
+
+        import json
+        raw_json = json.dumps(priv)
+        data = json.loads(raw_json)
+
+        if isinstance(target, type):
+            # If target is a class (e.g. a dataclass), instantiate it
+            return target(**data)
+        else:
+            # If target is an existing instance, update its attributes
+            for k, v in data.items():
+                setattr(target, k, v)
+            return target
 
     # -----------------------------------------------------------------------------------------------
 

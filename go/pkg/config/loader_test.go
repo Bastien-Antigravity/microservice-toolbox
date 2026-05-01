@@ -127,7 +127,7 @@ iADG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZAiADG
 8Q==
 -----END RSA PRIVATE KEY-----`
 	
-	// Pre-encrypted "my-secret-password" using a 512-bit key
+	// Pre-encrypted "my-value_xyz-password" using a 512-bit key
 	// (Note: In a real test we'd use crypto/rsa to encrypt, but we want to keep it simple)
 	// We'll just verify the decryption logic works if we provide a valid ENC()
 	
@@ -186,25 +186,60 @@ func TestAppConfig_KeyFlag(t *testing.T) {
 	os.Unsetenv("BASTIEN_PRIVATE_KEY_PATH")
 }
 
-func TestAppConfig_GetPrivate(t *testing.T) {
-	ac := &AppConfig{
-		Config:  distconf.New("standalone"),
-		Logger:  utils.EnsureSafeLogger(nil),
-		Private: map[string]interface{}{"api_key": "secret123", "nested": map[string]interface{}{"a": 1}},
-	}
+func TestAppConfig_AutoLoadPublicKey(t *testing.T) {
+	// Create a dummy public.pem
+	keyContent := "test-key-content"
+	err := os.WriteFile("public.pem", []byte(keyContent), 0644)
+	assert.NoError(t, err)
+	defer os.Remove("public.pem")
 
-	assert.Equal(t, "secret123", ac.GetPrivate("api_key"))
-	assert.NotNil(t, ac.GetPrivate("nested"))
-	assert.Nil(t, ac.GetPrivate("missing"))
+	// Load config - it should automatically find public.pem
+	ac, err := LoadConfig("standalone", nil)
+	assert.NoError(t, err)
+	
+	// Check if it's in Common.PublicKey
+	assert.Equal(t, keyContent, ac.Config.Common.PublicKey)
 }
 
-func TestAppConfig_GetPrivateEmpty(t *testing.T) {
+func TestAppConfig_GetLocal(t *testing.T) {
+	ac := &AppConfig{
+		Config: distconf.New("standalone"),
+		Local: map[string]interface{}{
+			"setting_a": "value_a",
+		},
+	}
+	assert.Equal(t, "value_a", ac.GetLocal("setting_a"))
+	assert.Nil(t, ac.GetLocal("missing"))
+}
+
+func TestAppConfig_UnmarshalLocal(t *testing.T) {
+	ac := &AppConfig{
+		Config: distconf.New("standalone"),
+		Local: map[string]interface{}{
+			"local_setting":     "value_xyz",
+			"item_count": 3,
+		},
+	}
+
+	type Config struct {
+		LocalSetting     string `json:"local_setting"`
+		ItemCount int    `json:"item_count"`
+	}
+
+	var cfg Config
+	err := ac.UnmarshalLocal(&cfg)
+	assert.NoError(t, err)
+	assert.Equal(t, "value_xyz", cfg.LocalSetting)
+	assert.Equal(t, 3, cfg.ItemCount)
+}
+
+func TestAppConfig_GetLocalEmpty(t *testing.T) {
 	ac := &AppConfig{
 		Config: distconf.New("standalone"),
 		Logger: utils.EnsureSafeLogger(nil),
 	}
-	// Private is nil
-	assert.Nil(t, ac.GetPrivate("anything"))
+	// Local is nil
+	assert.Nil(t, ac.GetLocal("anything"))
 }
 
 func TestAppConfig_DecryptPlaintextPassthrough(t *testing.T) {

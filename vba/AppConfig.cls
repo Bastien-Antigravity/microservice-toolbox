@@ -17,14 +17,14 @@ Option Explicit
 
 Private m_handle As LongPtr
 Private m_profile As String
-Private m_private As Object ' Scripting.Dictionary
+Private m_local As Object ' Scripting.Dictionary
 
 ' Initialization
 ' -----------------------------------------------------------------------------------------------
 
 Public Sub Init(ByVal profile As String)
     m_profile = profile
-    Set m_private = CreateObject("Scripting.Dictionary")
+    Set m_local = CreateObject("Scripting.Dictionary")
     
     m_handle = DistConf.DistConf_New(profile)
     
@@ -33,7 +33,7 @@ Public Sub Init(ByVal profile As String)
     End If
     
     ' Phase 2: Manual loading of 'private' section (Parity with Go Toolbox)
-    LoadPrivateOverrides
+    LoadLocalOverrides
 End Sub
 
 ' Clean up
@@ -44,7 +44,7 @@ Private Sub Class_Terminate()
         DistConf.DistConf_Close m_handle
         m_handle = 0
     End If
-    Set m_private = Nothing
+    Set m_local = Nothing
 End Sub
 
 ' API Methods
@@ -77,19 +77,19 @@ Public Function DecryptSecret(ByVal ciphertext As String) As String
     DecryptSecret = Toolbox.PtrToString(ptr)
 End Function
 
-' GetPrivate returns a value from the 'private' configuration section.
-Public Function GetPrivate(ByVal key As String) As String
-    If m_private.Exists(key) Then
-        GetPrivate = m_private(key)
+' GetLocal returns a value from the 'private' (local) configuration section.
+Public Function GetLocal(ByVal key As String) As String
+    If m_local.Exists(key) Then
+        GetLocal = m_local(key)
     Else
-        GetPrivate = ""
+        GetLocal = ""
     End If
 End Function
 
 ' Internal Helpers
 ' -----------------------------------------------------------------------------------------------
 
-Private Sub LoadPrivateOverrides()
+Private Sub LoadLocalOverrides()
     On Error Resume Next
     Dim fso As Object
     Set fso = CreateObject("Scripting.FileSystemObject")
@@ -137,8 +137,8 @@ Private Sub LoadPrivateOverrides()
                         ' (Simplified: matches VBA's Environ function)
                         v = ExpandEnv(v)
                         
-                        If m_private.Exists(k) Then m_private.Remove k
-                        m_private.Add k, v
+                        If m_local.Exists(k) Then m_local.Remove k
+                        m_local.Add k, v
                     End If
                 End If
             End If

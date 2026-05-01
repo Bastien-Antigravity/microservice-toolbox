@@ -17,7 +17,7 @@ import (
 // AppConfig wraps the distributed-config and provides toolbox enhancements.
 type AppConfig struct {
 	*distributed_config.Config
-	Private  map[string]interface{}
+	Local    map[string]interface{}
 	Resolver *connectivity.Resolver
 	Profile  string
 	Logger   utils.Logger
@@ -96,28 +96,28 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 			ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
 		}
 		if priv, ok := raw["private"].(map[string]interface{}); ok {
-			if ac.Private == nil {
-				ac.Private = make(map[string]interface{})
+			if ac.Local == nil {
+				ac.Local = make(map[string]interface{})
 			}
-			ac.Private = DeepMerge(ac.Private, priv)
+			ac.Local = DeepMerge(ac.Local, priv)
 		}
 	}
 }
 
-// GetPrivate returns a value from the 'private' configuration section.
-func (ac *AppConfig) GetPrivate(key string) interface{} {
-	if ac.Private == nil {
+// GetLocal returns a value from the 'local' configuration section.
+func (ac *AppConfig) GetLocal(key string) interface{} {
+	if ac.Local == nil {
 		return nil
 	}
-	return ac.Private[key]
+	return ac.Local[key]
 }
 
-// UnmarshalPrivate unmarshals the private configuration into the target struct.
-func (ac *AppConfig) UnmarshalPrivate(target interface{}) error {
-	if ac.Private == nil {
-		return fmt.Errorf("no private configuration found")
+// UnmarshalLocal maps the 'local' configuration section into a target struct.
+func (ac *AppConfig) UnmarshalLocal(target interface{}) error {
+	if ac.Local == nil {
+		return fmt.Errorf("no local configuration found")
 	}
-	data, err := json.Marshal(ac.Private)
+	data, err := json.Marshal(ac.Local)
 	if err != nil {
 		return err
 	}

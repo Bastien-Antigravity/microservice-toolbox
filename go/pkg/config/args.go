@@ -57,7 +57,7 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 		Extra:    make(map[string]string),
 	}
 
-	// If key provided, set it as ENV override for the decryption engine
+	// If key provided, set it as ENV override for the decryption engine (Private Key)
 	if *key != "" {
 		os.Setenv("BASTIEN_PRIVATE_KEY_PATH", *key)
 	}
