@@ -41,7 +41,7 @@ pub fn get_lib() -> Option<&'static DistConfLib> {
                 dist_conf_on_live_conf_update: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, ConfigUpdateCb)>, Symbol<'static, extern "C" fn(usize, ConfigUpdateCb)>>(lib.get::<extern "C" fn(usize, ConfigUpdateCb)>(b"DistConf_OnLiveConfUpdate").ok()?),
                 dist_conf_on_registry_update: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, ConfigUpdateCb)>, Symbol<'static, extern "C" fn(usize, ConfigUpdateCb)>>(lib.get::<extern "C" fn(usize, ConfigUpdateCb)>(b"DistConf_OnRegistryUpdate").ok()?),
                 dist_conf_get_address: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetAddress").ok()?),
-                dist_conf_get_grpc_address: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetGRPCAddress").ok()?),
+                dist_conf_get_grpc_address: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const i8) -> *mut i8>(b"DistConf_GetGRPCAddress").ok()?),
                 dist_conf_get_capability: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetCapability").ok()?),
                 dist_conf_get_full_config: std::mem::transmute::<Symbol<'_, extern "C" fn(usize) -> *mut c_char>, Symbol<'static, extern "C" fn(usize) -> *mut c_char>>(lib.get::<extern "C" fn(usize) -> *mut c_char>(b"DistConf_GetFullConfig").ok()?),
                 dist_conf_decrypt: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_Decrypt").ok()?),
@@ -53,6 +53,14 @@ pub fn get_lib() -> Option<&'static DistConfLib> {
     }).as_ref()
 }
 
+/// Converts a C string pointer to a Rust String and frees the C string.
+///
+/// # Safety
+///
+/// * `c_ptr` must be a valid, null-terminated C string.
+/// * `c_ptr` must have been allocated by the `dist_conf` library as it will be freed
+///   using `dist_conf_free_string`.
+/// * After calling this function, `c_ptr` must not be used again.
 pub unsafe fn to_rust_string(c_ptr: *mut c_char) -> Option<String> {
     if c_ptr.is_null() {
         return None;
