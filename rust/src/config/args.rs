@@ -69,7 +69,9 @@ impl ToolboxArgs {
 
         // If key provided, set it as ENV override for the decryption engine
         if let Some(k) = &result.key {
-            std::env::set_var("BASTIEN_PRIVATE_KEY_PATH", k);
+            unsafe {
+                std::env::set_var("BASTIEN_PRIVATE_KEY_PATH", k);
+            }
         }
 
         if is_docker {

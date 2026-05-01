@@ -65,7 +65,7 @@ The toolbox ensures that architectural patterns are identical across languages.
 | CLI Flag Overrides | ✅ | ✅ | ✅ |
 | Environment Var Expansion | ✅ | ✅ | ✅ |
 | **RSA Secret Decryption** | ✅ | ✅ | ✅ |
-| **Remote Config Sync** | ✅ | ❌ | ❌ |
+| **Remote Config Sync** | ✅ | ✅ | ✅ |
 | Connection Manager (Retries) | ✅ | ✅ | ✅ |
 | Universal Serializers (Msgpack) | ✅ | ✅ | ✅ |
 

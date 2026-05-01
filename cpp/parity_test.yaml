@@ -1,5 +1,7 @@
 common:
     name: common
+    common_file_path: ""
+    public_key: ""
     reset: false
 capabilities:
     config_server:
@@ -36,5 +38,3 @@ capabilities:
     web_interface:
         ip: ${WB_IP:127.0.0.2}
         port: ${WB_PORT:8080}
-common_file_path: ""
-memconfigpath: ""

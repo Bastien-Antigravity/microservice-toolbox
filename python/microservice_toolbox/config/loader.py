@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding:utf-8
+
 """
 ESSENTIAL PROCESS:
 Initializes a configuration loader following the Microservice Toolbox 'Hierarchy of Truth'.
@@ -17,18 +18,20 @@ KEY PARAMETERS:
 
 from os import getenv as osGetenv
 from os.path import exists as osPathExists
-from re import compile as reCompile
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from yaml import safe_load as yamlSafe_load
 
 from ..utils.logger import ILogger, ensure_safe_logger
 from .args import parse_cli_args
 from .merger import deep_merge
+from .lib_loader import lib, CALLBACK_TYPE
+
+from json import loads as jsonLoads, dumps as jsonDumps
 
 # -----------------------------------------------------------------------------------------------
 
-ENC_REGEX = reCompile(r"ENC\(([^)]+)\)")
+
 
 
 def load_config(
@@ -73,14 +76,31 @@ class AppConfig:
         self.data: Dict[str, Any] = {}
         self.logger = ensure_safe_logger(logger)
         self.cli_args = parse_cli_args(specific_flags, input_args=input_args)
+        filename = f"{profile}.yaml"
+        
+        # ---------------------------------------------------------------------
+        # BRIDGE INITIALIZATION (v1.9.8 Standard)
+        # ---------------------------------------------------------------------
+        self._handle = None
+        self._callback_refs = {} # Keep references to avoid GC
+        
+        if lib:
+            try:
+                self._handle = lib.DistConf_New(profile.encode('utf-8'))
+                if self._handle:
+                    self.logger.info("{0} : libdistconf session initialized (handle: {1})".format(self.Name, self._handle))
+                    # Sync local data with bridge state
+                    self._sync_from_bridge()
+            except Exception as e:
+                self.logger.warning("{0} : libdistconf initialization failed: {1}. Falling back to native.".format(self.Name, e))
 
         # ---------------------------------------------------------------------
-        # PHASE 1: Load base configuration from YAML
+        # PHASE 1: Load base configuration from YAML (Native Fallback)
         # ---------------------------------------------------------------------
-        filename = f"{profile}.yaml"
-        if not osPathExists(filename):
-            raise FileNotFoundError(f"Toolbox (Python): Config file '{filename}' not found for profile '{profile}'")
-        self._load_from_file(filename)
+        if not self._handle:
+            if not osPathExists(filename):
+                raise FileNotFoundError(f"Toolbox (Python): Config file '{filename}' not found for profile '{profile}'")
+            self._load_from_file(filename)
 
         # ---------------------------------------------------------------------
         # PHASE 2: Apply context-aware overrides
@@ -129,78 +149,31 @@ class AppConfig:
     # -----------------------------------------------------------------------------------------------
 
     def decrypt_secret(self, ciphertext: str) -> str:
-        """Explicitly decrypts a single ENC(...) ciphertext string."""
-        if not isinstance(ciphertext, str) or "ENC(" not in ciphertext:
+        """
+        Explicitly decrypts a single ENC(...) ciphertext string.
+        Uses the hardened distributed-config engine to ensure cross-language consistency.
+        Raises ValueError if decryption fails for an ENC(...) block.
+        """
+        if not isinstance(ciphertext, str) or not ciphertext.startswith("ENC(") or not ciphertext.endswith(")"):
             return ciphertext
 
-        match = ENC_REGEX.search(ciphertext)
-        if not match:
-            return ciphertext
-
-        return self._decrypt_single(match)
-
-    # -----------------------------------------------------------------------------------------------
-
-    def _get_private_key(self) -> Optional[Any]:
-        """Retrieves RSA Private Key with standard fallback logic."""
-        from cryptography.hazmat.backends import default_backend
-        from cryptography.hazmat.primitives import serialization
-
-        key_path = osGetenv("BASTIEN_PRIVATE_KEY_PATH")
-        if not key_path:
-            key_path = "/etc/bastien/private.pem"
-            if not osPathExists(key_path):
-                if osPathExists("./private.pem"):
-                    key_path = "./private.pem"
+        if self._handle:
+            try:
+                res = lib.DistConf_Decrypt(self._handle, ciphertext.encode('utf-8'))
+                if res:
+                    val = res.decode('utf-8')
+                    return val
                 else:
-                    return None
-
-        try:
-            with open(key_path, "rb") as f:
-                return serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
-        except Exception as e:
-            self.logger.warning(f"{self.Name} : Failed to load private key from {key_path}: {e}")
-            return None
-
-    def _decrypt_single(self, match: Any) -> str:
-        """Core RSA-OAEP decryption logic for a single match."""
-        import base64
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.asymmetric import padding
-
-        priv_key = self._get_private_key()
-        if priv_key is None:
-            return match.group(0)
-
-        try:
-            ciphertext = base64.b64decode(match.group(1))
-            plaintext = priv_key.decrypt(
-                ciphertext,
-                padding.OAEP(mgf=padding.MGF1(algorithm=hashes.SHA256()), algorithm=hashes.SHA256(), label=None),
-            )
-            return plaintext.decode("utf-8")
-        except Exception as e:
-            self.logger.warning(f"{self.Name} : Decryption failed: {e}")
-            return match.group(0)
-
-    def process_secrets(self, target: Any) -> None:
-        """Recursively scans and decrypts ENC(...) blocks in a data structure."""
-        if isinstance(target, dict):
-            for k, v in target.items():
-                if isinstance(v, str) and "ENC(" in v:
-                    match = ENC_REGEX.search(v)
-                    if match:
-                        target[k] = self._decrypt_single(match)
-                else:
-                    self.process_secrets(v)
-        elif isinstance(target, list):
-            for i, v in enumerate(target):
-                if isinstance(v, str) and "ENC(" in v:
-                    match = ENC_REGEX.search(v)
-                    if match:
-                        target[i] = self._decrypt_single(match)
-                else:
-                    self.process_secrets(v)
+                    # Failure in the Go engine (e.g. invalid base64 or missing key)
+                    raise ValueError(f"{self.Name} : Decryption failed via bridge")
+            except Exception as e:
+                if isinstance(e, ValueError):
+                    raise
+                self.logger.error(f"{self.Name} : Decryption failed via bridge: {e}")
+        
+        # If we reach here, it's an ENC(...) block but we couldn't decrypt it
+        # (either bridge failed or bridge is missing). Original behavior was to raise ValueError.
+        raise ValueError(f"{self.Name} : Decryption not available or failed for ENC block")
 
     # -----------------------------------------------------------------------------------------------
 
@@ -217,9 +190,13 @@ class AppConfig:
         """Re-reads file and merges ONLY capabilities as hard override (matches Go applyFileOverride)"""
         with open(filename, "r") as f:
             file_data = yamlSafe_load(f)
-            if file_data and "capabilities" in file_data:
-                self.data["capabilities"] = self.data.get("capabilities", {})
-                self.deep_merge(self.data["capabilities"], file_data["capabilities"])
+            if file_data:
+                if "capabilities" in file_data:
+                    self.data["capabilities"] = self.data.get("capabilities", {})
+                    self.deep_merge(self.data["capabilities"], file_data["capabilities"])
+                if "private" in file_data:
+                    self.data["private"] = self.data.get("private", {})
+                    self.deep_merge(self.data["private"], file_data["private"])
 
     # -----------------------------------------------------------------------------------------------
 
@@ -255,33 +232,36 @@ class AppConfig:
     # -----------------------------------------------------------------------------------------------
 
     def get_listen_addr(self, capability: str) -> str:
+        """
+        Resolves the listening address for a capability.
+        Prioritizes live bridge resolution (Service Discovery) over local snapshots.
+        """
+        if self._handle:
+            try:
+                res = lib.DistConf_GetAddress(self._handle, capability.encode('utf-8'))
+                if res:
+                    return res.decode('utf-8')
+            except Exception as e:
+                self.logger.warning(f"{self.Name} : Bridge GetAddress failed: {e}")
+
         return self._get_addr(capability, "ip", "port")
 
     # -----------------------------------------------------------------------------------------------
 
     def get_grpc_listen_addr(self, capability: str) -> str:
-        caps = self.data.get("capabilities", {})
-        cap = caps.get(capability)
+        """
+        Resolves the gRPC listening address for a capability.
+        Requires explicit grpc_ip and grpc_port (matching Go GetGRPCAddress behavior).
+        """
+        if self._handle:
+            try:
+                res = lib.DistConf_GetGRPCAddress(self._handle, capability.encode('utf-8'))
+                if res:
+                    return res.decode('utf-8')
+            except Exception as e:
+                self.logger.warning(f"{self.Name} : Bridge GetGRPCAddress failed: {e}")
 
-        if not cap:
-            raise ValueError(f"capability {capability} not found for gRPC fallback")
-
-        # 1. Try explicit grpc config
-        grpc_ip = cap.get("grpc_ip")
-        grpc_port = cap.get("grpc_port")
-
-        if grpc_ip and grpc_port:
-            return f"{grpc_ip}:{grpc_port}"
-
-        # 2. Fallback to convention: ip:port+1 (matching Go implementation)
-        ip = cap.get("ip", "0.0.0.0")
-        port_str = cap.get("port", "8080")
-        try:
-            port = int(port_str)
-        except (ValueError, TypeError):
-            port = 8080
-
-        return f"{ip}:{port + 1}"
+        return self._get_addr(capability, "grpc_ip", "grpc_port")
 
     # -----------------------------------------------------------------------------------------------
 
@@ -297,3 +277,113 @@ class AppConfig:
             raise ValueError(f"port key {port_key} missing or empty in capability {capability}")
 
         return f"{host}:{port}"
+
+    # -----------------------------------------------------------------------------------------------
+
+    def _sync_from_bridge(self) -> None:
+        """Pulls the full configuration state from the Go bridge into self.data."""
+        if not self._handle:
+            return
+        
+        try:
+            full_json = lib.DistConf_GetFullConfig(self._handle)
+            if full_json:
+                self.data = jsonLoads(full_json.decode('utf-8'))
+        except Exception as e:
+            self.logger.warning(f"{self.Name} : Failed to sync from bridge: {e}")
+
+    # -----------------------------------------------------------------------------------------------
+
+    def get_config(self, section: str, key: str, default: Any = None) -> Any:
+        """Retrieves a value from the bridge or local data."""
+        if self._handle:
+            res = lib.DistConf_Get(self._handle, section.encode('utf-8'), key.encode('utf-8'))
+            if res is not None:
+                return res.decode('utf-8')
+        
+        # Fallback to local data
+        sect = self.data.get(section, {})
+        return sect.get(key, default)
+
+    # -----------------------------------------------------------------------------------------------
+
+    def get_private(self, key: str) -> Any:
+        """Returns a value from the 'private' configuration section."""
+        priv = self.data.get("private")
+        if priv is None:
+            return None
+        return priv.get(key)
+
+    # -----------------------------------------------------------------------------------------------
+
+    def set_logger(self, logger: Any) -> None:
+        """Updates the logger after instantiation."""
+        self.logger = ensure_safe_logger(logger)
+        self.logger.info("{0} : Logger updated successfully".format(self.Name))
+
+    # -----------------------------------------------------------------------------------------------
+
+    def on_live_conf_update(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+        """Registers a callback for live configuration updates (Dynamic Fleet Config)."""
+        if not self._handle:
+            self.logger.warning(f"{self.Name} : Live updates not supported (no bridge)")
+            return
+
+        def _bridge_cb(handle: int, json_data: bytes) -> None:
+            try:
+                data = jsonLoads(json_data.decode('utf-8'))
+                callback(data)
+                self._sync_from_bridge() # Keep local data in sync
+            except Exception as e:
+                self.logger.error(f"{self.Name} : Live update callback failed: {e}")
+
+        self._callback_refs["live"] = CALLBACK_TYPE(_bridge_cb)
+        lib.DistConf_OnLiveConfUpdate(self._handle, self._callback_refs["live"])
+
+    # -----------------------------------------------------------------------------------------------
+
+    def on_registry_update(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+        """Registers a callback for service registry changes (Service Discovery)."""
+        if not self._handle:
+            self.logger.warning(f"{self.Name} : Registry updates not supported (no bridge)")
+            return
+
+        def _bridge_cb(handle: int, json_data: bytes) -> None:
+            try:
+                data = jsonLoads(json_data.decode('utf-8'))
+                callback(data)
+                self._sync_from_bridge()
+            except Exception as e:
+                self.logger.error(f"{self.Name} : Registry update callback failed: {e}")
+
+        self._callback_refs["registry"] = CALLBACK_TYPE(_bridge_cb)
+        lib.DistConf_OnRegistryUpdate(self._handle, self._callback_refs["registry"])
+
+    # -----------------------------------------------------------------------------------------------
+
+    def on_update(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+        """Deprecated: Use on_live_conf_update(). Semantic alias for backward compatibility."""
+        self.on_live_conf_update(callback)
+
+    # -----------------------------------------------------------------------------------------------
+
+    def share_config(self, payload: Dict[str, Any]) -> bool:
+        """Shares service configuration with the ecosystem."""
+        if not self._handle:
+            return False
+        try:
+            return lib.DistConf_ShareConfig(self._handle, jsonDumps(payload).encode('utf-8'))
+        except Exception as e:
+            self.logger.error(f"{self.Name} : ShareConfig failed: {e}")
+            return False
+
+    # -----------------------------------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Closes the bridge session."""
+        if self._handle:
+            lib.DistConf_Close(self._handle)
+            self._handle = None
+
+    def __del__(self) -> None:
+        self.close()

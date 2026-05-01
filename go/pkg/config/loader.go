@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -16,9 +17,16 @@ import (
 // AppConfig wraps the distributed-config and provides toolbox enhancements.
 type AppConfig struct {
 	*distributed_config.Config
+	Private  map[string]interface{}
 	Resolver *connectivity.Resolver
 	Profile  string
 	Logger   utils.Logger
+}
+
+// SetLogger updates the logger after instantiation.
+func (ac *AppConfig) SetLogger(logger utils.Logger) {
+	ac.Logger = utils.EnsureSafeLogger(logger)
+	ac.Logger.Info("Logger updated successfully")
 }
 
 // LoadConfig loads the configuration with layered priority:
@@ -87,12 +95,75 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 		if caps, ok := raw["capabilities"].(map[string]interface{}); ok {
 			ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
 		}
+		if priv, ok := raw["private"].(map[string]interface{}); ok {
+			if ac.Private == nil {
+				ac.Private = make(map[string]interface{})
+			}
+			ac.Private = DeepMerge(ac.Private, priv)
+		}
 	}
 }
 
+// GetPrivate returns a value from the 'private' configuration section.
+func (ac *AppConfig) GetPrivate(key string) interface{} {
+	if ac.Private == nil {
+		return nil
+	}
+	return ac.Private[key]
+}
+
+// UnmarshalPrivate unmarshals the private configuration into the target struct.
+func (ac *AppConfig) UnmarshalPrivate(target interface{}) error {
+	if ac.Private == nil {
+		return fmt.Errorf("no private configuration found")
+	}
+	data, err := json.Marshal(ac.Private)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, target)
+}
+
 // DecryptSecret decrypts a single ENC(...) ciphertext string.
+// If the string does not start with ENC(...), it is returned as-is (plaintext fallback).
+// If it is an ENC(...) block but decryption fails, an error is returned.
 func (ac *AppConfig) DecryptSecret(ciphertext string) (string, error) {
+	if !strings.HasPrefix(ciphertext, "ENC(") || !strings.HasSuffix(ciphertext, ")") {
+		return ciphertext, nil
+	}
 	return distributed_config.Decrypt(ciphertext)
+}
+
+// OnLiveConfUpdate registers a callback for live configuration updates.
+func (ac *AppConfig) OnLiveConfUpdate(cb func(map[string]interface{})) {
+	ac.Config.OnLiveConfUpdate(func(data map[string]map[string]string) {
+		// Convert to generic map for the toolbox's uniform API
+		generic := make(map[string]interface{})
+		for k, v := range data {
+			inner := make(map[string]interface{})
+			for ik, iv := range v {
+				inner[ik] = iv
+			}
+			generic[k] = inner
+		}
+		cb(generic)
+	})
+}
+
+// OnRegistryUpdate registers a callback for service registry changes.
+func (ac *AppConfig) OnRegistryUpdate(cb func(map[string]interface{})) {
+	ac.Config.OnRegistryUpdate(func(data map[string][]string) {
+		generic := make(map[string]interface{})
+		for k, v := range data {
+			generic[k] = v
+		}
+		cb(generic)
+	})
+}
+
+// ShareConfig shares service configuration with the ecosystem.
+func (ac *AppConfig) ShareConfig(payload map[string]interface{}) error {
+	return ac.Config.ShareConfig(payload)
 }
 
 func (ac *AppConfig) applyCLIOverrides(args *CLIArgs) {

@@ -1,13 +1,10 @@
 use serde_yml::Value;
 use std::fs;
-use std::sync::Arc;
+use std::ffi::CString;
+use std::sync::{Arc, Mutex, OnceLock};
 use crate::config::args::ToolboxArgs;
 use crate::config::merger::deep_merge;
 use crate::utils::logger::{Logger, ensure_safe_logger};
-use regex::Regex;
-use rsa::{RsaPrivateKey, pkcs1::DecodeRsaPrivateKey, Oaep};
-use sha2::Sha256;
-use base64::{Engine as _, engine::general_purpose};
 
 #[cfg(feature = "unilog")]
 use crate::utils::logger::UniLogger;
@@ -15,20 +12,30 @@ use crate::utils::logger::UniLogger;
 #[cfg(feature = "unilog")]
 use unilog_rs::LogLevel;
 
+// Static callback registry — routes C callbacks to Rust closures.
+// One AppConfig per process is the standard microservice pattern.
+type CbBox = Box<dyn Fn(serde_json::Value) + Send + Sync>;
+static LIVE_CB: OnceLock<Mutex<Option<CbBox>>> = OnceLock::new();
+static REG_CB: OnceLock<Mutex<Option<CbBox>>> = OnceLock::new();
+
+fn get_live_cb() -> &'static Mutex<Option<CbBox>> {
+    LIVE_CB.get_or_init(|| Mutex::new(None))
+}
+fn get_reg_cb() -> &'static Mutex<Option<CbBox>> {
+    REG_CB.get_or_init(|| Mutex::new(None))
+}
+
 pub struct AppConfig {
     pub profile: String,
     pub data: Value,
     pub cli_args: ToolboxArgs,
     pub logger: Arc<dyn Logger>,
+    _handle: Option<usize>,
+    _live_cb: Option<Box<dyn Fn(serde_json::Value) + Send + Sync>>,
+    _reg_cb: Option<Box<dyn Fn(serde_json::Value) + Send + Sync>>,
 }
 
 /// Initializes a configuration loader following the Microservice Toolbox 'Hierarchy of Truth'.
-/// 
-/// Priority levels (highest to lowest):
-/// 1. CLI Overrides (e.g., --host, --port)
-/// 2. Context-Aware File Overrides (Dev Mode Hard Overrides)
-/// 3. Production/Fleet Source (Config Server or YAML)
-/// 4. Base environment/defaults
 pub fn load_config(profile: &str) -> Result<AppConfig, Box<dyn std::error::Error>> {
     AppConfig::load_config(profile, None)
 }
@@ -40,11 +47,9 @@ pub fn load_config_with_logger(profile: &str, logger: Option<Arc<dyn Logger>>) -
 
 impl AppConfig {
     /// Loads and merges configuration data based on the provided profile.
-    /// It automatically handles platform-specific overrides and CLI priority.
     pub fn load_config(profile: &str, logger: Option<Arc<dyn Logger>>) -> Result<Self, Box<dyn std::error::Error>> {
         let cli_args = ToolboxArgs::parse_cli_args();
         
-        // If no logger provided, try to bootstrap UniLogger if enabled, else default
         let final_logger = match logger {
             Some(l) => l,
             None => {
@@ -72,23 +77,39 @@ impl AppConfig {
             data: Value::Mapping(serde_yml::Mapping::new()),
             cli_args,
             logger: final_logger,
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
         };
 
-        // Phase 1: Load base config from file (full merge of all sections)
-        ac.load_from_file(&format!("{}.yaml", profile));
+        // ---------------------------------------------------------------------
+        // BRIDGE INITIALIZATION (v1.9.8 Standard)
+        // ---------------------------------------------------------------------
+        if let Some(lib) = crate::config::ffi::get_lib() {
+            let profile_c = CString::new(profile).unwrap();
+            let handle = (lib.dist_conf_new)(profile_c.as_ptr());
+            if handle != 0 {
+                ac._handle = Some(handle);
+                ac.logger.info(&format!("libdistconf session initialized (handle: {})", handle));
+                ac.sync_from_bridge();
+            }
+        }
+
+        // Phase 1: Load base config from file (Native Fallback)
+        if ac._handle.is_none() {
+            ac.load_from_file(&format!("{}.yaml", profile));
+        }
 
         // Phase 2: Layered logic matching Go implementation
         let is_dev = profile == "standalone" || profile == "test";
         if is_dev {
             ac.logger.info("Dev Mode detected. Re-applying Local File as Hard Override.");
-            // Re-apply file capabilities as hard override (matching Go applyFileOverride)
             ac.apply_file_override(&format!("{}.yaml", profile));
         } else {
             ac.logger.info("Production Mode detected. Config Server remains authoritative.");
         }
 
         ac.apply_cli_overrides();
-        
         ac.load_public_key();
         
         Ok(ac)
@@ -114,151 +135,59 @@ impl AppConfig {
     }
 
     /// Explicitly decrypts a single ENC(...) ciphertext string.
-    pub fn decrypt_secret(&self, ciphertext: &str) -> String {
-        if !ciphertext.contains("ENC(") {
-            return ciphertext.to_string();
+    /// Uses the hardened distributed-config engine for cross-language consistency.
+    pub fn decrypt_secret(&self, ciphertext: &str) -> Result<String, String> {
+        if !ciphertext.starts_with("ENC(") || !ciphertext.ends_with(")") {
+            return Ok(ciphertext.to_string());
         }
-        
-        let re = Regex::new(r"ENC\(([^)]+)\)").unwrap();
-        if let Some(cap) = re.captures(ciphertext) {
-            let b64_data = &cap[1];
-            if let Ok(ciphertext_bytes) = general_purpose::STANDARD.decode(b64_data) {
-                if let Some(key) = self.get_private_key() {
-                    let padding = Oaep::new::<Sha256>();
-                    if let Ok(plaintext) = key.decrypt(padding, &ciphertext_bytes) {
-                        if let Ok(p_str) = String::from_utf8(plaintext) {
-                            return p_str;
-                        }
-                    }
+
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                let cipher_c = CString::new(ciphertext).map_err(|e| e.to_string())?;
+                let ptr = (lib.dist_conf_decrypt)(handle, cipher_c.as_ptr());
+                if let Some(decrypted) = crate::config::ffi::to_rust_string(ptr) {
+                    return Ok(decrypted);
                 }
-            }
+                return Err("Decryption failed via bridge".to_string());
         }
-        ciphertext.to_string()
+
+        Err("Decryption not available (no bridge)".to_string())
     }
 
-    fn get_private_key(&self) -> Option<RsaPrivateKey> {
-        let mut key_path = std::env::var("BASTIEN_PRIVATE_KEY_PATH").unwrap_or_default();
-        if key_path.is_empty() {
-            key_path = "/etc/bastien/private.pem".to_string();
-            if !std::path::Path::new(&key_path).exists() {
-                if std::path::Path::new("./private.pem").exists() {
-                    key_path = "./private.pem".to_string();
-                } else {
-                    return None;
-                }
-            }
-        }
-
-        match fs::read_to_string(&key_path) {
-            Ok(pem) => {
-                match RsaPrivateKey::from_pkcs1_pem(&pem) {
-                    Ok(key) => Some(key),
-                    Err(e) => {
-                        self.logger.warning(&format!("Failed to parse private key from {}: {}", key_path, e));
-                        None
-                    }
-                }
-            },
-            Err(e) => {
-                self.logger.warning(&format!("Failed to read private key from {}: {}", key_path, e));
-                None
-            }
-        }
-    }
-
-    pub fn process_secrets(&mut self) {
-        let mut priv_key: Option<RsaPrivateKey> = None;
-        let re = Regex::new(r"ENC\(([^)]+)\)").unwrap();
-
-        Self::recursive_process_secrets(&mut self.data, &re, &mut priv_key, &self.logger, || {
-            let mut key_path = std::env::var("BASTIEN_PRIVATE_KEY_PATH").unwrap_or_default();
-            if key_path.is_empty() {
-                key_path = "/etc/bastien/private.pem".to_string();
-                if !std::path::Path::new(&key_path).exists() {
-                    if std::path::Path::new("./private.pem").exists() {
-                        key_path = "./private.pem".to_string();
-                    } else {
-                        return None;
-                    }
-                }
-            }
-            match fs::read_to_string(&key_path) {
-                Ok(pem) => RsaPrivateKey::from_pkcs1_pem(&pem).ok(),
-                Err(_) => None
-            }
-        });
-    }
-
-    fn recursive_process_secrets<F>(value: &mut Value, re: &Regex, priv_key: &mut Option<RsaPrivateKey>, logger: &Arc<dyn Logger>, get_key: F) 
-    where F: Fn() -> Option<RsaPrivateKey> {
-        match value {
-            Value::String(s) => {
-                if s.contains("ENC(") {
-                    let mut new_s = s.clone();
-                    let caps_vec: Vec<(String, String)> = re.captures_iter(s).map(|cap| {
-                        (cap[0].to_string(), cap[1].to_string())
-                    }).collect();
-
-                    for (full_match, b64_data) in caps_vec {
-                        if priv_key.is_none() {
-                            *priv_key = get_key();
-                        }
-
-                        if let Some(key) = priv_key {
-                            if let Ok(ciphertext) = general_purpose::STANDARD.decode(&b64_data) {
-                                let padding = Oaep::new::<Sha256>();
-                                if let Ok(plaintext) = key.decrypt(padding, &ciphertext) {
-                                    if let Ok(p_str) = String::from_utf8(plaintext) {
-                                        new_s = new_s.replace(&full_match, &p_str);
-                                    }
-                                } else {
-                                    logger.warning("RSA decryption failed for ENC block");
-                                }
-                            }
-                        }
-                    }
-                    *value = Value::String(new_s);
-                }
-            },
-            Value::Mapping(map) => {
-                for (_k, v) in map.iter_mut() {
-                    Self::recursive_process_secrets(v, re, priv_key, logger, &get_key);
-                }
-            },
-            Value::Sequence(seq) => {
-                for v in seq.iter_mut() {
-                    Self::recursive_process_secrets(v, re, priv_key, logger, &get_key);
-                }
-            },
-            _ => {}
-        }
-    }
-
-    /// Full merge of all file data into self.data
     fn load_from_file(&mut self, filename: &str) {
-        if let Ok(content) = fs::read_to_string(filename)
-            && let Ok(file_data) = serde_yml::from_str::<Value>(&content) {
+        if let Ok(content) = fs::read_to_string(filename) {
+            if let Ok(file_data) = serde_yml::from_str::<Value>(&content) {
                 deep_merge(&mut self.data, &file_data);
+            }
         }
     }
 
-    /// Re-reads a file and merges ONLY the capabilities section as a hard override.
-    /// This matches Go's applyFileOverride behavior.
     fn apply_file_override(&mut self, filename: &str) {
-        if let Ok(content) = fs::read_to_string(filename)
-            && let Ok(file_data) = serde_yml::from_str::<Value>(&content)
-            && let Some(caps) = file_data.get("capabilities") {
-                if self.data.get("capabilities").is_none() {
-                    let _ = self.set_value("capabilities", Value::Mapping(serde_yml::Mapping::new()));
+        if let Ok(content) = fs::read_to_string(filename) {
+            if let Ok(file_data) = serde_yml::from_str::<Value>(&content) {
+                if let Some(caps) = file_data.get("capabilities") {
+                    if self.data.get("capabilities").is_none() {
+                        let _ = self.set_value("capabilities", Value::Mapping(serde_yml::Mapping::new()));
+                    }
+                    if let Some(target_map) = self.data.get_mut("capabilities").and_then(|v| v.as_mapping_mut())
+                        && let Some(source_map) = caps.as_mapping() {
+                            for (k, v) in source_map {
+                                target_map.insert(k.clone(), v.clone());
+                            }
+                    }
                 }
-                
-                let current_caps = self.data.get_mut("capabilities").unwrap();
-                if let Some(target_map) = current_caps.as_mapping_mut()
-                    && let Some(source_map) = caps.as_mapping() {
-                        for (k, v) in source_map {
-                            target_map.insert(k.clone(), v.clone());
-                        }
+                if let Some(priv_data) = file_data.get("private") {
+                    if self.data.get("private").is_none() {
+                        let _ = self.set_value("private", Value::Mapping(serde_yml::Mapping::new()));
+                    }
+                    if let Some(target_map) = self.data.get_mut("private").and_then(|v| v.as_mapping_mut())
+                        && let Some(source_map) = priv_data.as_mapping() {
+                            for (k, v) in source_map {
+                                target_map.insert(k.clone(), v.clone());
+                            }
+                    }
                 }
+            }
         }
     }
 
@@ -267,68 +196,70 @@ impl AppConfig {
             let _ = self.set_value("common.name", Value::String(name));
         }
 
-        if let Some(host) = self.cli_args.host.clone() {
-            let port = self.cli_args.port;
-            let grpc_host = self.cli_args.grpc_host.clone();
-            let grpc_port = self.cli_args.grpc_port;
+        let target = self.cli_args.name.clone()
+            .or_else(|| self.get_value("common.name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| "config_server".to_string());
 
-            for target in ["config", "log", "notif", "tele"] {
+        if self.cli_args.host.is_some() || self.cli_args.port.is_some() {
+            if let Some(host) = &self.cli_args.host {
                 let _ = self.set_value(&format!("capabilities.{}.ip", target), Value::String(host.clone()));
-                if let Some(p) = port {
-                    let _ = self.set_value(&format!("capabilities.{}.port", target), Value::String(p.to_string()));
-                }
-                if let Some(gh) = &grpc_host {
-                    let _ = self.set_value(&format!("capabilities.{}.grpc_ip", target), Value::String(gh.clone()));
-                }
-                if let Some(gp) = grpc_port {
-                    let _ = self.set_value(&format!("capabilities.{}.grpc_port", target), Value::String(gp.to_string()));
-                }
+            }
+            if let Some(p) = self.cli_args.port {
+                let _ = self.set_value(&format!("capabilities.{}.port", target), Value::String(p.to_string()));
+            }
+        }
+
+        if self.cli_args.grpc_host.is_some() || self.cli_args.grpc_port.is_some() {
+            if let Some(gh) = &self.cli_args.grpc_host {
+                let _ = self.set_value(&format!("capabilities.{}.grpc_ip", target), Value::String(gh.clone()));
+            }
+            if let Some(gp) = self.cli_args.grpc_port {
+                let _ = self.set_value(&format!("capabilities.{}.grpc_port", target), Value::String(gp.to_string()));
             }
         }
     }
 
+    pub fn set_logger(&mut self, logger: Arc<dyn Logger>) {
+        self.logger = ensure_safe_logger(Some(logger));
+        self.logger.info("Logger updated successfully");
+    }
+
+    pub fn get_private(&self, key: &str) -> Option<&Value> {
+        self.get_value(&format!("private.{}", key))
+    }
+
     pub fn get_listen_addr(&self, capability: &str) -> Result<String, String> {
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                let cap_c = CString::new(capability).map_err(|e| e.to_string())?;
+                let ptr = (lib.dist_conf_get_address)(handle, cap_c.as_ptr());
+                if let Some(addr) = crate::config::ffi::to_rust_string(ptr) {
+                    return Ok(addr);
+                }
+        }
         self.get_addr(capability, "ip", "port")
     }
 
     pub fn get_grpc_listen_addr(&self, capability: &str) -> Result<String, String> {
-        // 1. Try explicit grpc config
-        if let Ok(addr) = self.get_addr(capability, "grpc_ip", "grpc_port") {
-            return Ok(addr);
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                let cap_c = CString::new(capability).map_err(|e| e.to_string())?;
+                let ptr = (lib.dist_conf_get_grpc_address)(handle, cap_c.as_ptr());
+                if let Some(addr) = crate::config::ffi::to_rust_string(ptr) {
+                    return Ok(addr);
+                }
         }
-
-        // 2. Fallback to convention: ip:port+1 (matching Go implementation)
-        let cap_path = format!("capabilities.{}", capability);
-        let cap = self.get_value(&cap_path).ok_or_else(|| format!("capability {} not found for gRPC fallback", capability))?;
-
-        let host = cap.get("ip")
-            .and_then(|v| v.as_str())
-            .unwrap_or("0.0.0.0");
-
-        let port_str = cap.get("port")
-            .and_then(|v| v.as_str())
-            .unwrap_or("8080");
-
-        let port = port_str.parse::<u16>().unwrap_or(8080);
-        Ok(format!("{}:{}", host, port + 1))
+        self.get_addr(capability, "grpc_ip", "grpc_port")
     }
 
     fn get_addr(&self, capability: &str, host_key: &str, port_key: &str) -> Result<String, String> {
         let cap_path = format!("capabilities.{}", capability);
         let cap = self.get_value(&cap_path).ok_or_else(|| format!("capability {} not found", capability))?;
-
-        let host = cap.get(host_key)
-            .and_then(|v| v.as_str())
-            .unwrap_or("0.0.0.0");
-
-        let port = cap.get(port_key)
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| format!("port key {} missing or empty in capability {}", port_key, capability))?;
-
+        let host = cap.get(host_key).and_then(|v| v.as_str()).unwrap_or("0.0.0.0");
+        let port = cap.get(port_key).and_then(|v| v.as_str()).ok_or_else(|| format!("port key {} missing in capability {}", port_key, capability))?;
         Ok(format!("{}:{}", host, port))
     }
 
-    /// Wrapper around standalone deep_merge for backward compatibility.
     pub fn deep_merge(dst: &mut Value, src: &Value) {
         deep_merge(dst, src);
     }
@@ -336,15 +267,14 @@ impl AppConfig {
     fn set_value(&mut self, path: &str, value: Value) -> Result<(), Box<dyn std::error::Error>> {
         let mut current = &mut self.data;
         let parts: Vec<&str> = path.split('.').collect();
-        for (_i, part) in parts.iter().enumerate().take(parts.len() - 1) {
-            if !current.as_mapping().is_some_and(|m| m.contains_key(Value::String(part.to_string())))
-                && let Some(map) = current.as_mapping_mut() {
+        for part in parts.iter().take(parts.len() - 1) {
+            if !current.as_mapping().is_some_and(|m| m.contains_key(Value::String(part.to_string()))) {
+                if let Some(map) = current.as_mapping_mut() {
                     map.insert(Value::String(part.to_string()), Value::Mapping(serde_yml::Mapping::new()));
+                }
             }
-
             current = current.as_mapping_mut().unwrap().get_mut(Value::String(part.to_string())).unwrap();
         }
-
         if let Some(map) = current.as_mapping_mut() {
             map.insert(Value::String(parts.last().unwrap().to_string()), value);
         } else {
@@ -356,7 +286,6 @@ impl AppConfig {
     pub fn get_value(&self, path: &str) -> Option<&Value> {
         let parts: Vec<&str> = path.split('.').collect();
         let mut current = &self.data;
-
         for part in parts {
             if let Some(map) = current.as_mapping() {
                 current = map.get(Value::String(part.to_string()))?;
@@ -366,20 +295,107 @@ impl AppConfig {
         }
         Some(current)
     }
+
+    fn sync_from_bridge(&mut self) {
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                let ptr = (lib.dist_conf_get_full_config)(handle);
+                if let Some(json_str) = crate::config::ffi::to_rust_string(ptr) {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                        if let Ok(yml_val) = serde_yml::from_str::<Value>(&val.to_string()) {
+                            self.data = yml_val;
+                        }
+                    }
+                }
+        }
+    }
+
+    pub fn get_config(&self, section: &str, key: &str) -> Option<String> {
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                let section_c = CString::new(section).ok()?;
+                let key_c = CString::new(key).ok()?;
+                let ptr = (lib.dist_conf_get)(handle, section_c.as_ptr(), key_c.as_ptr());
+                return crate::config::ffi::to_rust_string(ptr);
+        }
+        self.get_value(&format!("{}.{}", section, key)).and_then(|v| v.as_str()).map(|s| s.to_string())
+    }
+
+    pub fn on_live_conf_update<F>(&mut self, cb: F) 
+    where F: Fn(serde_json::Value) + Send + Sync + 'static {
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                
+                *get_live_cb().lock().unwrap() = Some(Box::new(cb));
+                
+                extern "C" fn internal_cb(_handle: usize, json_ptr: *const std::os::raw::c_char) {
+                    if let Some(json_str) = crate::config::ffi::to_rust_string(json_ptr as *mut _) {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                            if let Ok(guard) = get_live_cb().lock() {
+                                if let Some(cb) = guard.as_ref() {
+                                    cb(val);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                (lib.dist_conf_on_live_conf_update)(handle, internal_cb);
+        }
+    }
+
+    pub fn on_registry_update<F>(&mut self, cb: F) 
+    where F: Fn(serde_json::Value) + Send + Sync + 'static {
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                
+                *get_reg_cb().lock().unwrap() = Some(Box::new(cb));
+                
+                extern "C" fn internal_reg_cb(_handle: usize, json_ptr: *const std::os::raw::c_char) {
+                    if let Some(json_str) = crate::config::ffi::to_rust_string(json_ptr as *mut _) {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                            if let Ok(guard) = get_reg_cb().lock() {
+                                if let Some(cb) = guard.as_ref() {
+                                    cb(val);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                (lib.dist_conf_on_registry_update)(handle, internal_reg_cb);
+        }
+    }
+
+    pub fn share_config(&self, payload: &serde_json::Value) -> bool {
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                let json_data = CString::new(payload.to_string()).unwrap();
+                return (lib.dist_conf_share_config)(handle, json_data.as_ptr());
+        }
+        false
+    }
+}
+
+impl Drop for AppConfig {
+    fn drop(&mut self) {
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                (lib.dist_conf_close)(handle);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_yml;
+    use std::io::Write;
 
     #[test]
     fn test_config_deep_merge() {
         let mut dst = serde_yml::from_str::<Value>("a: 1\nb:\n  c: 2").unwrap();
         let src = serde_yml::from_str::<Value>("b:\n  d: 3\ne: 4").unwrap();
-        
         AppConfig::deep_merge(&mut dst, &src);
-        
         assert_eq!(dst.get("a").unwrap().as_u64().unwrap(), 1);
         assert_eq!(dst.get("e").unwrap().as_u64().unwrap(), 4);
         assert_eq!(dst.get("b").unwrap().get("c").unwrap().as_u64().unwrap(), 2);
@@ -387,15 +403,197 @@ mod tests {
     }
 
     #[test]
-    fn test_config_get_addr() {
+    fn test_decrypt_plaintext_passthrough() {
+        // Without a bridge, non-ENC strings should pass through
         let ac = AppConfig {
-            data: serde_yml::from_str::<Value>("capabilities:\n  test:\n    ip: 1.2.3.4\n    port: \"8080\"").unwrap(),
             profile: "test".to_string(),
+            data: Value::Mapping(serde_yml::Mapping::new()),
             cli_args: ToolboxArgs::default(),
             logger: ensure_safe_logger(None),
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
         };
-        
-        assert_eq!(ac.get_listen_addr("test").unwrap(), "1.2.3.4:8080");
-        assert_eq!(ac.get_grpc_listen_addr("test").unwrap(), "1.2.3.4:8081");
+
+        assert_eq!(ac.decrypt_secret("normal_pass").unwrap(), "normal_pass");
+        assert_eq!(ac.decrypt_secret("").unwrap(), "");
+        // Missing closing paren — not a valid ENC block, should pass through
+        assert_eq!(ac.decrypt_secret("ENC(no-close").unwrap(), "ENC(no-close");
+        // Not starting with ENC( — should pass through
+        assert_eq!(ac.decrypt_secret("not-ENC(data)").unwrap(), "not-ENC(data)");
+    }
+
+    #[test]
+    fn test_decrypt_enc_block_errors_without_bridge() {
+        let ac = AppConfig {
+            profile: "test".to_string(),
+            data: Value::Mapping(serde_yml::Mapping::new()),
+            cli_args: ToolboxArgs::default(),
+            logger: ensure_safe_logger(None),
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
+        };
+
+        // Valid ENC() block but no bridge → must return Err
+        let result = ac.decrypt_secret("ENC(dummy)");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_private() {
+        let yaml_str = "private:\n  api_key: secret123\n  nested:\n    a: 1";
+        let data = serde_yml::from_str::<Value>(yaml_str).unwrap();
+
+        let ac = AppConfig {
+            profile: "test".to_string(),
+            data,
+            cli_args: ToolboxArgs::default(),
+            logger: ensure_safe_logger(None),
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
+        };
+
+        assert_eq!(ac.get_private("api_key").unwrap().as_str().unwrap(), "secret123");
+        assert!(ac.get_private("nested").is_some());
+        assert!(ac.get_private("missing").is_none());
+    }
+
+    #[test]
+    fn test_get_private_empty() {
+        let data = serde_yml::from_str::<Value>("common:\n  name: test").unwrap();
+
+        let ac = AppConfig {
+            profile: "test".to_string(),
+            data,
+            cli_args: ToolboxArgs::default(),
+            logger: ensure_safe_logger(None),
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
+        };
+
+        assert!(ac.get_private("anything").is_none());
+    }
+
+    #[test]
+    fn test_address_resolution() {
+        let yaml_str = "capabilities:\n  svc:\n    ip: 1.2.3.4\n    port: '8080'\n    grpc_ip: 1.2.3.4\n    grpc_port: '8081'";
+        let data = serde_yml::from_str::<Value>(yaml_str).unwrap();
+
+        let ac = AppConfig {
+            profile: "test".to_string(),
+            data,
+            cli_args: ToolboxArgs::default(),
+            logger: ensure_safe_logger(None),
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
+        };
+
+        assert_eq!(ac.get_listen_addr("svc").unwrap(), "1.2.3.4:8080");
+        assert_eq!(ac.get_grpc_listen_addr("svc").unwrap(), "1.2.3.4:8081");
+    }
+
+    #[test]
+    fn test_grpc_missing_returns_error() {
+        let yaml_str = "capabilities:\n  svc:\n    ip: 1.2.3.4\n    port: '8080'";
+        let data = serde_yml::from_str::<Value>(yaml_str).unwrap();
+
+        let ac = AppConfig {
+            profile: "test".to_string(),
+            data,
+            cli_args: ToolboxArgs::default(),
+            logger: ensure_safe_logger(None),
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
+        };
+
+        // No grpc_ip/grpc_port → must return error (no port+1 fallback)
+        assert!(ac.get_grpc_listen_addr("svc").is_err());
+    }
+
+    #[test]
+    fn test_set_logger() {
+        let mut ac = AppConfig {
+            profile: "test".to_string(),
+            data: Value::Mapping(serde_yml::Mapping::new()),
+            cli_args: ToolboxArgs::default(),
+            logger: ensure_safe_logger(None),
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
+        };
+
+        let new_logger = ensure_safe_logger(None);
+        ac.set_logger(new_logger);
+        // Should not panic — logger is wrapped safely
+    }
+
+    #[test]
+    fn test_cli_override_targets_single_capability() {
+        let yaml_str = "common:\n  name: my-svc\ncapabilities:\n  my-svc:\n    ip: '0.0.0.0'\n    port: '9000'\n  other-svc:\n    ip: '0.0.0.0'\n    port: '9001'";
+        let data = serde_yml::from_str::<Value>(yaml_str).unwrap();
+
+        let mut ac = AppConfig {
+            profile: "test".to_string(),
+            data,
+            cli_args: ToolboxArgs {
+                name: Some("my-svc".to_string()),
+                host: Some("10.0.0.1".to_string()),
+                port: Some(5555),
+                ..Default::default()
+            },
+            logger: ensure_safe_logger(None),
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
+        };
+
+        ac.apply_cli_overrides();
+
+        // Target capability (my-svc) should be overridden
+        assert_eq!(ac.get_listen_addr("my-svc").unwrap(), "10.0.0.1:5555");
+        // Other capability should NOT be affected
+        assert_eq!(ac.get_listen_addr("other-svc").unwrap(), "0.0.0.0:9001");
+    }
+
+    #[test]
+    fn test_load_config_from_file() {
+        let dir = std::env::temp_dir().join("rust_toolbox_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let yaml_str = "common:\n  name: file-test\ncapabilities:\n  svc:\n    ip: 5.6.7.8\n    port: '3000'\n    grpc_ip: 5.6.7.8\n    grpc_port: '3001'";
+        let config_path = dir.join("file-test.yaml");
+        std::fs::write(&config_path, yaml_str).unwrap();
+
+        let old_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let result = load_config("file-test");
+        std::env::set_current_dir(&old_dir).unwrap();
+        let _ = std::fs::remove_file(&config_path);
+
+        // If bridge is unavailable, falls back to file loading
+        let ac = result.unwrap();
+        assert_eq!(ac.profile, "file-test");
+        assert_eq!(ac.get_listen_addr("svc").unwrap(), "5.6.7.8:3000");
+        assert_eq!(ac.get_grpc_listen_addr("svc").unwrap(), "5.6.7.8:3001");
+    }
+
+    #[test]
+    fn test_missing_file_returns_error() {
+        let dir = std::env::temp_dir().join("rust_toolbox_missing");
+        let _ = std::fs::create_dir_all(&dir);
+        let old_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let result = load_config("nonexistent-profile");
+        std::env::set_current_dir(&old_dir).unwrap();
+
+        // Without bridge and without file, data should be empty and addresses should fail
+        let ac = result.unwrap();
+        assert!(ac.get_listen_addr("anything").is_err());
     }
 }

@@ -23,6 +23,9 @@ cfg = load_config("standalone", input_args=["--log_level", "DEBUG"])
 
 # Get capability address
 addr = cfg.get_listen_addr("my_service")
+
+# On-Demand Decryption (Harden security by decrypting just-in-time)
+pwd = cfg.decrypt_secret(cfg.data["db"]["password"])
 ```
 
 ### 2. Connection Manager (`conn_manager`)
