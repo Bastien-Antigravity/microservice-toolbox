@@ -99,7 +99,11 @@ class AppConfig:
         # ---------------------------------------------------------------------
         if not self._handle:
             if not osPathExists(filename):
-                raise FileNotFoundError(f"Toolbox (Python): Config file '{filename}' not found for profile '{profile}'")
+                # Try fallback to config/ folder
+                filename = f"config/{profile}.yaml"
+                if not osPathExists(filename):
+                    raise FileNotFoundError(f"Toolbox (Python): Config file not found for profile '{profile}' (Checked {profile}.yaml and config/{profile}.yaml)")
+            
             self._load_from_file(filename)
 
         # ---------------------------------------------------------------------
@@ -150,6 +154,11 @@ class AppConfig:
                     self.logger.info(f"{self.Name} : Public Key Loaded from {path}")
         except Exception as e:
             self.logger.warning(f"{self.Name} : Failed to load public key from {path}: {e}")
+
+    @property
+    def common(self) -> Dict[str, Any]:
+        """Provides direct access to the 'common' configuration block."""
+        return self.data.get("common", {})
 
     # -----------------------------------------------------------------------------------------------
 
@@ -450,11 +459,11 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def close(self) -> None:
-        """Closes the bridge session."""
-        if self._handle:
-            lib.DistConf_Close(self._handle)
+    def close(self):
+        """Releases the underlying DistConf handle."""
+        if hasattr(self, "_handle") and self._handle:
+            self._lib.DistConf_Close(self._handle)
             self._handle = None
 
-    def __del__(self) -> None:
+    def __del__(self):
         self.close()

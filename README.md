@@ -16,7 +16,7 @@ A unified infrastructure library for the Bastien-Antigravity microservices ecosy
 
 ### 1. Smart Configuration Loader
 Implements a strict "Hierarchy of Truth" for service configuration:
-1.  **Command Line Overrides** (`--key`, `--host`, `--port`): Highest Priority.
+1.  **Command Line Overrides** (`--key`, `--host`, `--port`, ): Highest Priority.
 2.  **Environment Variables** (`BASTIEN_PRIVATE_KEY_PATH`): OS-level overrides.
 3.  **Local File Override** (`[profile].yaml`): Authoritative local source.
 4.  **Config Server Baseline**: Fleet configuration.

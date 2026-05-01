@@ -4,6 +4,9 @@ package config
 // If a key exists in both and both are maps, it merges them recursively.
 // If a key exists in both and the source is not a map, the source value overwrites the destination.
 func DeepMerge(dst, src map[string]interface{}) map[string]interface{} {
+	if dst == nil {
+		dst = make(map[string]interface{})
+	}
 	for k, v := range src {
 		if v == nil {
 			continue

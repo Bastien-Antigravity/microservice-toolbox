@@ -60,13 +60,12 @@ func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []s
 	cliArgs := ac.ParseCLIArgs(specificFlags)
 
 	// Phase 3: Layered Merging Logic
-	isDev := (profile == "standalone" || profile == "test")
+	// We always attempt to load the local file as a baseline/fallback
+	ac.applyFileOverride(profile + ".yaml")
 
-	if isDev {
-		ac.Logger.Info("Dev Mode detected. Re-applying Local File as Hard Override.")
-		ac.applyFileOverride(profile + ".yaml")
-	} else {
-		ac.Logger.Info("Production Mode detected. Config Server remains authoritative.")
+	isDev := (profile == "standalone" || profile == "test")
+	if !isDev {
+		ac.Logger.Info("Production Mode detected. Configuration state remains stable.")
 	}
 
 	// Phase 4: Apply CLI Overrides (Highest)
@@ -106,7 +105,11 @@ func (ac *AppConfig) loadPublicKey() {
 func (ac *AppConfig) applyFileOverride(filename string) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return
+		// Fallback to config/ folder
+		data, err = os.ReadFile("config/" + filename)
+		if err != nil {
+			return
+		}
 	}
 
 	var root yaml.Node
@@ -121,6 +124,11 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 	if err := root.Decode(&raw); err == nil {
 		if caps, ok := raw["capabilities"].(map[string]interface{}); ok {
 			ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
+		}
+		if comm, ok := raw["common"].(map[string]interface{}); ok {
+			if name, ok := comm["name"].(string); ok {
+				ac.Config.Common.Name = name
+			}
 		}
 		if priv, ok := raw["local"].(map[string]interface{}); ok {
 			if ac.Local == nil {

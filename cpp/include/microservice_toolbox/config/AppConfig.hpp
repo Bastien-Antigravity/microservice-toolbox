@@ -11,8 +11,8 @@
 #include <sstream>
 #include <algorithm>
 
-// Include the underlying SDK
-#include "../../../../../distributed-config/distconf/cpp/DistConf.hpp"
+// Include the underlying SDK (Vended for stability)
+#include "DistConf.hpp"
 #include "json.hpp"
 
 namespace microservice_toolbox {
@@ -126,13 +126,23 @@ public:
      * Supports nested lookups using dot notation (e.g., "database.host").
      */
     std::string GetLocal(const std::string& key) const {
-        // Our current C++ parser is flat (key-value).
-        // For parity, we check the flat map. 
-        // Real nested parsing would require a full YAML parser which we don't have in this C++ wrapper yet.
-        auto it = local_config_.find(key);
-        if (it != local_config_.end()) {
-            return it->second;
-        }
+        // Look in the unified 'local' section of our data mirror
+        try {
+            if (data_.contains("local")) {
+                auto current = data_["local"];
+                std::stringstream ss(key);
+                std::string part;
+                while (std::getline(ss, part, '.')) {
+                    if (current.contains(part)) {
+                        current = current[part];
+                    } else {
+                        return "";
+                    }
+                }
+                if (current.is_string()) return current.get<std::string>();
+                return current.dump();
+            }
+        } catch (...) {}
         return "";
     }
 
@@ -142,7 +152,9 @@ public:
      */
     template <typename T>
     void UnmarshalLocal(T& target) const {
-        target = nlohmann::json(local_config_).get<T>();
+        if (data_.contains("local")) {
+            target = data_["local"].get<T>();
+        }
     }
 
     /**
@@ -150,7 +162,18 @@ public:
      * Parity with Go's raw local map.
      */
     nlohmann::json GetLocalJSON() const {
-        return nlohmann::json(local_config_);
+        if (data_.contains("local")) return data_["local"];
+        return nlohmann::json::object();
+    }
+
+    /**
+     * Access the 'common' configuration block.
+     */
+    nlohmann::json GetCommon() const {
+        if (data_.contains("common")) {
+            return data_["common"];
+        }
+        return nlohmann::json::object();
     }
 
     distconf::DistConfig& GetRawConfig() { return *config_; }
@@ -161,7 +184,6 @@ private:
     std::shared_ptr<Logger> logger_;
     std::unique_ptr<distconf::DistConfig> config_;
     nlohmann::json data_;
-    std::map<std::string, std::string> local_config_;
 
     void SyncFromBridge() {
         try {
@@ -178,70 +200,57 @@ private:
     }
 
     void LoadLocalOverrides() {
-        // We look for [profile].yaml or config/[profile].yaml (matching engine discovery)
-        std::vector<std::string> candidates = {
-            profile_ + ".yaml",
-            "config/" + profile_ + ".yaml"
-        };
+        std::vector<std::string> candidates = { profile_ + ".yaml", "config/" + profile_ + ".yaml" };
 
         for (const auto& path : candidates) {
             std::ifstream file(path);
             if (!file.is_open()) continue;
 
             std::string line;
-            bool in_local = false;
             std::vector<std::pair<int, std::string>> stack;
-
+            
             while (std::getline(file, line)) {
                 if (!line.empty() && line.back() == '\r') line.pop_back();
-                
                 std::string trimmed = line;
-                trimmed.erase(0, trimmed.find_first_not_of(" \t"));
+                int indent = trimmed.find_first_not_of(" \t");
+                if (indent == std::string::npos) continue;
+                trimmed.erase(0, indent);
                 if (trimmed.empty() || trimmed[0] == '#') continue;
 
-                int indent = line.find_first_not_of(" \t");
+                size_t colon = trimmed.find(':');
+                if (colon != std::string::npos) {
+                    std::string k = trimmed.substr(0, colon);
+                    std::string v = trimmed.substr(colon + 1);
+                    v.erase(0, v.find_first_not_of(" \t"));
+                    v.erase(v.find_last_not_of(" \t") + 1);
 
-                if (trimmed.find("local:") == 0) {
-                    in_local = true;
-                    stack.clear();
-                    continue;
-                }
-
-                if (in_local) {
-                    if (indent == 0 && trimmed.find(":") != std::string::npos) {
-                         in_local = false;
-                         continue;
+                    // Adjust stack based on indentation
+                    while (!stack.empty() && indent <= stack.back().first) {
+                        stack.pop_back();
                     }
 
-                    size_t colon = trimmed.find(':');
-                    if (colon != std::string::npos) {
-                        std::string k = trimmed.substr(0, colon);
-                        std::string v = trimmed.substr(colon + 1);
-                        v.erase(0, v.find_first_not_of(" \t"));
-                        v.erase(v.find_last_not_of(" \t") + 1);
+                    // Traverse JSON to the current level
+                    nlohmann::json* current = &data_;
+                    for (const auto& level : stack) {
+                        if (!current->contains(level.second)) (*current)[level.second] = nlohmann::json::object();
+                        current = &((*current)[level.second]);
+                    }
 
-                        // Pop from stack if indent is less or equal to previous
-                        while (!stack.empty() && indent <= stack.back().first) {
-                            stack.pop_back();
+                    if (v.empty()) {
+                        // It's a new level
+                        stack.push_back({indent, k});
+                        if (!current->contains(k)) (*current)[k] = nlohmann::json::object();
+                    } else {
+                        // It's a value
+                        if (v.size() >= 2 && ((v.front() == '"' && v.back() == '"') || (v.front() == '\'' && v.back() == '\''))) {
+                            v = v.substr(1, v.size() - 2);
                         }
-
-                        if (v.empty()) {
-                            stack.push_back({indent, k});
-                        } else {
-                            // Strip quotes
-                            if (v.size() >= 2 && ((v.front() == '"' && v.back() == '"') || (v.front() == '\'' && v.back() == '\''))) {
-                                v = v.substr(1, v.size() - 2);
-                            }
-                            
-                            std::string full_key = "";
-                            for (const auto& pair : stack) full_key += pair.second + ".";
-                            full_key += k;
-                            local_config_[full_key] = ExpandEnv(v);
-                        }
+                        (*current)[k] = ExpandEnv(v);
                     }
                 }
             }
             file.close();
+            logger_->Info("Local overrides merged from " + path);
         }
     }
 

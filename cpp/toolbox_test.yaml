@@ -1,8 +1,0 @@
-common:
-  name: test-app
-capabilities:
-  svc:
-    ip: 1.2.3.4
-    port: '8080'
-    grpc_ip: 1.2.3.4
-    grpc_port: '8081'

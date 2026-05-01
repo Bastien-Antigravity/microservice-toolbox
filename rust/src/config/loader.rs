@@ -97,14 +97,22 @@ impl AppConfig {
 
         // Phase 1: Load base config from file (Native Fallback)
         if ac._handle.is_none() {
-            ac.load_from_file(&format!("{}.yaml", profile));
+            let mut filename = format!("{}.yaml", profile);
+            if !std::path::Path::new(&filename).exists() {
+                filename = format!("config/{}.yaml", profile);
+            }
+            ac.load_from_file(&filename);
         }
 
         // Phase 2: Layered logic matching Go implementation
         let is_dev = profile == "standalone" || profile == "test";
         if is_dev {
             ac.logger.info("Dev Mode detected. Re-applying Local File as Hard Override.");
-            ac.apply_file_override(&format!("{}.yaml", profile));
+            let mut filename = format!("{}.yaml", profile);
+            if !std::path::Path::new(&filename).exists() {
+                filename = format!("config/{}.yaml", profile);
+            }
+            ac.apply_file_override(&filename);
         } else {
             ac.logger.info("Production Mode detected. Config Server remains authoritative.");
         }
@@ -252,6 +260,10 @@ impl AppConfig {
     pub fn set_logger(&mut self, logger: Arc<dyn Logger>) {
         self.logger = ensure_safe_logger(Some(logger));
         self.logger.info("Logger updated successfully");
+    }
+
+    pub fn common(&self) -> &Value {
+        self.data.get(Value::String("common".to_string())).unwrap_or(&Value::Null)
     }
 
     pub fn get_local(&self, key: &str) -> Option<&Value> {
