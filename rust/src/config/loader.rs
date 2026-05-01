@@ -153,10 +153,8 @@ impl AppConfig {
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let cipher_c = CString::new(ciphertext).map_err(|e| e.to_string())?;
                 let ptr = unsafe { (lib.dist_conf_decrypt)(handle, cipher_c.as_ptr()) };
-                if !ptr.is_null() {
-                    if let Some(decrypted) = unsafe { crate::config::ffi::to_rust_string(ptr as *mut c_char) } {
-                        return Ok(decrypted);
-                    }
+                if !ptr.is_null() && let Some(decrypted) = unsafe { crate::config::ffi::to_rust_string(ptr as *mut c_char) } {
+                    return Ok(decrypted);
                 }
                 
                 let err_ptr = unsafe { (lib.dist_conf_get_last_error)() };
