@@ -205,11 +205,28 @@ func TestAppConfig_GetLocal(t *testing.T) {
 	ac := &AppConfig{
 		Config: distconf.New("standalone"),
 		Local: map[string]interface{}{
-			"setting_a": "value_a",
+			"local_setting": "value_xyz",
+			"nested": map[string]interface{}{
+				"val": 123,
+				"key": "nested_value",
+			},
 		},
 	}
-	assert.Equal(t, "value_a", ac.GetLocal("setting_a"))
-	assert.Nil(t, ac.GetLocal("missing"))
+	val := ac.GetLocal("local_setting")
+	if val != "value_xyz" {
+		t.Errorf("expected value_xyz, got %v", val)
+	}
+
+	nestedVal := ac.GetLocal("nested.val")
+	if nestedVal != 123 {
+		t.Errorf("expected 123, got %v", nestedVal)
+	}
+
+	nestedKey := ac.GetLocal("nested.key")
+	if nestedKey != "nested_value" {
+		t.Errorf("expected nested_value, got %v", nestedKey)
+	}
+	assert.Nil(t, ac.GetLocal("nested.missing"))
 }
 
 func TestAppConfig_UnmarshalLocal(t *testing.T) {

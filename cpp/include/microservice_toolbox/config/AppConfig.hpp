@@ -13,6 +13,7 @@
 
 // Include the underlying SDK
 #include "../../../../../distributed-config/distconf/cpp/DistConf.hpp"
+#include "json.hpp"
 
 namespace microservice_toolbox {
 namespace config {
@@ -28,14 +29,21 @@ public:
     virtual void Error(const std::string& msg) = 0;
 };
 
-/**
- * Default No-Op Logger to prevent crashes.
- */
 class NoOpLogger : public Logger {
 public:
     void Info(const std::string&) override {}
     void Warning(const std::string&) override {}
     void Error(const std::string&) override {}
+};
+
+/**
+ * Standard output logger for debugging and CLI tools.
+ */
+class StdOutLogger : public Logger {
+public:
+    void Info(const std::string& msg) override { std::cout << "[INFO] " << msg << std::endl; }
+    void Warning(const std::string& msg) override { std::cout << "[WARN] " << msg << std::endl; }
+    void Error(const std::string& msg) override { std::cerr << "[ERROR] " << msg << std::endl; }
 };
 
 /**
@@ -51,8 +59,11 @@ public:
             config_ = std::make_unique<distconf::DistConfig>(profile);
             logger_->Info("libdistconf session initialized for profile: " + profile);
             
-            // Phase 2: Manual loading of 'private' section (Parity with Go Toolbox)
-            // Note: distributed-config engine ignores 'private', so we handle it here as 'local' config.
+            // Full FFI Bridge Sync: Fetch entire config state once
+            SyncFromBridge();
+
+            // Phase 2: Manual loading of 'local' section (Parity with Go Toolbox)
+            // Note: distributed-config engine ignores 'local', so we handle it here as 'local' config.
             LoadLocalOverrides();
         } catch (const std::exception& e) {
             logger_->Error(std::string("Failed to initialize DistConf: ") + e.what());
@@ -75,6 +86,16 @@ public:
     }
 
     std::string GetListenAddr(const std::string& capability) const {
+        try {
+            if (data_.contains("capabilities") && data_["capabilities"].contains(capability)) {
+                auto cap = data_["capabilities"][capability];
+                if (cap.contains("ip") && cap.contains("port")) {
+                    return cap["ip"].get<std::string>() + ":" + cap["port"].get<std::string>();
+                }
+            }
+        } catch (...) {}
+        
+        // Fallback to direct FFI if mirror fails or is incomplete
         std::string addr = config_->GetAddress(capability);
         if (addr.empty()) {
             throw std::runtime_error("Capability not found or address resolution failed: " + capability);
@@ -83,6 +104,16 @@ public:
     }
 
     std::string GetGRPCListenAddr(const std::string& capability) const {
+        try {
+            if (data_.contains("capabilities") && data_["capabilities"].contains(capability)) {
+                auto cap = data_["capabilities"][capability];
+                if (cap.contains("grpc_ip") && cap.contains("grpc_port")) {
+                    return cap["grpc_ip"].get<std::string>() + ":" + cap["grpc_port"].get<std::string>();
+                }
+            }
+        } catch (...) {}
+
+        // Fallback to direct FFI
         std::string addr = config_->GetGRPCAddress(capability);
         if (addr.empty()) {
             throw std::runtime_error("gRPC capability not found: " + capability);
@@ -92,14 +123,34 @@ public:
 
     /**
      * Access service-specific local configuration.
-     * Manually extracted from local YAML files to maintain engine decoupling.
+     * Supports nested lookups using dot notation (e.g., "database.host").
      */
     std::string GetLocal(const std::string& key) const {
+        // Our current C++ parser is flat (key-value).
+        // For parity, we check the flat map. 
+        // Real nested parsing would require a full YAML parser which we don't have in this C++ wrapper yet.
         auto it = local_config_.find(key);
         if (it != local_config_.end()) {
             return it->second;
         }
         return "";
+    }
+
+    /**
+     * Unmarshals the 'local' configuration section into a target type.
+     * Uses nlohmann::json's automatic mapping.
+     */
+    template <typename T>
+    void UnmarshalLocal(T& target) const {
+        target = nlohmann::json(local_config_).get<T>();
+    }
+
+    /**
+     * Returns the entire 'local' configuration as a JSON object.
+     * Parity with Go's raw local map.
+     */
+    nlohmann::json GetLocalJSON() const {
+        return nlohmann::json(local_config_);
     }
 
     distconf::DistConfig& GetRawConfig() { return *config_; }
@@ -109,7 +160,22 @@ private:
     std::string profile_;
     std::shared_ptr<Logger> logger_;
     std::unique_ptr<distconf::DistConfig> config_;
+    nlohmann::json data_;
     std::map<std::string, std::string> local_config_;
+
+    void SyncFromBridge() {
+        try {
+            std::string json_raw = config_->GetFullConfig();
+            data_ = nlohmann::json::parse(json_raw);
+            logger_->Info("Full FFI Bridge Sync completed successfully");
+        } catch (const std::exception&) {
+            std::string err = config_->GetLastError();
+            if (!err.empty()) {
+                logger_->Warning(err);
+            }
+            data_ = nlohmann::json::object();
+        }
+    }
 
     void LoadLocalOverrides() {
         // We look for [profile].yaml or config/[profile].yaml (matching engine discovery)
@@ -123,43 +189,55 @@ private:
             if (!file.is_open()) continue;
 
             std::string line;
-            bool in_private = false;
+            bool in_local = false;
+            std::vector<std::pair<int, std::string>> stack;
+
             while (std::getline(file, line)) {
                 if (!line.empty() && line.back() == '\r') line.pop_back();
+                
+                std::string trimmed = line;
+                trimmed.erase(0, trimmed.find_first_not_of(" \t"));
+                if (trimmed.empty() || trimmed[0] == '#') continue;
 
-                // Simple YAML-lite parser for top-level "private:"
-                if (line.find("private:") == 0) {
-                    in_private = true;
+                int indent = line.find_first_not_of(" \t");
+
+                if (trimmed.find("local:") == 0) {
+                    in_local = true;
+                    stack.clear();
                     continue;
                 }
 
-                if (in_private) {
-                    // Check if we exited the private section (new top-level key or EOF)
-                    if (!line.empty() && !isspace(line[0]) && line.find('#') != 0) {
-                        in_private = false;
-                        continue;
+                if (in_local) {
+                    if (indent == 0 && trimmed.find(":") != std::string::npos) {
+                         in_local = false;
+                         continue;
                     }
 
-                    size_t colon = line.find(':');
+                    size_t colon = trimmed.find(':');
                     if (colon != std::string::npos) {
-                        std::string k = line.substr(0, colon);
-                        std::string v = line.substr(colon + 1);
-
-                        // Trim whitespace
-                        k.erase(0, k.find_first_not_of(" \t"));
-                        k.erase(k.find_last_not_of(" \t") + 1);
+                        std::string k = trimmed.substr(0, colon);
+                        std::string v = trimmed.substr(colon + 1);
                         v.erase(0, v.find_first_not_of(" \t"));
                         v.erase(v.find_last_not_of(" \t") + 1);
 
-                        if (k.empty()) continue;
+                        // Pop from stack if indent is less or equal to previous
+                        while (!stack.empty() && indent <= stack.back().first) {
+                            stack.pop_back();
+                        }
 
-                        // Remove quotes
-                        if (v.size() >= 2 && v.front() == '\'' && v.back() == '\'') v = v.substr(1, v.size() - 2);
-                        if (v.size() >= 2 && v.front() == '\"' && v.back() == '\"') v = v.substr(1, v.size() - 2);
-
-                        // Basic ENV expansion: ${VAR} or ${VAR:default}
-                        v = ExpandEnv(v);
-                        local_config_[k] = v;
+                        if (v.empty()) {
+                            stack.push_back({indent, k});
+                        } else {
+                            // Strip quotes
+                            if (v.size() >= 2 && ((v.front() == '"' && v.back() == '"') || (v.front() == '\'' && v.back() == '\''))) {
+                                v = v.substr(1, v.size() - 2);
+                            }
+                            
+                            std::string full_key = "";
+                            for (const auto& pair : stack) full_key += pair.second + ".";
+                            full_key += k;
+                            local_config_[full_key] = ExpandEnv(v);
+                        }
                     }
                 }
             }

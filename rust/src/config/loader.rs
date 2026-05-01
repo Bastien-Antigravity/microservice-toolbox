@@ -1,6 +1,6 @@
 use serde_yml::Value;
 use std::fs;
-use std::ffi::CString;
+use std::ffi::{CStr, CString, c_char};
 use std::sync::{Arc, Mutex, OnceLock};
 use crate::config::args::ToolboxArgs;
 use crate::config::merger::deep_merge;
@@ -111,10 +111,10 @@ impl AppConfig {
 
         ac.apply_cli_overrides();
         
-        // If --key flag provided, set it as ENV override for the Private Key (decryption engine)
+        // If --key flag provided, set it as ENV override for the local Key (decryption engine)
         if let Some(key) = &ac.cli_args.key {
             unsafe {
-                std::env::set_var("BASTIEN_PRIVATE_KEY_PATH", key);
+                std::env::set_var("BASTIEN_local_KEY_PATH", key);
             }
         }
 
@@ -152,11 +152,19 @@ impl AppConfig {
         if let Some(handle) = self._handle
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let cipher_c = CString::new(ciphertext).map_err(|e| e.to_string())?;
-                let ptr = (lib.dist_conf_decrypt)(handle, cipher_c.as_ptr());
-                if let Some(decrypted) = unsafe { crate::config::ffi::to_rust_string(ptr) } {
-                    return Ok(decrypted);
+                let ptr = unsafe { (lib.dist_conf_decrypt)(handle, cipher_c.as_ptr()) };
+                if !ptr.is_null() {
+                    if let Some(decrypted) = unsafe { crate::config::ffi::to_rust_string(ptr as *mut c_char) } {
+                        return Ok(decrypted);
+                    }
                 }
-                return Err("Decryption failed via bridge".to_string());
+                
+                let err_ptr = unsafe { (lib.dist_conf_get_last_error)() };
+                if !err_ptr.is_null() {
+                    let c_str = unsafe { CStr::from_ptr(err_ptr) };
+                    return Err(c_str.to_string_lossy().into_owned());
+                }
+                return Err("Unknown decryption error".to_string());
         }
 
         Err("Decryption not available (no bridge)".to_string())
@@ -181,11 +189,11 @@ impl AppConfig {
                         }
                 }
             }
-            if let Some(priv_data) = file_data.get("private") {
-                if self.data.get("private").is_none() {
-                    let _ = self.set_value("private", Value::Mapping(serde_yml::Mapping::new()));
+            if let Some(priv_data) = file_data.get("local") {
+                if self.data.get("local").is_none() {
+                    let _ = self.set_value("local", Value::Mapping(serde_yml::Mapping::new()));
                 }
-                if let Some(target_map) = self.data.get_mut("private").and_then(|v| v.as_mapping_mut())
+                if let Some(target_map) = self.data.get_mut("local").and_then(|v| v.as_mapping_mut())
                     && let Some(source_map) = priv_data.as_mapping() {
                         for (k, v) in source_map {
                             target_map.insert(k.clone(), v.clone());
@@ -249,13 +257,13 @@ impl AppConfig {
     }
 
     pub fn get_local(&self, key: &str) -> Option<&Value> {
-        self.get_value(&format!("private.{}", key))
+        self.get_value(&format!("local.{}", key))
     }
 
-    /// Unmarshals the 'private' (local) configuration section into a target type.
+    /// Unmarshals the 'local' (local) configuration section into a target type.
     /// Parity with Go's UnmarshalLocal.
     pub fn unmarshal_local<T: serde::de::DeserializeOwned>(&self) -> Result<T, String> {
-        let priv_val = self.data.get(Value::String("private".to_string()))
+        let priv_val = self.data.get(Value::String("local".to_string()))
             .ok_or_else(|| "No local configuration found".to_string())?;
         serde_yml::from_value(priv_val.clone()).map_err(|e| e.to_string())
     }
@@ -287,7 +295,7 @@ impl AppConfig {
     fn get_addr(&self, capability: &str, host_key: &str, port_key: &str) -> Result<String, String> {
         let cap_path = format!("capabilities.{}", capability);
         let cap = self.get_value(&cap_path).ok_or_else(|| format!("capability {} not found", capability))?;
-        let host = cap.get(host_key).and_then(|v| v.as_str()).unwrap_or("0.0.0.0");
+        let host = cap.get(host_key).and_then(|v| v.as_str()).ok_or_else(|| format!("host key {} missing in capability {}", host_key, capability))?;
         let port = cap.get(port_key).and_then(|v| v.as_str()).ok_or_else(|| format!("port key {} missing in capability {}", port_key, capability))?;
         Ok(format!("{}:{}", host, port))
     }
@@ -467,7 +475,7 @@ mod tests {
 
     #[test]
     fn test_get_local() {
-        let yaml_str = "private:\n  local_setting: value_xyz\n  nested:\n    a: 1";
+        let yaml_str = "local:\n  local_setting: value_xyz\n  nested:\n    val: 123\n    key: nested_value";
         let data = serde_yml::from_str::<Value>(yaml_str).unwrap();
 
         let ac = AppConfig {
@@ -481,14 +489,15 @@ mod tests {
         };
 
         assert_eq!(ac.get_local("local_setting").unwrap().as_str().unwrap(), "value_xyz");
-        assert!(ac.get_local("nested").is_some());
+        assert_eq!(ac.get_local("nested.val").unwrap().as_u64().unwrap(), 123);
+        assert_eq!(ac.get_local("nested.key").unwrap().as_str().unwrap(), "nested_value");
         assert!(ac.get_local("missing").is_none());
     }
 
     #[test]
     fn test_unmarshal_local() -> Result<(), String> {
         let _lock = ENV_MUTEX.lock().unwrap();
-        let yaml_str = "private:\n  local_setting: value_xyz\n  item_count: 5";
+        let yaml_str = "local:\n  local_setting: value_xyz\n  item_count: 5";
         std::fs::write("unmarshal.yaml", yaml_str).map_err(|e| e.to_string())?;
         
         #[derive(serde::Deserialize)]
@@ -649,7 +658,7 @@ mod tests {
     #[test]
     fn test_env_expansion() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        let yaml_str = "private:\n  host: \"${TEST_HOST:localhost}\"\n  port: \"${TEST_PORT:8080}\"";
+        let yaml_str = "local:\n  host: \"${TEST_HOST:localhost}\"\n  port: \"${TEST_PORT:8080}\"";
         let dir = std::env::temp_dir().join("rust_toolbox_env");
         let _ = std::fs::create_dir_all(&dir);
         let config_path = dir.join("standalone.yaml");

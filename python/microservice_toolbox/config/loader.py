@@ -169,8 +169,10 @@ class AppConfig:
                     val = res.decode('utf-8')
                     return val
                 else:
-                    # Failure in the Go engine (e.g. invalid base64 or missing key)
-                    raise ValueError(f"{self.Name} : Decryption failed via bridge")
+                    # Fetch raw error from bridge
+                    err = lib.DistConf_GetLastError()
+                    msg = err.decode('utf-8') if err else "Unknown decryption error"
+                    raise ValueError(msg)
             except Exception as e:
                 if isinstance(e, ValueError):
                     raise
@@ -197,9 +199,9 @@ class AppConfig:
             if "capabilities" in file_data:
                 self.data["capabilities"] = self.data.get("capabilities", {})
                 self.deep_merge(self.data["capabilities"], file_data["capabilities"])
-            if "private" in file_data:
-                self.data["private"] = self.data.get("private", {})
-                self.deep_merge(self.data["private"], file_data["private"])
+            if "local" in file_data:
+                self.data["local"] = self.data.get("local", {})
+                self.deep_merge(self.data["local"], file_data["local"])
 
     def _read_and_expand_yaml(self, filename: str) -> Dict[str, Any]:
         """Helper to read YAML file with environment variable expansion."""
@@ -298,7 +300,10 @@ class AppConfig:
         if not cap:
             raise ValueError(f"capability {capability} not found")
 
-        host = cap.get(host_key, "0.0.0.0")
+        host = cap.get(host_key)
+        if not host:
+            raise ValueError(f"host key {host_key} missing or empty in capability {capability}")
+
         port = cap.get(port_key)
         if not port:
             raise ValueError(f"port key {port_key} missing or empty in capability {capability}")
@@ -316,8 +321,10 @@ class AppConfig:
             full_json = lib.DistConf_GetFullConfig(self._handle)
             if full_json:
                 self.data = jsonLoads(full_json.decode('utf-8'))
-        except Exception as e:
-            self.logger.warning(f"{self.Name} : Failed to sync from bridge: {e}")
+        except Exception:
+            err = lib.DistConf_GetLastError()
+            if err:
+                self.logger.warning(err.decode('utf-8'))
 
     # -----------------------------------------------------------------------------------------------
 
@@ -335,25 +342,38 @@ class AppConfig:
     # -----------------------------------------------------------------------------------------------
 
     def get_local(self, key: str) -> Any:
-        """Returns a value from the 'private' (local) configuration section."""
-        priv = self.data.get("private")
-        if priv is None:
+        """
+        Returns a value from the 'local' configuration section.
+        Supports nested lookups using dot notation (e.g., "database.host").
+        """
+        local_data = self.data.get("local")
+        if local_data is None:
             return None
-        return priv.get(key)
+        
+        parts = key.split(".")
+        current = local_data
+        for part in parts:
+            if isinstance(current, dict):
+                current = current.get(part)
+                if current is None:
+                    return None
+            else:
+                return None
+        return current
 
     # -----------------------------------------------------------------------------------------------
 
     def unmarshal_local(self, target: Any) -> Any:
         """
-        Unmarshals the 'private' (local) configuration section into a target type or instance.
+        Unmarshals the 'local' configuration section into a target type or instance.
         Parity with Go's UnmarshalLocal.
         """
-        priv = self.data.get("private")
-        if not priv:
-            raise ValueError("No private configuration found")
+        local_data = self.data.get("local")
+        if not local_data:
+            raise ValueError("No local configuration found")
 
         import json
-        raw_json = json.dumps(priv)
+        raw_json = json.dumps(local_data)
         data = json.loads(raw_json)
 
         if isinstance(target, type):

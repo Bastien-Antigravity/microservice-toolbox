@@ -10,140 +10,82 @@ tags:
 
 # Microservice Toolbox
 
-A unified infrastructure library for the Bastien-Antigravity microservices ecosystem. Supporting Go, Python, and Rust.
+A unified infrastructure library for the Bastien-Antigravity microservices ecosystem. Supporting **Go, Python, Rust, C++, and VBA**.
 
 ## Core Features
 
 ### 1. Smart Configuration Loader
 Implements a strict "Hierarchy of Truth" for service configuration:
-1.  **Command Line Overrides** (`--params`, `--host`, `--port`, `--grpc_host`, `--grpc_port`): Highest Priority.
-2.  **Local File Override** (`[profile].yaml`): Authritative local source (overrides Server).
-3.  **Config Server Baseline**: Fleet configuration.
-4.  **Environment Variables**: Base layer (lowest priority).
+1.  **Command Line Overrides** (`--key`, `--host`, `--port`): Highest Priority.
+2.  **Environment Variables** (`BASTIEN_PRIVATE_KEY_PATH`): OS-level overrides.
+3.  **Local File Override** (`[profile].yaml`): Authoritative local source.
+4.  **Config Server Baseline**: Fleet configuration.
 
-### 2. Network-Aware Resolver & Docker Guard
-*   **Docker Detection**: Automatically resolves `127.0.0.x` loopback addresses to the internal container interface.
-*   **Docker Guard**: CLI overrides for networking (`--host`, `--port`, `--grpc_host`, `--grpc_port`) are **ignored** in containerized environments. This ensures inter-service connectivity is never broken by manual runtime overrides.
+### 2. Local Configuration Namespace (`Local`)
+Every implementation supports the `Local` configuration block (parsed from the `local:` YAML section). This is reserved for service-specific settings that are **never** synchronized to the fleet.
+- **Go/Python/Rust**: Support `UnmarshalLocal()` to map settings directly to language-native structs/classes.
+- **Transparency (v1.9.9+)**: All toolboxes now support raw error pass-through via the `GetLastError()` API, ensuring engine-level failures are visible to the caller.
 
-### 3. Unified gRPC Foundation
-Standardized gRPC infrastructure across all three languages:
-- **Consistent Addressing**: Unified `GetGRPCListenAddr` helpers.
-- **Graceful Lifecycle**: `GRPCServer` wrappers with built-in reflection and graceful shutdown logic.
-
-### 4. Universal Serializers
-Standardized serialization interfaces for seamless data exchange:
-- **JSON**: Cross-platform JSON encoding/decoding.
-- **Binary**: All three languages use **msgpack** for cross-language binary serialization (`msgpack/v5` in Go, `msgpack` in Python, `rmp-serde` in Rust) for high-performance internal tasks.
-- **API Parity**: Identical `marshal` and `unmarshal` signatures across all languages.
-
-### 5. Reliable Connection Manager (`conn_manager`)
-A robust connection wrapper designed for microservice resilience:
-- **Advanced Retry Strategy**: Supports multiplicative backoff and randomized jitter to prevent "thundering herd" issues.
-- **Connection Modes**:
-    - `ModeBlocking`: Blocks until initial connection succeeds or retries are exhausted.
-    - `ModeNonBlocking`: Returns immediately and connects in the background (ideal for high-perf apps).
-    - `ModeIndefinite`: Blocks forever until the connection is established (ideal for audit/critical apps).
-- **Strategy Presets**: Standardized configurations for `Critical`, `Standard`, and `Performance` scenarios.
-- **Transparent Reconnection**: Automatically handles reconnections during write failures.
-- **Dynamic Context**: Supports custom `BASTIEN_PRIVATE_KEY_PATH` overrides for flexible secret management.
-
-### 6. RSA Secret Management (v1.1.9+)
+### 3. RSA Secret Management (v1.2.0+)
 Standardized on-demand secret decryption engine across the ecosystem:
-- **On-Demand Decryption**: secrets remain encrypted as `ENC(...)` in the config object. Call `DecryptSecret()` (Go) / `decrypt_secret()` (Python/Rust) to get the plaintext.
-- **In-Memory Only**: Decrypted secrets are strictly volatile and should be cleared after use.
-- **Key Discovery**: Follows a standard search chain (`ENV` -> `/etc/bastien/` -> `./`).
+- **On-Demand Decryption**: Secrets remain encrypted as `ENC(...)` in memory. Call `DecryptSecret()` to get the plaintext.
+- **Centralized Security**: Decryption logic is centralized in the Go core; all other languages (Python, Rust, C++, VBA) bridge to this core for maximum security.
+- **FFI Bridge Sync**: High-performance in-memory mirroring ensures sub-millisecond lookups in all languages.
 
 ---
 
 ## Polyglot Parity Matrix
 
-The toolbox ensures that architectural patterns are identical across languages.
-
-| Feature | Go | Python | Rust |
-| :--- | :---: | :---: | :---: |
-| Layered YAML Loading | ✅ | ✅ | ✅ |
-| CLI Flag Overrides | ✅ | ✅ | ✅ |
-| Environment Var Expansion | ✅ | ✅ | ✅ |
-| **RSA Secret Decryption** | ✅ | ✅ | ✅ |
-| **Remote Config Sync** | ✅ | ✅ | ✅ |
-| Connection Manager (Retries) | ✅ | ✅ | ✅ |
-| Universal Serializers (Msgpack) | ✅ | ✅ | ✅ |
-
----
+| Feature | Go | Python | Rust | C++ | VBA |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| Layered YAML Loading | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CLI Flag Overrides (`--key`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Environment Var Expansion | ✅ | ✅ | ✅ | ✅ | ✅ |
+| RSA Secret Decryption | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Error Transparency** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **In-Memory Mirroring** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **UnmarshalLocal** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Connection Manager | ✅ | ✅ | ✅ | ❌ | ❌ |
 
 ---
 
 ## Language Support
 
-### Go
-Located in `/go`.
-```go
-import (
-	toolbox_conn_manager "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/conn_manager"
-)
-
-// 0. Initialize Config (Hierarchical + RSA Decryption)
-cfg, _ := config.LoadConfig("standalone", nil)
-fmt.Printf("Service Name: %s\n", cfg.Common.Name)
-
-// 1. Initialize with a Standard Strategy
-nm := toolbox_conn_manager.NewStandardStrategy(nil)
-nm.OnError = func(attempt int, err error, source string, msg string) {
-    if attempt == nm.MaxRetries {
-        fmt.Printf("Final failure after %d attempts: %v\n", attempt, err)
-    }
-}
-
-// 2. Connect using a specific mode
-conn := nm.Connect(&ip, &port, &publicIP, "my-profile", toolbox_conn_manager.ModeBlocking)
-defer conn.Close()
+### C++
+Located in `/cpp`. Uses `nlohmann/json` for high-speed mirroring.
+```cpp
+auto ac = LoadConfig("standalone");
+std::string addr = ac->GetListenAddr("svc");
+std::string secret = ac->DecryptSecret("ENC(...)");
 ```
 
-### Python
-Located in `/python`.
-```python
-from microservice_toolbox.conn_manager import new_network_manager
-from microservice_toolbox.serializers.providers import JSONSerializer
-
-# 0. Initialize Config (Hierarchical + RSA Decryption)
-from microservice_toolbox.config import load_config
-cfg = load_config("standalone")
-print(f"Service Name: {cfg.data['common']['name']}")
-
-# 1. Initialize with a Performance Strategy
-from microservice_toolbox.conn_manager import new_performance_strategy, ConnectionMode
-
-nm = new_performance_strategy()
-
-# 2. Connect in the background
-conn = nm.connect("127.0.0.1", "8080", "1.2.3.4", "test", ConnectionMode.NON_BLOCKING)
-
-# 2. Use Serializers
-serializer = JSONSerializer()
-payload = serializer.marshal({"status": "ok"})
+### VBA
+Located in `/vba`. Enabling Excel/Access integration.
+```vba
+Dim ac As New AppConfig
+ac.Init "standalone"
+Debug.Print ac.GetListenAddr("svc")
 ```
 
 ### Rust
-Located in `/rust`.
+Located in `/rust`. Type-safe configuration via `serde`.
 ```rust
-use microservice_toolbox::conn_manager::manager::new_network_manager_with_all;
-use microservice_toolbox::serializers::providers::{JsonSerializer};
-use std::sync::Arc;
+let ac = AppConfig::load_config("standalone", None)?;
+let cfg: MyLocalConfig = ac.unmarshal_local()?;
+```
 
-// 0. Initialize Config (Hierarchical + RSA Decryption)
-let cfg = AppConfig::load_config("standalone", None)?;
-println!("Service Name: {:?}", cfg.data["common"]["name"]);
+### Python
+Located in `/python`. Pythonic wrappers with `ctypes` FFI.
+```python
+cfg = load_config("standalone")
+secret = cfg.decrypt_secret("ENC(...)")
+```
 
-// 1. Initialize with a Critical Strategy
-use microservice_toolbox::conn_manager::manager::{NetworkManager, ConnectionMode};
-let nm = NetworkManager::new_critical(None);
-
-// 2. Connect indefinitely (blocks until success)
-let conn = nm.connect("127.0.0.1".into(), "8080".into(), ConnectionMode::Indefinite).await;
-
-// 2. Use Serializers
-let ser = JsonSerializer::new(); // returns SerializerEnum
-let bytes = ser.marshal(&my_struct)?;
+### Go
+Located in `/go`. The reference implementation.
+```go
+cfg := config.LoadConfig("standalone")
+addr := cfg.GetListenAddr("svc")
 ```
 
 ---

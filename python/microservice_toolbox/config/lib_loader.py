@@ -58,6 +58,9 @@ def load_libdistconf():
         lib.DistConf_OnLiveConfUpdate.argtypes = [c_void_p, CALLBACK_TYPE]
         lib.DistConf_OnLiveConfUpdate.restype = None
 
+        lib.DistConf_GetLastError.argtypes = []
+        lib.DistConf_GetLastError.restype = c_char_p
+
         lib.DistConf_OnRegistryUpdate.argtypes = [c_void_p, CALLBACK_TYPE]
         lib.DistConf_OnRegistryUpdate.restype = None
 

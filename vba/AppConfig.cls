@@ -22,7 +22,8 @@ Private m_local As Object ' Scripting.Dictionary
 ' Initialization
 ' -----------------------------------------------------------------------------------------------
 
-Public Sub Init(ByVal profile As String)
+' LoadConfig initializes the configuration based on the requested Profile logic.
+Public Sub LoadConfig(ByVal profile As String)
     m_profile = profile
     Set m_local = CreateObject("Scripting.Dictionary")
     
@@ -32,7 +33,7 @@ Public Sub Init(ByVal profile As String)
         Err.Raise 513, "AppConfig", "Failed to initialize DistConf for profile: " & profile
     End If
     
-    ' Phase 2: Manual loading of 'private' section (Parity with Go Toolbox)
+    ' Phase 2: Manual loading of 'local' section (Parity with Go Toolbox)
     LoadLocalOverrides
 End Sub
 
@@ -77,7 +78,7 @@ Public Function DecryptSecret(ByVal ciphertext As String) As String
     DecryptSecret = Toolbox.PtrToString(ptr)
 End Function
 
-' GetLocal returns a value from the 'private' (local) configuration section.
+' GetLocal returns a value from the 'local' configuration section.
 Public Function GetLocal(ByVal key As String) As String
     If m_local.Exists(key) Then
         GetLocal = m_local(key)
@@ -106,19 +107,19 @@ Private Sub LoadLocalOverrides()
     Set ts = fso.OpenTextFile(filename, 1)
     
     Dim line As String
-    Dim inPrivate As Boolean
-    inPrivate = False
+    Dim inLocal As Boolean
+    inLocal = False
     
     Do While Not ts.AtEndOfStream
         line = ts.ReadLine
         
-        ' Simple YAML-lite parser for top-level "private:"
-        If Left(line, 8) = "private:" Then
-            inPrivate = True
-        ElseIf inPrivate Then
-            ' Check if we exited the private section (new top-level key or non-empty line without indentation)
+        ' Simple YAML-lite parser for top-level "local:"
+        If Left(line, 6) = "local:" Then
+            inLocal = True
+        ElseIf inLocal Then
+            ' Check if we exited the local section (new top-level key or non-empty line without indentation)
             If Len(Trim(line)) > 0 And Left(line, 1) <> " " And Left(line, 1) <> vbTab And Left(line, 1) <> "#" Then
-                inPrivate = False
+                inLocal = False
             Else
                 Dim colon As Long
                 colon = InStr(line, ":")

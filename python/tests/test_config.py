@@ -124,23 +124,34 @@ def test_decrypt_secret_enc_raises(tmp_path):
 # ---- Local Config ----
 
 def test_get_local(tmp_path):
-    """Verify get_local() returns values from the 'private' YAML section."""
-    config_file = tmp_path / "local.yaml"
-    yaml.dump({"private": {"local_setting": "value_xyz", "nested": {"a": 1}}}, open(config_file, "w"))
+    """Verify get_local() returns values from the 'local' YAML section."""
+    config_file = tmp_path / "test.yaml"
+    data = {
+        "local": {
+            "local_setting": "value_xyz",
+            "nested": {
+                "val": 123,
+                "key": "nested_value"
+            }
+        }
+    }
+    yaml.dump(data, open(config_file, "w"))
 
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("local", input_args=[])
+        ac = load_config("test", input_args=[])
         assert ac.get_local("local_setting") == "value_xyz"
-        assert ac.get_local("nested") == {"a": 1}
+        assert ac.get_local("nested.val") == 123
+        assert ac.get_local("nested.key") == "nested_value"
+        assert ac.get_local("nested.missing") is None
         assert ac.get_local("missing") is None
     finally:
         os.chdir(old_cwd)
 
 
 def test_get_local_empty(tmp_path):
-    """Verify get_local() returns None when no private section exists."""
+    """Verify get_local() returns None when no local section exists."""
     config_file = tmp_path / "no-local.yaml"
     yaml.dump({"common": {"name": "test"}}, open(config_file, "w"))
 
@@ -154,9 +165,9 @@ def test_get_local_empty(tmp_path):
 
 
 def test_unmarshal_local(tmp_path):
-    """Verify unmarshal_local() maps the private section to a class."""
+    """Verify unmarshal_local() maps the local section to a class."""
     config_file = tmp_path / "unmarshal.yaml"
-    yaml.dump({"private": {"local_setting": "value_xyz", "item_count": 5}}, open(config_file, "w"))
+    yaml.dump({"local": {"local_setting": "value_xyz", "item_count": 5}}, open(config_file, "w"))
 
     class MyConfig:
         def __init__(self, local_setting=None, item_count=0):
@@ -234,9 +245,9 @@ def test_cli_override_targets_single_capability(tmp_path):
 
 def test_env_expansion(tmp_path):
     """Verify ${VAR:default} expansion in YAML loading."""
-    config_file = tmp_path / "env.yaml"
+    config_file = tmp_path / "test.yaml"
     yaml.dump({
-        "private": {
+        "local": {
             "host": "${TEST_HOST:localhost}",
             "port": "${TEST_PORT:8080}",
         }
@@ -249,7 +260,7 @@ def test_env_expansion(tmp_path):
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("env", input_args=[])
+        ac = load_config("test", input_args=[])
         assert ac.get_local("host") == "127.0.0.5"
         # YAML parses 8080 as int unless quoted
         assert int(ac.get_local("port")) == 8080

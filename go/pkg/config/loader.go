@@ -73,7 +73,34 @@ func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []s
 	ac.applyCLIOverrides(cliArgs)
 	ac.applyCLIGRPCOverrides(cliArgs)
 
+	// Phase 5: Public Key Auto-Discovery
+	ac.loadPublicKey()
+
+	// If --key flag provided, set it as ENV override for the Private Key (decryption engine)
+	if cliArgs.Key != "" {
+		os.Setenv("BASTIEN_PRIVATE_KEY_PATH", cliArgs.Key)
+	}
+
 	return ac, nil
+}
+
+func (ac *AppConfig) loadPublicKey() {
+	path := os.Getenv("BASTIEN_PUBLIC_KEY_PATH")
+	if path == "" {
+		candidates := []string{"/etc/bastien/public.pem", "./public.pem"}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				path = c
+				break
+			}
+		}
+	}
+
+	if path != "" {
+		if content, err := os.ReadFile(path); err == nil {
+			ac.Config.Common.PublicKey = string(content)
+		}
+	}
 }
 
 func (ac *AppConfig) applyFileOverride(filename string) {
@@ -95,7 +122,7 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 		if caps, ok := raw["capabilities"].(map[string]interface{}); ok {
 			ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
 		}
-		if priv, ok := raw["private"].(map[string]interface{}); ok {
+		if priv, ok := raw["local"].(map[string]interface{}); ok {
 			if ac.Local == nil {
 				ac.Local = make(map[string]interface{})
 			}
@@ -105,11 +132,28 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 }
 
 // GetLocal returns a value from the 'local' configuration section.
+// Supports nested lookups using dot notation (e.g., "database.host").
 func (ac *AppConfig) GetLocal(key string) interface{} {
 	if ac.Local == nil {
 		return nil
 	}
-	return ac.Local[key]
+
+	parts := strings.Split(key, ".")
+	var current interface{} = ac.Local
+
+	for _, part := range parts {
+		if m, ok := current.(map[string]interface{}); ok {
+			if val, exists := m[part]; exists {
+				current = val
+			} else {
+				return nil
+			}
+		} else {
+			return nil
+		}
+	}
+
+	return current
 }
 
 // UnmarshalLocal maps the 'local' configuration section into a target struct.
