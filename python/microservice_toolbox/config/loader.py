@@ -16,6 +16,8 @@ KEY PARAMETERS:
 - specific_flags: Optional list of CLI flags to parse.
 """
 
+from json import dumps as jsonDumps
+from json import loads as jsonLoads
 from os import getenv as osGetenv
 from os.path import exists as osPathExists
 from typing import Any, Callable, Dict, List, Optional
@@ -24,10 +26,8 @@ from yaml import safe_load as yamlSafe_load
 
 from ..utils.logger import ILogger, ensure_safe_logger
 from .args import parse_cli_args
+from .lib_loader import CALLBACK_TYPE, lib
 from .merger import deep_merge
-from .lib_loader import lib, CALLBACK_TYPE
-
-from json import loads as jsonLoads, dumps as jsonDumps
 
 # -----------------------------------------------------------------------------------------------
 
@@ -77,13 +77,13 @@ class AppConfig:
         self.logger = ensure_safe_logger(logger)
         self.cli_args = parse_cli_args(specific_flags, input_args=input_args)
         filename = f"{profile}.yaml"
-        
+
         # ---------------------------------------------------------------------
         # BRIDGE INITIALIZATION (v1.9.8 Standard)
         # ---------------------------------------------------------------------
         self._handle = None
         self._callback_refs = {} # Keep references to avoid GC
-        
+
         if lib:
             try:
                 self._handle = lib.DistConf_New(profile.encode('utf-8'))
@@ -170,7 +170,7 @@ class AppConfig:
                 if isinstance(e, ValueError):
                     raise
                 self.logger.error(f"{self.Name} : Decryption failed via bridge: {e}")
-        
+
         # If we reach here, it's an ENC(...) block but we couldn't decrypt it
         # (either bridge failed or bridge is missing). Original behavior was to raise ValueError.
         raise ValueError(f"{self.Name} : Decryption not available or failed for ENC block")
@@ -204,7 +204,7 @@ class AppConfig:
         try:
             with open(filename, "r") as f:
                 raw_content = f.read()
-                
+
             # Expand Environment Variables: ${VAR} or ${VAR:default}
             import re
             def env_expander(match):
@@ -213,7 +213,7 @@ class AppConfig:
                 var_name = parts[0]
                 default_val = parts[1] if len(parts) > 1 else ""
                 return osGetenv(var_name, default_val)
-            
+
             expanded_content = re.sub(r"\${([^}]+)}", env_expander, raw_content)
             return yamlSafe_load(expanded_content) or {}
         except Exception as e:
@@ -306,7 +306,7 @@ class AppConfig:
         """Pulls the full configuration state from the Go bridge into self.data."""
         if not self._handle:
             return
-        
+
         try:
             full_json = lib.DistConf_GetFullConfig(self._handle)
             if full_json:
@@ -322,7 +322,7 @@ class AppConfig:
             res = lib.DistConf_Get(self._handle, section.encode('utf-8'), key.encode('utf-8'))
             if res is not None:
                 return res.decode('utf-8')
-        
+
         # Fallback to local data
         sect = self.data.get(section, {})
         return sect.get(key, default)

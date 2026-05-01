@@ -405,6 +405,9 @@ impl Drop for AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_config_deep_merge() {
@@ -577,6 +580,7 @@ mod tests {
 
     #[test]
     fn test_load_config_from_file() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let dir = std::env::temp_dir().join("rust_toolbox_test");
         let _ = std::fs::create_dir_all(&dir);
         let yaml_str = "common:\n  name: file-test\ncapabilities:\n  svc:\n    ip: 5.6.7.8\n    port: '3000'\n    grpc_ip: 5.6.7.8\n    grpc_port: '3001'";
@@ -599,6 +603,7 @@ mod tests {
 
     #[test]
     fn test_missing_file_returns_error() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let dir = std::env::temp_dir().join("rust_toolbox_missing");
         let _ = std::fs::create_dir_all(&dir);
         let old_dir = std::env::current_dir().unwrap();
@@ -614,6 +619,7 @@ mod tests {
 
     #[test]
     fn test_env_expansion() {
+        let _guard = ENV_MUTEX.lock().unwrap();
         let yaml_str = "private:\n  host: \"${TEST_HOST:localhost}\"\n  port: \"${TEST_PORT:8080}\"";
         let dir = std::env::temp_dir().join("rust_toolbox_env");
         let _ = std::fs::create_dir_all(&dir);

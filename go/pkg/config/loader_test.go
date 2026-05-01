@@ -165,9 +165,9 @@ capabilities:
 }
 
 func TestAppConfig_KeyFlag(t *testing.T) {
-	// Setup dummy file
 	yamlContent := "common: {name: key-test}"
-	os.WriteFile("keytest.yaml", []byte(yamlContent), 0644)
+	err := os.WriteFile("keytest.yaml", []byte(yamlContent), 0644)
+	assert.NoError(t, err)
 	defer os.Remove("keytest.yaml")
 
 	// Mock os.Args

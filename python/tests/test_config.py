@@ -3,8 +3,7 @@ import os
 import pytest
 import yaml
 
-from microservice_toolbox.config.loader import AppConfig, load_config, load_config_with_logger
-
+from microservice_toolbox.config.loader import AppConfig, load_config
 
 # ---- Deep Merge ----
 
@@ -215,7 +214,8 @@ def test_env_expansion(tmp_path):
     }, open(config_file, "w"))
 
     os.environ["TEST_HOST"] = "127.0.0.5"
-    if "TEST_PORT" in os.environ: del os.environ["TEST_PORT"]
+    if "TEST_PORT" in os.environ:
+        del os.environ["TEST_PORT"]
 
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
