@@ -107,6 +107,34 @@ void test_grpc_missing_error() {
     std::cout << "  Passed." << std::endl;
 }
 
+void test_env_expansion() {
+    std::cout << "Testing Environment Variable Expansion..." << std::endl;
+    
+    // Using 'standalone' profile because it's known by the engine, 
+    // but we use a local override to test expansion.
+    std::ofstream ofs("standalone.yaml");
+    ofs << "common: {name: expansion-test}\n"
+        << "private:\n"
+        << "  host: ${TEST_HOST:localhost}\n"
+        << "  port: ${TEST_PORT:8080}\n";
+    ofs.close();
+
+    setenv("TEST_HOST", "127.0.0.5", 1);
+    unsetenv("TEST_PORT");
+    
+    auto ac = LoadConfig("standalone");
+    
+    if (ac->GetPrivate("host") != "127.0.0.5") {
+        throw std::runtime_error("Env expansion failed for TEST_HOST. Got: " + ac->GetPrivate("host"));
+    }
+    if (ac->GetPrivate("port") != "8080") {
+        throw std::runtime_error("Env expansion default failed for TEST_PORT. Got: " + ac->GetPrivate("port"));
+    }
+
+    std::cout << "  Passed." << std::endl;
+    std::remove("standalone.yaml");
+}
+
 int main() {
     // Cleanup any interference
     std::remove("test_config.yaml");
@@ -117,6 +145,7 @@ int main() {
         test_decrypt_secret_logic();
         test_get_private();
         test_grpc_missing_error();
+        test_env_expansion();
 
         std::cout << "\n=======================================" << std::endl;
         std::cout << "  All C++ Toolbox Parity Tests Passed!" << std::endl;

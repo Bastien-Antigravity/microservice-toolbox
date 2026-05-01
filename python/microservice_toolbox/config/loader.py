@@ -179,24 +179,46 @@ class AppConfig:
 
     def _load_from_file(self, filename: str) -> None:
         """Full merge of all file data into self.data"""
-        with open(filename, "r") as f:
-            file_data = yamlSafe_load(f)
-            if file_data:
-                self.deep_merge(self.data, file_data)
+        file_data = self._read_and_expand_yaml(filename)
+        if file_data:
+            self.deep_merge(self.data, file_data)
 
     # -----------------------------------------------------------------------------------------------
 
     def _apply_file_override(self, filename: str) -> None:
         """Re-reads file and merges ONLY capabilities as hard override (matches Go applyFileOverride)"""
-        with open(filename, "r") as f:
-            file_data = yamlSafe_load(f)
-            if file_data:
-                if "capabilities" in file_data:
-                    self.data["capabilities"] = self.data.get("capabilities", {})
-                    self.deep_merge(self.data["capabilities"], file_data["capabilities"])
-                if "private" in file_data:
-                    self.data["private"] = self.data.get("private", {})
-                    self.deep_merge(self.data["private"], file_data["private"])
+        file_data = self._read_and_expand_yaml(filename)
+        if file_data:
+            if "capabilities" in file_data:
+                self.data["capabilities"] = self.data.get("capabilities", {})
+                self.deep_merge(self.data["capabilities"], file_data["capabilities"])
+            if "private" in file_data:
+                self.data["private"] = self.data.get("private", {})
+                self.deep_merge(self.data["private"], file_data["private"])
+
+    def _read_and_expand_yaml(self, filename: str) -> Dict[str, Any]:
+        """Helper to read YAML file with environment variable expansion."""
+        if not osPathExists(filename):
+            return {}
+
+        try:
+            with open(filename, "r") as f:
+                raw_content = f.read()
+                
+            # Expand Environment Variables: ${VAR} or ${VAR:default}
+            import re
+            def env_expander(match):
+                token = match.group(1)
+                parts = token.split(":", 1)
+                var_name = parts[0]
+                default_val = parts[1] if len(parts) > 1 else ""
+                return osGetenv(var_name, default_val)
+            
+            expanded_content = re.sub(r"\${([^}]+)}", env_expander, raw_content)
+            return yamlSafe_load(expanded_content) or {}
+        except Exception as e:
+            self.logger.warning(f"{self.Name} : Failed to load {filename}: {e}")
+            return {}
 
     # -----------------------------------------------------------------------------------------------
 

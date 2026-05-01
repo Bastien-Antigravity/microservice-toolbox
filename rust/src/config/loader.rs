@@ -155,40 +155,56 @@ impl AppConfig {
     }
 
     fn load_from_file(&mut self, filename: &str) {
-        if let Ok(content) = fs::read_to_string(filename) {
-            if let Ok(file_data) = serde_yml::from_str::<Value>(&content) {
-                deep_merge(&mut self.data, &file_data);
-            }
+        if let Some(file_data) = self.read_and_expand_yaml(filename) {
+            deep_merge(&mut self.data, &file_data);
         }
     }
 
     fn apply_file_override(&mut self, filename: &str) {
-        if let Ok(content) = fs::read_to_string(filename) {
-            if let Ok(file_data) = serde_yml::from_str::<Value>(&content) {
-                if let Some(caps) = file_data.get("capabilities") {
-                    if self.data.get("capabilities").is_none() {
-                        let _ = self.set_value("capabilities", Value::Mapping(serde_yml::Mapping::new()));
-                    }
-                    if let Some(target_map) = self.data.get_mut("capabilities").and_then(|v| v.as_mapping_mut())
-                        && let Some(source_map) = caps.as_mapping() {
-                            for (k, v) in source_map {
-                                target_map.insert(k.clone(), v.clone());
-                            }
-                    }
+        if let Some(file_data) = self.read_and_expand_yaml(filename) {
+            if let Some(caps) = file_data.get("capabilities") {
+                if self.data.get("capabilities").is_none() {
+                    let _ = self.set_value("capabilities", Value::Mapping(serde_yml::Mapping::new()));
                 }
-                if let Some(priv_data) = file_data.get("private") {
-                    if self.data.get("private").is_none() {
-                        let _ = self.set_value("private", Value::Mapping(serde_yml::Mapping::new()));
-                    }
-                    if let Some(target_map) = self.data.get_mut("private").and_then(|v| v.as_mapping_mut())
-                        && let Some(source_map) = priv_data.as_mapping() {
-                            for (k, v) in source_map {
-                                target_map.insert(k.clone(), v.clone());
-                            }
-                    }
+                if let Some(target_map) = self.data.get_mut("capabilities").and_then(|v| v.as_mapping_mut())
+                    && let Some(source_map) = caps.as_mapping() {
+                        for (k, v) in source_map {
+                            target_map.insert(k.clone(), v.clone());
+                        }
+                }
+            }
+            if let Some(priv_data) = file_data.get("private") {
+                if self.data.get("private").is_none() {
+                    let _ = self.set_value("private", Value::Mapping(serde_yml::Mapping::new()));
+                }
+                if let Some(target_map) = self.data.get_mut("private").and_then(|v| v.as_mapping_mut())
+                    && let Some(source_map) = priv_data.as_mapping() {
+                        for (k, v) in source_map {
+                            target_map.insert(k.clone(), v.clone());
+                        }
                 }
             }
         }
+    }
+
+    fn read_and_expand_yaml(&self, filename: &str) -> Option<Value> {
+        let content = fs::read_to_string(filename).ok()?;
+        
+        // Expand Environment Variables: ${VAR} or ${VAR:default}
+        let mut expanded = content.clone();
+        let re = regex::Regex::new(r"\$\{([^}]+)\}").unwrap();
+        
+        for cap in re.captures_iter(&content) {
+            let token = &cap[1];
+            let parts: Vec<&str> = token.splitn(2, ':').collect();
+            let var_name = parts[0];
+            let default_val = parts.get(1).unwrap_or(&"");
+            
+            let final_val = std::env::var(var_name).unwrap_or_else(|_| default_val.to_string());
+            expanded = expanded.replace(&cap[0], &final_val);
+        }
+
+        serde_yml::from_str::<Value>(&expanded).ok()
     }
 
     fn apply_cli_overrides(&mut self) {
@@ -389,7 +405,6 @@ impl Drop for AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     #[test]
     fn test_config_deep_merge() {
@@ -595,5 +610,29 @@ mod tests {
         // Without bridge and without file, data should be empty and addresses should fail
         let ac = result.unwrap();
         assert!(ac.get_listen_addr("anything").is_err());
+    }
+
+    #[test]
+    fn test_env_expansion() {
+        let yaml_str = "private:\n  host: \"${TEST_HOST:localhost}\"\n  port: \"${TEST_PORT:8080}\"";
+        let dir = std::env::temp_dir().join("rust_toolbox_env");
+        let _ = std::fs::create_dir_all(&dir);
+        let config_path = dir.join("standalone.yaml");
+        std::fs::write(&config_path, yaml_str).unwrap();
+
+        unsafe {
+            std::env::set_var("TEST_HOST", "127.0.0.5");
+            std::env::remove_var("TEST_PORT");
+        }
+
+        let old_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let ac = load_config("standalone").unwrap();
+        std::env::set_current_dir(&old_dir).unwrap();
+        let _ = std::fs::remove_file(&config_path);
+
+        assert_eq!(ac.get_private("host").unwrap().as_str().unwrap(), "127.0.0.5");
+        assert_eq!(ac.get_private("port").unwrap().as_str().unwrap(), "8080");
     }
 }

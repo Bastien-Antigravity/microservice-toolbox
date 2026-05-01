@@ -200,3 +200,29 @@ def test_cli_override_targets_single_capability(tmp_path):
         assert ac.get_listen_addr("other-svc") == "0.0.0.0:9001"
     finally:
         os.chdir(old_cwd)
+
+
+# ---- Env Expansion ----
+
+def test_env_expansion(tmp_path):
+    """Verify ${VAR:default} expansion in YAML loading."""
+    config_file = tmp_path / "env.yaml"
+    yaml.dump({
+        "private": {
+            "host": "${TEST_HOST:localhost}",
+            "port": "${TEST_PORT:8080}",
+        }
+    }, open(config_file, "w"))
+
+    os.environ["TEST_HOST"] = "127.0.0.5"
+    if "TEST_PORT" in os.environ: del os.environ["TEST_PORT"]
+
+    old_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        ac = load_config("env", input_args=[])
+        assert ac.get_private("host") == "127.0.0.5"
+        # YAML parses 8080 as int unless quoted
+        assert int(ac.get_private("port")) == 8080
+    finally:
+        os.chdir(old_cwd)

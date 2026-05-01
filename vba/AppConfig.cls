@@ -148,22 +148,36 @@ Private Sub LoadPrivateOverrides()
 End Sub
 
 Private Function ExpandEnv(ByVal inputStr As String) As String
-    ' Simple expansion of %VAR% in strings
+    ' Expand Environment Variables: ${VAR} or ${VAR:default}
     Dim result As String
     result = inputStr
     
     Dim startPos As Long, endPos As Long
-    startPos = InStr(result, "%")
+    startPos = InStr(result, "${")
     Do While startPos > 0
-        endPos = InStr(startPos + 1, result, "%")
+        endPos = InStr(startPos + 2, result, "}")
         If endPos > 0 Then
-            Dim varName As String
-            varName = Mid(result, startPos + 1, endPos - startPos - 1)
+            Dim token As String
+            token = Mid(result, startPos + 2, endPos - startPos - 2)
+            
+            Dim varName As String, defaultVal As String
+            Dim colon As Long
+            colon = InStr(token, ":")
+            
+            If colon > 0 Then
+                varName = Left(token, colon - 1)
+                defaultVal = Mid(token, colon + 1)
+            Else
+                varName = token
+                defaultVal = ""
+            End If
+            
             Dim envVal As String
             envVal = Environ(varName)
+            If envVal = "" Then envVal = defaultVal
             
             result = Left(result, startPos - 1) & envVal & Mid(result, endPos + 1)
-            startPos = InStr(startPos + Len(envVal), result, "%")
+            startPos = InStr(startPos + Len(envVal), result, "${")
         Else
             Exit Do
         End If

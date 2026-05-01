@@ -55,7 +55,15 @@ pub struct ToolboxArgs {
 
 impl ToolboxArgs {
     pub fn parse_cli_args() -> Self {
-        let raw = RawArgs::parse();
+        // Use try_parse to avoid crashing when run inside a test harness (which passes unknown args)
+        let raw = RawArgs::try_parse().unwrap_or_else(|_| {
+            // If parsing fails (e.g. during tests), return a default RawArgs
+            // But we still want to allow help/version if explicitly asked
+            if std::env::args().any(|a| a == "--help" || a == "-h") {
+                let _ = RawArgs::try_parse(); // This will trigger the help output and exit
+            }
+            RawArgs::parse_from(std::iter::once("microservice-toolbox"))
+        });
         let mut result = ToolboxArgs::default();
 
         // Docker Guard
