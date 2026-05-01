@@ -118,7 +118,7 @@ class AppConfig:
         # PHASE 3: Apply CLI Overrides (The absolute Highest Priority)
         # ---------------------------------------------------------------------
         self._apply_cli_overrides()
-        
+
         # If --key flag provided, set it as ENV override for the Private Key (decryption engine)
         if self.cli_args.key:
             from os import environ as os_environ

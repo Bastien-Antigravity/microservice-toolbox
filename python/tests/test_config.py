@@ -167,7 +167,7 @@ def test_unmarshal_local(tmp_path):
     os.chdir(tmp_path)
     try:
         ac = load_config("unmarshal", input_args=[])
-        
+
         # Test instantiating a type
         cfg = ac.unmarshal_local(MyConfig)
         assert cfg.local_setting == "value_xyz"
