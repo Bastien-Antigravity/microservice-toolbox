@@ -14,3 +14,7 @@ Currently, only the `Go` implementation of the `microservice-toolbox` contains t
 
 ### 3. Dynamic Key Discovery
 Implement a "smart" context-aware key discovery mechanism across all languages. The goal is to support multi-tenancy on the same host by dynamically determining the private/public key paths based on `common.name` or other identifiers.
+
+### 4. C++ Library Audit & Completion
+While basic configuration parity is achieved (v1.9.9), the C++ library still lacks some advanced features present in the Go implementation.
+- **Action Required**: Perform a gap analysis of `microservice-toolbox/cpp` against the `Go` core. Implement missing high-level utilities (e.g., advanced connectivity retries, more robust health-check abstractions) to ensure C++ services are first-class citizens.
