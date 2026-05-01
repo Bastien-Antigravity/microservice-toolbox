@@ -33,27 +33,27 @@ pub fn get_lib() -> Option<&'static DistConfLib> {
         unsafe {
             let lib = Library::new(lib_path).ok()?;
             Some(DistConfLib {
-                dist_conf_new: std::mem::transmute(lib.get::<extern "C" fn(*const c_char) -> usize>(b"DistConf_New").ok()?),
-                dist_conf_close: std::mem::transmute(lib.get::<extern "C" fn(usize)>(b"DistConf_Close").ok()?),
-                dist_conf_get: std::mem::transmute(lib.get::<extern "C" fn(usize, *const c_char, *const c_char) -> *mut c_char>(b"DistConf_Get").ok()?),
-                dist_conf_set: std::mem::transmute(lib.get::<extern "C" fn(usize, *const c_char, *const c_char, *const c_char) -> bool>(b"DistConf_Set").ok()?),
-                dist_conf_sync: std::mem::transmute(lib.get::<extern "C" fn(usize) -> c_int>(b"DistConf_Sync").ok()?),
-                dist_conf_on_live_conf_update: std::mem::transmute(lib.get::<extern "C" fn(usize, ConfigUpdateCb)>(b"DistConf_OnLiveConfUpdate").ok()?),
-                dist_conf_on_registry_update: std::mem::transmute(lib.get::<extern "C" fn(usize, ConfigUpdateCb)>(b"DistConf_OnRegistryUpdate").ok()?),
-                dist_conf_get_address: std::mem::transmute(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetAddress").ok()?),
-                dist_conf_get_grpc_address: std::mem::transmute(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetGRPCAddress").ok()?),
-                dist_conf_get_capability: std::mem::transmute(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetCapability").ok()?),
-                dist_conf_get_full_config: std::mem::transmute(lib.get::<extern "C" fn(usize) -> *mut c_char>(b"DistConf_GetFullConfig").ok()?),
-                dist_conf_decrypt: std::mem::transmute(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_Decrypt").ok()?),
-                dist_conf_share_config: std::mem::transmute(lib.get::<extern "C" fn(usize, *const c_char) -> bool>(b"DistConf_ShareConfig").ok()?),
-                dist_conf_free_string: std::mem::transmute(lib.get::<extern "C" fn(*mut c_char)>(b"DistConf_FreeString").ok()?),
+                dist_conf_new: std::mem::transmute::<Symbol<'_, extern "C" fn(*const c_char) -> usize>, Symbol<'static, extern "C" fn(*const c_char) -> usize>>(lib.get::<extern "C" fn(*const c_char) -> usize>(b"DistConf_New").ok()?),
+                dist_conf_close: std::mem::transmute::<Symbol<'_, extern "C" fn(usize)>, Symbol<'static, extern "C" fn(usize)>>(lib.get::<extern "C" fn(usize)>(b"DistConf_Close").ok()?),
+                dist_conf_get: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char, *const c_char) -> *mut c_char>(b"DistConf_Get").ok()?),
+                dist_conf_set: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char, *const c_char, *const c_char) -> bool>, Symbol<'static, extern "C" fn(usize, *const c_char, *const c_char, *const c_char) -> bool>>(lib.get::<extern "C" fn(usize, *const c_char, *const c_char, *const c_char) -> bool>(b"DistConf_Set").ok()?),
+                dist_conf_sync: std::mem::transmute::<Symbol<'_, extern "C" fn(usize) -> c_int>, Symbol<'static, extern "C" fn(usize) -> c_int>>(lib.get::<extern "C" fn(usize) -> c_int>(b"DistConf_Sync").ok()?),
+                dist_conf_on_live_conf_update: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, ConfigUpdateCb)>, Symbol<'static, extern "C" fn(usize, ConfigUpdateCb)>>(lib.get::<extern "C" fn(usize, ConfigUpdateCb)>(b"DistConf_OnLiveConfUpdate").ok()?),
+                dist_conf_on_registry_update: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, ConfigUpdateCb)>, Symbol<'static, extern "C" fn(usize, ConfigUpdateCb)>>(lib.get::<extern "C" fn(usize, ConfigUpdateCb)>(b"DistConf_OnRegistryUpdate").ok()?),
+                dist_conf_get_address: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetAddress").ok()?),
+                dist_conf_get_grpc_address: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetGRPCAddress").ok()?),
+                dist_conf_get_capability: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetCapability").ok()?),
+                dist_conf_get_full_config: std::mem::transmute::<Symbol<'_, extern "C" fn(usize) -> *mut c_char>, Symbol<'static, extern "C" fn(usize) -> *mut c_char>>(lib.get::<extern "C" fn(usize) -> *mut c_char>(b"DistConf_GetFullConfig").ok()?),
+                dist_conf_decrypt: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_Decrypt").ok()?),
+                dist_conf_share_config: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> bool>, Symbol<'static, extern "C" fn(usize, *const c_char) -> bool>>(lib.get::<extern "C" fn(usize, *const c_char) -> bool>(b"DistConf_ShareConfig").ok()?),
+                dist_conf_free_string: std::mem::transmute::<Symbol<'_, extern "C" fn(*mut c_char)>, Symbol<'static, extern "C" fn(*mut c_char)>>(lib.get::<extern "C" fn(*mut c_char)>(b"DistConf_FreeString").ok()?),
                 _lib: lib,
             })
         }
     }).as_ref()
 }
 
-pub fn to_rust_string(c_ptr: *mut c_char) -> Option<String> {
+pub unsafe fn to_rust_string(c_ptr: *mut c_char) -> Option<String> {
     if c_ptr.is_null() {
         return None;
     }

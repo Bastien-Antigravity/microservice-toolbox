@@ -145,7 +145,7 @@ impl AppConfig {
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let cipher_c = CString::new(ciphertext).map_err(|e| e.to_string())?;
                 let ptr = (lib.dist_conf_decrypt)(handle, cipher_c.as_ptr());
-                if let Some(decrypted) = crate::config::ffi::to_rust_string(ptr) {
+                if let Some(decrypted) = unsafe { crate::config::ffi::to_rust_string(ptr) } {
                     return Ok(decrypted);
                 }
                 return Err("Decryption failed via bridge".to_string());
@@ -249,7 +249,7 @@ impl AppConfig {
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let cap_c = CString::new(capability).map_err(|e| e.to_string())?;
                 let ptr = (lib.dist_conf_get_address)(handle, cap_c.as_ptr());
-                if let Some(addr) = crate::config::ffi::to_rust_string(ptr) {
+                if let Some(addr) = unsafe { crate::config::ffi::to_rust_string(ptr) } {
                     return Ok(addr);
                 }
         }
@@ -261,7 +261,7 @@ impl AppConfig {
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let cap_c = CString::new(capability).map_err(|e| e.to_string())?;
                 let ptr = (lib.dist_conf_get_grpc_address)(handle, cap_c.as_ptr());
-                if let Some(addr) = crate::config::ffi::to_rust_string(ptr) {
+                if let Some(addr) = unsafe { crate::config::ffi::to_rust_string(ptr) } {
                     return Ok(addr);
                 }
         }
@@ -284,10 +284,9 @@ impl AppConfig {
         let mut current = &mut self.data;
         let parts: Vec<&str> = path.split('.').collect();
         for part in parts.iter().take(parts.len() - 1) {
-            if !current.as_mapping().is_some_and(|m| m.contains_key(Value::String(part.to_string()))) {
-                if let Some(map) = current.as_mapping_mut() {
+            if !current.as_mapping().is_some_and(|m| m.contains_key(Value::String(part.to_string()))) 
+                && let Some(map) = current.as_mapping_mut() {
                     map.insert(Value::String(part.to_string()), Value::Mapping(serde_yml::Mapping::new()));
-                }
             }
             current = current.as_mapping_mut().unwrap().get_mut(Value::String(part.to_string())).unwrap();
         }
@@ -316,12 +315,10 @@ impl AppConfig {
         if let Some(handle) = self._handle
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let ptr = (lib.dist_conf_get_full_config)(handle);
-                if let Some(json_str) = crate::config::ffi::to_rust_string(ptr) {
-                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                        if let Ok(yml_val) = serde_yml::from_str::<Value>(&val.to_string()) {
-                            self.data = yml_val;
-                        }
-                    }
+                if let Some(json_str) = unsafe { crate::config::ffi::to_rust_string(ptr) }
+                    && let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
+                    && let Ok(yml_val) = serde_yml::from_str::<Value>(&val.to_string()) {
+                        self.data = yml_val;
                 }
         }
     }
@@ -332,7 +329,7 @@ impl AppConfig {
                 let section_c = CString::new(section).ok()?;
                 let key_c = CString::new(key).ok()?;
                 let ptr = (lib.dist_conf_get)(handle, section_c.as_ptr(), key_c.as_ptr());
-                return crate::config::ffi::to_rust_string(ptr);
+                return unsafe { crate::config::ffi::to_rust_string(ptr) };
         }
         self.get_value(&format!("{}.{}", section, key)).and_then(|v| v.as_str()).map(|s| s.to_string())
     }
@@ -345,14 +342,11 @@ impl AppConfig {
                 *get_live_cb().lock().unwrap() = Some(Box::new(cb));
                 
                 extern "C" fn internal_cb(_handle: usize, json_ptr: *const std::os::raw::c_char) {
-                    if let Some(json_str) = crate::config::ffi::to_rust_string(json_ptr as *mut _) {
-                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                            if let Ok(guard) = get_live_cb().lock() {
-                                if let Some(cb) = guard.as_ref() {
-                                    cb(val);
-                                }
-                            }
-                        }
+                    if let Some(json_str) = unsafe { crate::config::ffi::to_rust_string(json_ptr as *mut _) }
+                        && let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
+                        && let Ok(guard) = get_live_cb().lock()
+                        && let Some(cb) = guard.as_ref() {
+                            cb(val);
                     }
                 }
 
@@ -368,14 +362,11 @@ impl AppConfig {
                 *get_reg_cb().lock().unwrap() = Some(Box::new(cb));
                 
                 extern "C" fn internal_reg_cb(_handle: usize, json_ptr: *const std::os::raw::c_char) {
-                    if let Some(json_str) = crate::config::ffi::to_rust_string(json_ptr as *mut _) {
-                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                            if let Ok(guard) = get_reg_cb().lock() {
-                                if let Some(cb) = guard.as_ref() {
-                                    cb(val);
-                                }
-                            }
-                        }
+                    if let Some(json_str) = unsafe { crate::config::ffi::to_rust_string(json_ptr as *mut _) }
+                        && let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
+                        && let Ok(guard) = get_reg_cb().lock()
+                        && let Some(cb) = guard.as_ref() {
+                            cb(val);
                     }
                 }
 
