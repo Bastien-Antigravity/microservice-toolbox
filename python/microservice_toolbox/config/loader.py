@@ -349,7 +349,7 @@ class AppConfig:
         local_data = self.data.get("local")
         if local_data is None:
             return None
-        
+
         parts = key.split(".")
         current = local_data
         for part in parts:
