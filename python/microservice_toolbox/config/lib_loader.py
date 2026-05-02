@@ -25,8 +25,9 @@ def load_libdistconf():
             "./libdistconf.so",
             "./libdistconf.dylib",
             "/usr/local/lib/libdistconf.so",
-            # Add relative path from toolbox to distributed-config release if in same workspace
-            "../../distributed-config/release/libdistconf.so"
+            # Add relative path from toolbox to distributed-config bridge if in same workspace
+            "../../distributed-config/distconf/libdistconf/libdistconf.so",
+            "../../distributed-config/distconf/libdistconf/libdistconf.dylib"
         ]
         for p in possible_paths:
             if os.path.exists(p):

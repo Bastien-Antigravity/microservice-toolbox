@@ -29,7 +29,20 @@ static LIB: OnceLock<Option<DistConfLib>> = OnceLock::new();
 pub fn get_lib() -> Option<&'static DistConfLib> {
     LIB.get_or_init(|| {
         let lib_path = std::env::var("LIBDISTCONF_PATH")
-            .unwrap_or_else(|_| "../../distributed-config/release/libdistconf.so".to_string());
+            .unwrap_or_else(|_| {
+                let paths = [
+                    "../../distributed-config/distconf/libdistconf/libdistconf.so",
+                    "../../distributed-config/distconf/libdistconf/libdistconf.dylib",
+                    "../../distributed-config/release/libdistconf.so",
+                    "./libdistconf.so",
+                ];
+                for p in paths {
+                    if std::path::Path::new(p).exists() {
+                        return p.to_string();
+                    }
+                }
+                "../../distributed-config/distconf/libdistconf/libdistconf.so".to_string()
+            });
         
         unsafe {
             let lib = Library::new(lib_path).ok()?;

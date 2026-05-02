@@ -79,7 +79,7 @@ class AppConfig:
         filename = f"{profile}.yaml"
 
         # ---------------------------------------------------------------------
-        # BRIDGE INITIALIZATION (v1.9.8 Standard)
+        # PHASE 1: Initialize Bridge (The Master Source of Truth)
         # ---------------------------------------------------------------------
         self._handle = None
         self._callback_refs = {} # Keep references to avoid GC
@@ -88,21 +88,21 @@ class AppConfig:
             try:
                 self._handle = lib.DistConf_New(profile.encode('utf-8'))
                 if self._handle:
-                    self.logger.info("{0} : libdistconf session initialized (handle: {1})".format(self.Name, self._handle))
+                    self.logger.info("{0} : Unified Shared Engine initialized (handle: {1})".format(self.Name, self._handle))
                     # Sync local data with bridge state
                     self._sync_from_bridge()
             except Exception as e:
-                self.logger.warning("{0} : libdistconf initialization failed: {1}. Falling back to native.".format(self.Name, e))
+                self.logger.warning("{0} : Shared Engine initialization failed: {1}. Falling back to native loader.".format(self.Name, e))
 
         # ---------------------------------------------------------------------
-        # PHASE 1: Load base configuration from YAML (Native Fallback)
+        # PHASE 2: Native Fallback (Only if Bridge is missing or failed)
         # ---------------------------------------------------------------------
         if not self._handle:
             if not osPathExists(filename):
                 # Try fallback to config/ folder
                 filename = f"config/{profile}.yaml"
                 if not osPathExists(filename):
-                    raise FileNotFoundError(f"Toolbox (Python): Config file not found for profile '{profile}' (Checked {profile}.yaml and config/{profile}.yaml)")
+                    raise FileNotFoundError(f"Toolbox (Python): Config file not found for profile '{profile}'")
             self._load_from_file(filename)
 
         # ---------------------------------------------------------------------
