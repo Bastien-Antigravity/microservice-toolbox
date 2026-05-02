@@ -26,7 +26,7 @@ Every implementation supports the `Local` configuration block (parsed from the `
 - **Go/Python/Rust**: Support `UnmarshalLocal()` to map settings directly to language-native structs/classes.
 - **Transparency (v1.9.9+)**: All toolboxes now support raw error pass-through via the `GetLastError()` API, ensuring engine-level failures are visible to the caller.
 
-### 3. RSA Secret Management (v1.2.0+)
+### 3. RSA Secret Management (v1.2.2+)
 Standardized on-demand secret decryption engine across the ecosystem:
 - **On-Demand Decryption**: Secrets remain encrypted as `ENC(...)` in memory. Call `DecryptSecret()` to get the plaintext.
 - **Centralized Security**: Decryption logic is centralized in the Go core; all other languages (Python, Rust, C++, VBA) bridge to this core for maximum security.
