@@ -33,7 +33,7 @@ jobs:
           path: microservice-toolbox
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25'
           cache-dependency-path: microservice-toolbox/go/go.sum
@@ -141,7 +141,7 @@ jobs:
           path: microservice-toolbox
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.25'
       - name: Set up Python
