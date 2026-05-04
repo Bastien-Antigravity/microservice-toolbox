@@ -16,19 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Distributed-Config
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Bastien-Antigravity/distributed-config
           path: distributed-config
 
       - name: Checkout Safe-Socket
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Bastien-Antigravity/safe-socket
           path: safe-socket
 
       - name: Checkout Toolbox
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: microservice-toolbox
 
@@ -57,13 +57,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Distributed-Config
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Bastien-Antigravity/distributed-config
           path: distributed-config
 
       - name: Checkout Toolbox
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: microservice-toolbox
       
@@ -94,13 +94,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Distributed-Config
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Bastien-Antigravity/distributed-config
           path: distributed-config
 
       - name: Checkout Toolbox
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: microservice-toolbox
       
@@ -130,13 +130,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Distributed-Config
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Bastien-Antigravity/distributed-config
           path: distributed-config
 
       - name: Checkout Toolbox
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: microservice-toolbox
 
