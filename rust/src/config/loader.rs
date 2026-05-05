@@ -119,6 +119,11 @@ impl AppConfig {
 
         ac.apply_cli_overrides();
         
+        // Synchronize name to common.name
+        if let Some(name) = &ac.cli_args.name {
+            let _ = ac.set_value("common.name", Value::String(name.clone()));
+        }
+        
         // If --key flag provided, set it as ENV override for the local Key (decryption engine)
         if let Some(key) = &ac.cli_args.key {
             unsafe {
@@ -264,6 +269,10 @@ impl AppConfig {
 
     pub fn common(&self) -> &Value {
         self.data.get(Value::String("common".to_string())).unwrap_or(&Value::Null)
+    }
+
+    pub fn get_service_name(&self) -> String {
+        self.common().get("name").and_then(|v| v.as_str()).unwrap_or("unknown-service").to_string()
     }
 
     pub fn get_local(&self, key: &str) -> Option<&Value> {

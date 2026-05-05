@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/pflag"
 )
@@ -49,8 +50,14 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 		ac.Logger.Error("Error parsing flags: %v", err)
 	}
 
+	// Determine name with fallback to binary name
+	serviceName := *name
+	if serviceName == "" {
+		serviceName = filepath.Base(os.Args[0])
+	}
+
 	result := &CLIArgs{
-		Name:     *name,
+		Name:     serviceName,
 		Conf:     *conf,
 		LogLevel: *logLevel,
 		Key:      *key,

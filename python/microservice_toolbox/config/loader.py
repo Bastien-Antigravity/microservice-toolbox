@@ -159,6 +159,10 @@ class AppConfig:
         """Provides direct access to the 'common' configuration block."""
         return self.data.get("common", {})
 
+    def get_service_name(self) -> str:
+        """Returns the standardized program name."""
+        return self.common.get("name", "unknown-service")
+
     # -----------------------------------------------------------------------------------------------
 
     def decrypt_secret(self, ciphertext: str) -> str:

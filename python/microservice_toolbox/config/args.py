@@ -1,7 +1,8 @@
 from argparse import ArgumentParser as argparseArgumentParser
 from collections import namedtuple
 from os import environ as osEnviron
-from os.path import exists as osPathExists
+from os.path import exists as osPathExists, basename as osPathBasename
+import sys
 
 CLIArgs = namedtuple("CLIArgs", ["name", "host", "port", "grpc_host", "grpc_port", "conf", "log_level", "key", "extras"])
 
@@ -44,6 +45,11 @@ def parse_cli_args(specific_args=None, input_args=None):
 
     # Map standard flags
     name = args.name
+    if not name:
+        name = osPathBasename(sys.argv[0])
+        # Remove extension for python scripts if present (optional but cleaner)
+        if name.endswith(".py"):
+            name = name[:-3]
     conf = args.conf
     log_level = args.log_level
     key = args.key

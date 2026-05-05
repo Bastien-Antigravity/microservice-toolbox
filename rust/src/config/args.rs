@@ -66,11 +66,14 @@ impl ToolboxArgs {
         });
         let mut result = ToolboxArgs::default();
 
-        // Docker Guard
         let is_docker = Path::new("/.dockerenv").exists()
             || std::env::var("DOCKER_ENV").is_ok_and(|v| v == "true");
 
-        result.name = raw.name;
+        result.name = raw.name.or_else(|| {
+            std::env::current_exe().ok().and_then(|p| {
+                p.file_name().map(|n| n.to_string_lossy().into_owned())
+            })
+        });
         result.conf = raw.conf;
         result.log_level = raw.log_level;
         result.key = raw.key;

@@ -23,6 +23,14 @@ type AppConfig struct {
 	Logger   utils.Logger
 }
 
+// GetServiceName returns the standardized program name.
+func (ac *AppConfig) GetServiceName() string {
+	if ac.Config != nil && ac.Config.Common.Name != "" {
+		return ac.Config.Common.Name
+	}
+	return "unknown-service"
+}
+
 // SetLogger updates the logger after instantiation.
 func (ac *AppConfig) SetLogger(logger utils.Logger) {
 	ac.Logger = utils.EnsureSafeLogger(logger)
@@ -71,6 +79,11 @@ func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []s
 	// Phase 4: Apply CLI Overrides (Highest)
 	ac.applyCLIOverrides(cliArgs)
 	ac.applyCLIGRPCOverrides(cliArgs)
+	
+	// Ensure the service name is synchronized to the base common config
+	if cliArgs.Name != "" {
+		ac.Config.Common.Name = cliArgs.Name
+	}
 
 	// Phase 5: Public Key Auto-Discovery
 	ac.loadPublicKey()
