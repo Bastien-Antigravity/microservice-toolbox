@@ -1,3 +1,9 @@
+---
+microservice: microservice-toolbox
+type: governance
+status: active
+---
+
 # ⚡ AI Initialization: microservice-toolbox
 
 > [!IMPORTANT] MANDATORY INITIALIZATION
