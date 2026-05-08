@@ -4,7 +4,7 @@ from os import environ as osEnviron
 from os.path import exists as osPathExists, basename as osPathBasename
 import sys
 
-CLIArgs = namedtuple("CLIArgs", ["name", "host", "port", "grpc_host", "grpc_port", "conf", "log_level", "key", "extras"])
+CLIArgs = namedtuple("CLIArgs", ["name", "host", "port", "grpc_host", "grpc_port", "conf", "log_level", "key", "profile", "extras"])
 
 
 def parse_cli_args(specific_args=None, input_args=None):
@@ -28,6 +28,7 @@ def parse_cli_args(specific_args=None, input_args=None):
     parser.add_argument("--conf", type=str, help="Path to configuration file")
     parser.add_argument("--log_level", type=str, help="Logging level (DEBUG, INFO, etc.)")
     parser.add_argument("--key", type=str, help="Path to RSA Public/Private key")
+    parser.add_argument("--profile", "-p", type=str, help="Configuration profile (e.g. standalone, production)")
 
     # Specific arguments
     if specific_args:
@@ -45,11 +46,6 @@ def parse_cli_args(specific_args=None, input_args=None):
 
     # Map standard flags
     name = args.name
-    if not name:
-        name = osPathBasename(sys.argv[0])
-        # Remove extension for python scripts if present (optional but cleaner)
-        if name.endswith(".py"):
-            name = name[:-3]
     conf = args.conf
     log_level = args.log_level
     key = args.key
@@ -85,5 +81,6 @@ def parse_cli_args(specific_args=None, input_args=None):
         conf=conf,
         log_level=log_level,
         key=key,
+        profile=args.profile,
         extras=extras,
     )

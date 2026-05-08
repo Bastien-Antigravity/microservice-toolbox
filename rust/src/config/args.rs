@@ -29,6 +29,9 @@ pub struct RawArgs {
     #[arg(long)]
     pub key: Option<String>,
 
+    #[arg(short, long)]
+    pub profile: Option<String>,
+
     /// Specific arguments in KEY=VALUE format
     #[arg(short, long)]
     pub extra: Vec<String>,
@@ -50,6 +53,7 @@ pub struct ToolboxArgs {
     pub conf: Option<String>,
     pub log_level: Option<String>,
     pub key: Option<String>,
+    pub profile: Option<String>,
     pub extras: HashMap<String, String>,
 }
 
@@ -77,6 +81,7 @@ impl ToolboxArgs {
         result.conf = raw.conf;
         result.log_level = raw.log_level;
         result.key = raw.key;
+        result.profile = raw.profile;
 
         // If key provided, set it as ENV override for the decryption engine
         if let Some(k) = &result.key {

@@ -49,6 +49,10 @@ impl AppConfig {
     /// Loads and merges configuration data based on the provided profile.
     pub fn load_config(profile: &str, logger: Option<Arc<dyn Logger>>) -> Result<Self, Box<dyn std::error::Error>> {
         let cli_args = ToolboxArgs::parse_cli_args();
+        let mut actual_profile = profile.to_string();
+        if let Some(p) = &cli_args.profile {
+            actual_profile = p.clone();
+        }
         
         let final_logger = match logger {
             Some(l) => l,
@@ -56,7 +60,7 @@ impl AppConfig {
                 #[cfg(feature = "unilog")]
                 {
                     let app_name = cli_args.name.as_deref().unwrap_or("rust-app");
-                    match unilog_rs::UniLog::new(profile, app_name, "standard", LogLevel::Info, false) {
+                    match unilog_rs::UniLog::new(&actual_profile, app_name, "standard", LogLevel::Info, false) {
                         Ok(unilog) => Arc::new(UniLogger::new(unilog)),
                         Err(e) => {
                             let fallback = ensure_safe_logger(None);
@@ -73,7 +77,7 @@ impl AppConfig {
         };
 
         let mut ac = AppConfig {
-            profile: profile.to_string(),
+            profile: actual_profile.clone(),
             data: Value::Mapping(serde_yml::Mapping::new()),
             cli_args,
             logger: final_logger,
@@ -86,7 +90,7 @@ impl AppConfig {
         // BRIDGE INITIALIZATION (v1.9.8 Standard)
         // ---------------------------------------------------------------------
         if let Some(lib) = crate::config::ffi::get_lib() {
-            let profile_c = CString::new(profile).unwrap();
+            let profile_c = CString::new(actual_profile.clone()).unwrap();
             let handle = (lib.dist_conf_new)(profile_c.as_ptr());
             if handle != 0 {
                 ac._handle = Some(handle);
@@ -97,20 +101,20 @@ impl AppConfig {
 
         // Phase 1: Load base config from file (Native Fallback)
         if ac._handle.is_none() {
-            let mut filename = format!("{}.yaml", profile);
+            let mut filename = format!("{}.yaml", actual_profile);
             if !std::path::Path::new(&filename).exists() {
-                filename = format!("config/{}.yaml", profile);
+                filename = format!("config/{}.yaml", actual_profile);
             }
             ac.load_from_file(&filename);
         }
 
         // Phase 2: Layered logic matching Go implementation
-        let is_dev = profile == "standalone" || profile == "test";
+        let is_dev = actual_profile == "standalone" || actual_profile == "test";
         if is_dev {
             ac.logger.info("Dev Mode detected. Re-applying Local File as Hard Override.");
-            let mut filename = format!("{}.yaml", profile);
+            let mut filename = format!("{}.yaml", actual_profile);
             if !std::path::Path::new(&filename).exists() {
-                filename = format!("config/{}.yaml", profile);
+                filename = format!("config/{}.yaml", actual_profile);
             }
             ac.apply_file_override(&filename);
         } else {

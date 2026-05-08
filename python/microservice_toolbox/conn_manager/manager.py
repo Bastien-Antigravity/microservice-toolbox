@@ -80,6 +80,21 @@ class NetworkManager:
 
     # -----------------------------------------------------------------------------------------------
 
+    def get_next_delay(self, attempt: int) -> float:
+        """
+        Calculates the delay for the next attempt using backoff and jitter.
+        """
+        delay = self.base_delay * mathPow(self.backoff, attempt)
+        if delay > self.max_delay:
+            delay = self.max_delay
+
+        if self.jitter > 0:
+            delay += randomUniform(0, self.jitter * delay)
+
+        return delay
+
+    # -----------------------------------------------------------------------------------------------
+
     def establish_connection(self, ip: str, port: str, public_ip: str, profile: str) -> Any:
         """
         Attempts a single connection to the resolved address.
@@ -119,14 +134,7 @@ class NetworkManager:
                 if self.on_error:
                     self.on_error(i + 1, e, "NetworkManager", f"Initial connection failure to {address}")
 
-                # Calculate backoff
-                delay = self.base_delay * mathPow(self.backoff, i)
-                if delay > self.max_delay:
-                    delay = self.max_delay
-
-                # Apply jitter
-                if self.jitter > 0:
-                    delay += randomUniform(0, self.jitter * delay)
+                delay = self.get_next_delay(i)
 
                 self.logger.info(
                     "{0} : Initial connection to {1} failed: {2}. Retrying in {3:.2f}s...".format(
@@ -137,6 +145,7 @@ class NetworkManager:
                 i += 1
 
         raise MaxRetriesReachedError(f"{address} after {self.max_retries} attempts (last error: {last_err})")
+
 
     # -----------------------------------------------------------------------------------------------
 

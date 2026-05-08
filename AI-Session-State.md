@@ -27,10 +27,12 @@ directives:
 - [x] Implemented comprehensive multi-language unit tests and integration suite.
 - [x] Added `ConnectNonBlocking` background reconnection support across all languages.
 - [x] **v1.2.2 Upgrade**: Standardized all toolboxes (Go, Python, Rust, C++, VBA) to match Shared Engine v1.9.922.
+- [x] **Parity Synchronization**: Achieved 1:1 behavioral parity (Resilience, Logger, Lifecycle, Models) across Go, Python, Rust, and C++.
 
 ## 🐛 Local Issues / Bugs
 - None identified.
 
 ## ⏭ Next Actions
 - [x] Maintain this state file during development sprints!
-- [ ] Implement `lifecycle` Manager in Python and Rust (as per ARCHITECTURE.md Section 2.25).
+- [x] Implement `lifecycle` Manager in Python and Rust.
+- [ ] Implement `gRPC` client wrapper for C++.

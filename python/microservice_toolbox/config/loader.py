@@ -72,10 +72,14 @@ class AppConfig:
         logger: Optional[ILogger] = None,
         input_args: Optional[List[str]] = None,
     ):
+        self.cli_args = parse_cli_args(specific_flags, input_args=input_args)
+        if self.cli_args.profile:
+            profile = self.cli_args.profile
+        
         self.profile = profile
         self.data: Dict[str, Any] = {}
         self.logger = ensure_safe_logger(logger)
-        self.cli_args = parse_cli_args(specific_flags, input_args=input_args)
+        self.args = self.cli_args # Expose as self.args for consistency with Go
         filename = f"{profile}.yaml"
 
         # ---------------------------------------------------------------------

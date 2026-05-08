@@ -65,7 +65,6 @@ impl ManagedConnection {
     }
 
     pub async fn reconnect(&self) -> Result<(), Error> {
-        let mut delay = self.nm.base_delay;
         let mut i = 0;
 
         loop {
@@ -81,16 +80,14 @@ impl ManagedConnection {
                         handler(i + 1, &e, "NetworkManager", &format!("Failed to recover connection to {}:{}", self.ip, self.port));
                     }
                     
+                    let delay = self.nm.get_next_delay(i as isize);
                     sleep(delay).await;
-                    delay = std::cmp::min(delay * 2, self.nm.max_delay);
                     i += 1;
-                    if delay > self.nm.max_delay {
-                        delay = self.nm.max_delay;
-                    }
                 }
             }
         }
     }
+
 
     pub async fn close(&self) {
         let mut conn_lock = self.current_conn.lock().await;

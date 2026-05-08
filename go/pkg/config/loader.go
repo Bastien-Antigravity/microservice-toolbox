@@ -21,6 +21,7 @@ type AppConfig struct {
 	Resolver *connectivity.Resolver
 	Profile  string
 	Logger   utils.Logger
+	Args     *CLIArgs
 }
 
 // GetServiceName returns the standardized program name.
@@ -66,6 +67,7 @@ func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []s
 
 	// Phase 2: Handle CLI Flags
 	cliArgs := ac.ParseCLIArgs(specificFlags)
+	ac.Args = cliArgs
 
 	// Phase 3: Layered Merging Logic
 	// We always attempt to load the local file as a baseline/fallback

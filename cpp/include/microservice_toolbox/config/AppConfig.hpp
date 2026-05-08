@@ -11,46 +11,17 @@
 #include <string>
 #include <vector>
 
-// Include the underlying SDK (Vended for stability)
+#include "../utils/Logger.hpp"
+#include "CommandLine.hpp"
 #include "DistConf.hpp"
 #include "json.hpp"
 
 namespace microservice_toolbox {
 namespace config {
 
-/**
- * Basic Logger interface to match Toolbox pattern.
- */
-class Logger {
-public:
-  virtual ~Logger() = default;
-  virtual void Info(const std::string &msg) = 0;
-  virtual void Warning(const std::string &msg) = 0;
-  virtual void Error(const std::string &msg) = 0;
-};
-
-class NoOpLogger : public Logger {
-public:
-  void Info(const std::string &) override {}
-  void Warning(const std::string &) override {}
-  void Error(const std::string &) override {}
-};
-
-/**
- * Standard output logger for debugging and CLI tools.
- */
-class StdOutLogger : public Logger {
-public:
-  void Info(const std::string &msg) override {
-    std::cout << "[INFO] " << msg << std::endl;
-  }
-  void Warning(const std::string &msg) override {
-    std::cout << "[WARN] " << msg << std::endl;
-  }
-  void Error(const std::string &msg) override {
-    std::cerr << "[ERROR] " << msg << std::endl;
-  }
-};
+using Logger = microservice_toolbox::utils::Logger;
+using NoOpLogger = microservice_toolbox::utils::NoOpLogger;
+using StdOutLogger = microservice_toolbox::utils::StdOutLogger;
 
 /**
  * AppConfig is the C++ implementation of the Microservice Toolbox configuration
@@ -59,21 +30,25 @@ public:
 class AppConfig {
 public:
   explicit AppConfig(const std::string &profile,
-                     std::shared_ptr<Logger> logger = nullptr)
-      : profile_(profile),
-        logger_(logger ? logger : std::make_shared<NoOpLogger>()) {
+                     std::shared_ptr<Logger> logger = nullptr,
+                     const CLIArgs &args = {})
+      : profile_(args.profile.empty() ? profile : args.profile),
+        logger_(logger ? logger : std::make_shared<NoOpLogger>()),
+        args_(args) {
 
     try {
-      config_ = std::make_unique<distconf::DistConfig>(profile);
-      logger_->Info("libdistconf session initialized for profile: " + profile);
+      config_ = std::make_unique<distconf::DistConfig>(profile_);
+      logger_->Info("libdistconf session initialized for profile: " + profile_);
 
       // Full FFI Bridge Sync: Fetch entire config state once
       SyncFromBridge();
 
       // Phase 2: Manual loading of 'local' section (Parity with Go Toolbox)
-      // Note: distributed-config engine ignores 'local', so we handle it here
-      // as 'local' config.
       LoadLocalOverrides();
+
+      // Phase 3: Apply CLI Overrides
+      ApplyCLIOverrides();
+
     } catch (const std::exception &e) {
       logger_->Error(std::string("Failed to initialize DistConf: ") + e.what());
       throw;
@@ -195,12 +170,14 @@ public:
 
   distconf::DistConfig &GetRawConfig() { return *config_; }
   const std::string &GetProfile() const { return profile_; }
+  const CLIArgs &GetArgs() const { return args_; }
 
 private:
   std::string profile_;
   std::shared_ptr<Logger> logger_;
   std::unique_ptr<distconf::DistConfig> config_;
   nlohmann::json data_;
+  CLIArgs args_;
 
   void SyncFromBridge() {
     try {
@@ -279,6 +256,53 @@ private:
     }
   }
 
+  void ApplyCLIOverrides() {
+    if (!args_.name.empty()) {
+      data_["common"]["name"] = args_.name;
+    }
+
+    std::string target = args_.name;
+    if (target.empty() && data_.contains("common") &&
+        data_["common"].contains("name")) {
+      target = data_["common"]["name"].get<std::string>();
+    }
+    if (target.empty())
+      target = "config_server";
+
+    if (!args_.host.empty() || args_.port != 0) {
+      if (!data_.contains("capabilities"))
+        data_["capabilities"] = nlohmann::json::object();
+      if (!data_["capabilities"].contains(target))
+        data_["capabilities"][target] = nlohmann::json::object();
+
+      if (!args_.host.empty())
+        data_["capabilities"][target]["ip"] = args_.host;
+      if (args_.port != 0)
+        data_["capabilities"][target]["port"] = std::to_string(args_.port);
+    }
+
+    if (!args_.grpc_host.empty() || args_.grpc_port != 0) {
+      if (!data_.contains("capabilities"))
+        data_["capabilities"] = nlohmann::json::object();
+      if (!data_["capabilities"].contains(target))
+        data_["capabilities"][target] = nlohmann::json::object();
+
+      if (!args_.grpc_host.empty())
+        data_["capabilities"][target]["grpc_ip"] = args_.grpc_host;
+      if (args_.grpc_port != 0)
+        data_["capabilities"][target]["grpc_port"] = std::to_string(args_.grpc_port);
+    }
+
+    if (!args_.key.empty()) {
+      // Set environment variable for decryption engine
+#ifdef _WIN32
+      _putenv_s("BASTIEN_PRIVATE_KEY_PATH", args_.key.c_str());
+#else
+      setenv("BASTIEN_PRIVATE_KEY_PATH", args_.key.c_str(), 1);
+#endif
+    }
+  }
+
   std::string ExpandEnv(const std::string &input) const {
     std::string result = input;
     size_t start_pos = 0;
@@ -307,14 +331,22 @@ private:
   }
 };
 
-inline std::unique_ptr<AppConfig> LoadConfig(const std::string &profile) {
-  return std::make_unique<AppConfig>(profile);
+inline std::unique_ptr<AppConfig>
+LoadConfigWithLogger(const std::string &profile,
+                     std::shared_ptr<Logger> logger,
+                     int argc = 0, char **argv = nullptr,
+                     const std::vector<std::string> &specific_flags = {}) {
+  CLIArgs args;
+  if (argc > 0 && argv != nullptr) {
+    args = CommandLine::Parse(argc, argv, specific_flags);
+  }
+  return std::make_unique<AppConfig>(profile, logger, args);
 }
 
 inline std::unique_ptr<AppConfig>
-LoadConfigWithLogger(const std::string &profile,
-                     std::shared_ptr<Logger> logger) {
-  return std::make_unique<AppConfig>(profile, logger);
+LoadConfig(const std::string &profile, int argc = 0, char **argv = nullptr,
+           const std::vector<std::string> &specific_flags = {}) {
+  return LoadConfigWithLogger(profile, nullptr, argc, argv, specific_flags);
 }
 
 } // namespace config

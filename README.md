@@ -32,6 +32,12 @@ Standardized on-demand secret decryption engine across the ecosystem:
 - **Centralized Security**: Decryption logic is centralized in the Go core; all other languages (Python, Rust, C++, VBA) bridge to this core for maximum security.
 - **FFI Bridge Sync**: High-performance in-memory mirroring ensures sub-millisecond lookups in all languages.
 
+### 4. Business Data Standards (v1.2.3+)
+Unified data models for the business logic tier, defined in `schemas/business` and implemented in Go (`pkg/business`):
+- **MarketEvent**: Low-latency envelope for L1/L2 data.
+- **OHLCV**: Standardized time-series bar representation.
+- **Signal**: Unified trading strategy signal format (Buy/Sell/Exit).
+
 ---
 
 ## Polyglot Parity Matrix
@@ -45,7 +51,17 @@ Standardized on-demand secret decryption engine across the ecosystem:
 | **Error Transparency** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **In-Memory Mirroring** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **UnmarshalLocal** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Business Data Models**| ✅ | 🏗️ | 🏗️ | ❌ | ❌ |
 | Connection Manager | ✅ | ✅ | ✅ | ❌ | ❌ |
+
+---
+
+## Polyglot Parity Rules
+To ensure the ecosystem remains unified, all contributions to this toolbox must follow these rules:
+1. **The Mirroring Mandate**: New features added to the Go (Reference) implementation must be ported to Python, Rust, and C++ in the same PR/cycle.
+2. **Behavioral Identity**: Logic and error handling must be identical across all languages.
+3. **Semantic Naming**: Use language-appropriate casing (`PascalCase` for Go, `snake_case` for Python/Rust), but the semantic name must be identical (e.g., `GetListenAddr` vs `get_listen_addr`).
+4. **Integration Validation**: All changes must pass the `integration/run_tests.sh` matrix.
 
 ---
 

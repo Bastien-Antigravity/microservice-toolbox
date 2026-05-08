@@ -67,6 +67,22 @@ func NewNetworkManagerWithLogger(maxRetries int, baseDelayMs, maxDelayMs, connec
 	}
 }
 
+// GetNextDelay calculates the delay for the next attempt using backoff and jitter.
+// attempt is 0-indexed.
+func (nm *NetworkManager) GetNextDelay(attempt int) time.Duration {
+	delay := float64(nm.BaseDelay) * math.Pow(nm.Backoff, float64(attempt))
+	if delay > float64(nm.MaxDelay) {
+		delay = float64(nm.MaxDelay)
+	}
+
+	if nm.Jitter > 0 {
+		jitterVal := rand.Float64() * nm.Jitter * delay
+		delay += jitterVal
+	}
+
+	return time.Duration(delay)
+}
+
 // -----------------------------------------------------------------------------
 // EstablishConnection attempts a single connection to the resolved address.
 func (nm *NetworkManager) EstablishConnection(ip, port, publicIP *string, profile string) (io.WriteCloser, error) {
@@ -94,28 +110,19 @@ func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile s
 		}
 		lastErr = err
 
-		// Calculate backoff
-		delay := float64(nm.BaseDelay) * math.Pow(nm.Backoff, float64(i))
-		if delay > float64(nm.MaxDelay) {
-			delay = float64(nm.MaxDelay)
-		}
+		delay := nm.GetNextDelay(i)
 
-		// Apply jitter
-		if nm.Jitter > 0 {
-			jitterVal := rand.Float64() * nm.Jitter * delay
-			delay += jitterVal
-		}
-
-		nm.Logger.Warning("ManagedConnection: Initial connection to %s failed: %v. Retrying in %v...", address, err, time.Duration(delay))
+		nm.Logger.Warning("ManagedConnection: Initial connection to %s failed: %v. Retrying in %v...", address, err, delay)
 		if nm.OnError != nil {
 			nm.OnError(i+1, err, "NetworkManager", fmt.Sprintf("Initial connection failure to %s", address))
 		}
-		time.Sleep(time.Duration(delay))
+		time.Sleep(delay)
 		address = fmt.Sprintf("%s:%s", cleanIP, cleanPort)
 	}
 
 	return nil, fmt.Errorf("%w: %s after %d attempts (last error: %v)", ErrMaxRetriesReached, address, nm.MaxRetries, lastErr)
 }
+
 
 // -----------------------------------------------------------------------------
 // ConnectBlocking indefinitely retries connection until successful and returns ManagedConnection.

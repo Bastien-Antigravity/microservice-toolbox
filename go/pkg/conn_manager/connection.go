@@ -140,57 +140,53 @@ func (mc *ManagedConnection) reconnect() error {
 	}
 
 	// Actual reconnection loop
-	var address string
-	delay := mc.nm.BaseDelay
 	i := 0
 
 	for {
-		// Check if we are closing
-		if mc.isClosing() {
-			mc.mu.Lock()
-			mc.reconnecting = false
-			mc.mu.Unlock()
-			return fmt.Errorf("connection closed")
-		}
+	// Check if we are closing
+	if mc.isClosing() {
+		mc.mu.Lock()
+		mc.reconnecting = false
+		mc.mu.Unlock()
+		return fmt.Errorf("connection closed")
+	}
 
-		conn, err := mc.nm.EstablishConnection(mc.ip, mc.port, mc.publicIP, mc.profile)
-		if err == nil {
-			mc.mu.Lock()
-			address = fmt.Sprintf("%s:%s", *mc.ip, *mc.port)
-			mc.nm.Logger.Info("ManagedConnection: Reconnected to %s", address)
-			mc.currentConn = conn
-			mc.reconnecting = false
-			mc.mu.Unlock()
-			return nil
-		}
+	conn, err := mc.nm.EstablishConnection(mc.ip, mc.port, mc.publicIP, mc.profile)
+	if err == nil {
+		mc.mu.Lock()
+		address := fmt.Sprintf("%s:%s", *mc.ip, *mc.port)
+		mc.nm.Logger.Info("ManagedConnection: Reconnected to %s", address)
+		mc.currentConn = conn
+		mc.reconnecting = false
+		mc.mu.Unlock()
+		return nil
+	}
 
-		// Check if we reached max retries (if not infinite)
-		if mc.nm.MaxRetries != -1 && i >= mc.nm.MaxRetries {
-			mc.mu.Lock()
-			mc.reconnecting = false
-			mc.mu.Unlock()
-			return fmt.Errorf("%w: reached max retries %d", ErrMaxRetriesReached, mc.nm.MaxRetries)
-		}
+	// Check if we reached max retries (if not infinite)
+	if mc.nm.MaxRetries != -1 && i >= mc.nm.MaxRetries {
+		mc.mu.Lock()
+		mc.reconnecting = false
+		mc.mu.Unlock()
+		return fmt.Errorf("%w: reached max retries %d", ErrMaxRetriesReached, mc.nm.MaxRetries)
+	}
 
-		// Report failure to the optional hook
-		if mc.nm.OnError != nil {
-			mc.nm.OnError(i+1, err, "NetworkManager", fmt.Sprintf("Failed to recover connection to %s:%s", *mc.ip, *mc.port))
-		}
+	// Report failure to the optional hook
+	if mc.nm.OnError != nil {
+		mc.nm.OnError(i+1, err, "NetworkManager", fmt.Sprintf("Failed to recover connection to %s:%s", *mc.ip, *mc.port))
+	}
 
-		// Sleep with cancellation check
-		select {
-		case <-time.After(delay):
-		case <-mc.closing:
-			mc.mu.Lock()
-			mc.reconnecting = false
-			mc.mu.Unlock()
-			return fmt.Errorf("connection closed during retry sleep")
-		}
+	delay := mc.nm.GetNextDelay(i)
 
-		delay *= 2
-		i++
-		if delay > mc.nm.MaxDelay {
-			delay = mc.nm.MaxDelay
-		}
+	// Sleep with cancellation check
+	select {
+	case <-time.After(delay):
+	case <-mc.closing:
+		mc.mu.Lock()
+		mc.reconnecting = false
+		mc.mu.Unlock()
+		return fmt.Errorf("connection closed during retry sleep")
+	}
+
+	i++
 	}
 }
