@@ -18,6 +18,7 @@ type CLIArgs struct {
 	Conf     string
 	LogLevel string
 	Key      string
+	Profile  string
 	Extra    map[string]string
 }
 
@@ -35,6 +36,7 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 	conf := fs.String("conf", "", "Path to configuration file")
 	logLevel := fs.String("log_level", "", "Logging level (DEBUG, INFO, etc.)")
 	key := fs.String("key", "", "Path to RSA Public/Private key")
+	profile := fs.StringP("profile", "p", "", "Configuration profile (e.g. standalone, production)")
 
 	// Dynamic flags for extra arguments
 	extras := make(map[string]*string)
@@ -61,6 +63,7 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 		Conf:     *conf,
 		LogLevel: *logLevel,
 		Key:      *key,
+		Profile:  *profile,
 		Extra:    make(map[string]string),
 	}
 

@@ -1,9 +1,10 @@
-package config
+﻿package config
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
@@ -50,44 +51,59 @@ func LoadConfig(profile string, specificFlags []string) (*AppConfig, error) {
 // LoadConfigWithLogger loads the configuration with an explicit logger and layered priority.
 func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []string) (*AppConfig, error) {
 	safeLogger := utils.EnsureSafeLogger(logger)
-	safeLogger.Info("Initializing Config with Profile: %s", profile)
 
-	// Phase 1: Initialize Distributed Config (Base + Env Templates + Server Sync)
-	dConf := distributed_config.New(profile)
+	// Step 0: Preliminary CLI Parse to handle --profile override
+	tempAC := &AppConfig{
+		Logger:   safeLogger,
+		Resolver: connectivity.NewResolver(),
+	}
+	cliArgs := tempAC.ParseCLIArgs(specificFlags)
+
+	actualProfile := profile
+	if cliArgs.Profile != "" {
+		actualProfile = cliArgs.Profile
+	}
+
+	safeLogger.Info("Initializing Config with Profile: %s", actualProfile)
+
+	// Phase 1: Base Configuration (Initialize Distributed Config)
+	// This loads the base YAML and performs initial Remote Sync if necessary.
+	dConf := distributed_config.New(actualProfile)
 	if dConf == nil {
-		return nil, fmt.Errorf("failed to load distributed config for profile: %s", profile)
+		return nil, fmt.Errorf("failed to load distributed config for profile: %s", actualProfile)
 	}
 
 	ac := &AppConfig{
 		Config:   dConf,
 		Resolver: connectivity.NewResolver(),
-		Profile:  profile,
+		Profile:  actualProfile,
 		Logger:   safeLogger,
+		Args:     cliArgs,
 	}
 
-	// Phase 2: Handle CLI Flags
-	cliArgs := ac.ParseCLIArgs(specificFlags)
-	ac.Args = cliArgs
-
-	// Phase 3: Layered Merging Logic
-	// We always attempt to load the local file as a baseline/fallback
-	ac.applyFileOverride(profile + ".yaml")
-
-	isDev := (profile == "standalone" || profile == "test")
-	if !isDev {
+	// Phase 2: Local Overrides (Developer-Intent Parity)
+	// We re-apply the local file as a hard override in dev modes.
+	isDev := (actualProfile == "standalone" || actualProfile == "test")
+	if isDev {
+		ac.Logger.Info("Dev Mode detected. Re-applying Local File as Hard Override.")
+		ac.applyFileOverride(actualProfile + ".yaml")
+	} else {
 		ac.Logger.Info("Production Mode detected. Configuration state remains stable.")
 	}
 
-	// Phase 4: Apply CLI Overrides (Highest)
+	// Phase 3: CLI Arguments (Highest Priority)
 	ac.applyCLIOverrides(cliArgs)
 	ac.applyCLIGRPCOverrides(cliArgs)
-	
+
 	// Ensure the service name is synchronized to the base common config
 	if cliArgs.Name != "" {
 		ac.Config.Common.Name = cliArgs.Name
 	}
 
-	// Phase 5: Public Key Auto-Discovery
+	// Phase 4: Remote Sync (Managed by the base Distributed Config)
+	// The sync happened in Phase 1, but we ensure consistency here.
+
+	// Phase 5: Security & Keys
 	ac.loadPublicKey()
 
 	// If --key flag provided, set it as ENV override for the Private Key (decryption engine)
@@ -118,13 +134,33 @@ func (ac *AppConfig) loadPublicKey() {
 }
 
 func (ac *AppConfig) applyFileOverride(filename string) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		// Fallback to config/ folder
-		data, err = os.ReadFile("config/" + filename)
-		if err != nil {
-			return
+	// Build search candidates (matches distributed-config logic)
+	exePath, err := os.Executable()
+	exeName := ""
+	if err == nil {
+		exeName = filepath.Base(exePath)
+		exeName = strings.TrimSuffix(exeName, filepath.Ext(exeName))
+	}
+
+	candidates := []string{
+		filename,
+		"config/" + filename,
+	}
+	if exeName != "" && exeName+".yaml" != filename {
+		candidates = append(candidates, exeName+".yaml")
+		candidates = append(candidates, "config/"+exeName+".yaml")
+	}
+
+	var data []byte
+	for _, path := range candidates {
+		if d, err := os.ReadFile(path); err == nil {
+			data = d
+			break
 		}
+	}
+
+	if data == nil {
+		return
 	}
 
 	var root yaml.Node
@@ -135,22 +171,26 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 	// Expand Environment Variables and force types using Distributed Config's logic
 	distributed_config.ProcessNode(&root)
 
+	// Decode into a generic map to extract sections
 	var raw map[string]interface{}
-	if err := root.Decode(&raw); err == nil {
-		if caps, ok := raw["capabilities"].(map[string]interface{}); ok {
-			ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
+	if err := root.Decode(&raw); err != nil {
+		return
+	}
+
+	// Extract sections
+	if caps, ok := raw["capabilities"].(map[string]interface{}); ok {
+		ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
+	}
+	if comm, ok := raw["common"].(map[string]interface{}); ok {
+		if name, ok := comm["name"].(string); ok {
+			ac.Config.Common.Name = name
 		}
-		if comm, ok := raw["common"].(map[string]interface{}); ok {
-			if name, ok := comm["name"].(string); ok {
-				ac.Config.Common.Name = name
-			}
+	}
+	if priv, ok := raw["local"].(map[string]interface{}); ok {
+		if ac.Local == nil {
+			ac.Local = make(map[string]interface{})
 		}
-		if priv, ok := raw["local"].(map[string]interface{}); ok {
-			if ac.Local == nil {
-				ac.Local = make(map[string]interface{})
-			}
-			ac.Local = DeepMerge(ac.Local, priv)
-		}
+		ac.Local = DeepMerge(ac.Local, priv)
 	}
 }
 
@@ -303,3 +343,4 @@ func (ac *AppConfig) GetListenAddr(capability string) (string, error) {
 func (ac *AppConfig) GetGRPCListenAddr(capability string) (string, error) {
 	return ac.Config.GetGRPCAddress(capability)
 }
+
