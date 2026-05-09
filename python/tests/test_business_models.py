@@ -13,6 +13,7 @@ from microservice_toolbox.business import (
     wrap_market_event,
 )
 
+
 class TestBusinessModels(unittest.TestCase):
     def test_market_event_serialization(self):
         trade = Trade(

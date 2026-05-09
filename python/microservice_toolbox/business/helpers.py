@@ -7,6 +7,7 @@ from typing import Any
 
 from .models import MarketEvent, MarketEventType
 
+
 class BusinessEncoder(json.JSONEncoder):
     def default(self, obj):
         if is_dataclass(obj):
