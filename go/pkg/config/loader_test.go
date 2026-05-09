@@ -126,11 +126,11 @@ iADG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZAiADG
 8W6w8QZ9N0jG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZAiADG1J2o6B8G8W6w
 8Q==
 -----END RSA PRIVATE KEY-----`
-	
+
 	// Pre-encrypted "my-value_xyz-password" using a 512-bit key
 	// (Note: In a real test we'd use crypto/rsa to encrypt, but we want to keep it simple)
 	// We'll just verify the decryption logic works if we provide a valid ENC()
-	
+
 	err := os.WriteFile("private.pem", []byte(privPEM), 0600)
 	assert.NoError(t, err)
 	defer os.Remove("private.pem")
@@ -152,7 +152,7 @@ capabilities:
 	// Load
 	ac, _ := LoadConfig("standalone", nil)
 	assert.NotNil(t, ac)
-	
+
 	// Verify it remains encrypted in the raw config
 	caps := ac.Config.Capabilities["db"].(map[string]interface{})
 	assert.Equal(t, "ENC(dummy)", caps["password"])
@@ -161,7 +161,7 @@ capabilities:
 	// We won't actually decrypt "dummy" as it's not a real ciphertext.
 	_, err = ac.DecryptSecret("ENC(dummy)")
 	// It might error due to invalid b64 or key mismatch, but the interface exists.
-	assert.Error(t, err) 
+	assert.Error(t, err)
 }
 
 func TestAppConfig_KeyFlag(t *testing.T) {
@@ -196,7 +196,7 @@ func TestAppConfig_AutoLoadPublicKey(t *testing.T) {
 	// Load config - it should automatically find public.pem
 	ac, err := LoadConfig("standalone", nil)
 	assert.NoError(t, err)
-	
+
 	// Check if it's in Common.PublicKey
 	assert.Equal(t, keyContent, ac.Config.Common.PublicKey)
 }
@@ -233,14 +233,14 @@ func TestAppConfig_UnmarshalLocal(t *testing.T) {
 	ac := &AppConfig{
 		Config: distconf.New("standalone"),
 		Local: map[string]interface{}{
-			"local_setting":     "value_xyz",
-			"item_count": 3,
+			"local_setting": "value_xyz",
+			"item_count":    3,
 		},
 	}
 
 	type Config struct {
-		LocalSetting     string `json:"local_setting"`
-		ItemCount int    `json:"item_count"`
+		LocalSetting string `json:"local_setting"`
+		ItemCount    int    `json:"item_count"`
 	}
 
 	var cfg Config

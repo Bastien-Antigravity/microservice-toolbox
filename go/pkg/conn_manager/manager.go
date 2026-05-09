@@ -123,7 +123,6 @@ func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile s
 	return nil, fmt.Errorf("%w: %s after %d attempts (last error: %v)", ErrMaxRetriesReached, address, nm.MaxRetries, lastErr)
 }
 
-
 // -----------------------------------------------------------------------------
 // ConnectBlocking indefinitely retries connection until successful and returns ManagedConnection.
 func (nm *NetworkManager) ConnectBlocking(ip, port, publicIP *string, profile string) io.WriteCloser {

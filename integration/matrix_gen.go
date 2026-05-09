@@ -26,12 +26,12 @@ func main() {
 	}
 
 	data := IntegrationData{Name: "Integration", Value: 100}
-	
+
 	b, err := s.Marshal(data)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "marshal error: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	os.Stdout.Write(b)
 }

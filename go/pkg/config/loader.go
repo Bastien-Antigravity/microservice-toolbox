@@ -1,4 +1,4 @@
-﻿package config
+package config
 
 import (
 	"encoding/json"
@@ -82,7 +82,7 @@ func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []s
 	}
 
 	// Phase 2: Local Overrides (Developer-Intent Parity)
-	// We re-apply the local file as a hard override to ensure the 'local' section 
+	// We re-apply the local file as a hard override to ensure the 'local' section
 	// and any local overrides are loaded across all profiles.
 	ac.Logger.Info("Applying Local File as Hard Override (Ecosystem Parity).")
 	ac.applyFileOverride(actualProfile + ".yaml")
@@ -339,4 +339,3 @@ func (ac *AppConfig) GetListenAddr(capability string) (string, error) {
 func (ac *AppConfig) GetGRPCListenAddr(capability string) (string, error) {
 	return ac.Config.GetGRPCAddress(capability)
 }
-
