@@ -1,12 +1,24 @@
 #!/usr/bin/env python
 # coding:utf-8
+
 """
-MERGER UTILITY:
+ESSENTIAL PROCESS:
 Provides deep merging capabilities for configuration dictionaries.
 Ensures nested structures are correctly overlaid following the 'Hierarchy of Truth'.
+
+DATA FLOW:
+1. Receives a destination and source dictionary.
+2. Recursively traverses nested keys.
+3. Overwrites leaf values while preserving non-conflicting structure.
+
+KEY PARAMETERS:
+- dst: The dictionary to be updated.
+- src: The source dictionary containing override values.
 """
 
 from typing import Any, Dict
+
+# -----------------------------------------------------------------------------------------------
 
 
 def deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> None:

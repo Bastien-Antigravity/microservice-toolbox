@@ -22,16 +22,14 @@ from os import getenv as osGetenv
 from os.path import exists as osPathExists
 from typing import Any, Callable, Dict, List, Optional
 
-from yaml import safe_load as yamlSafe_load
+from yaml import safe_load as yamlSafeLoad
 
-from ..utils.logger import ILogger, ensure_safe_logger
+from ..utils.logger import Logger, ensure_safe_logger
 from .args import parse_cli_args
 from .lib_loader import CALLBACK_TYPE, lib
 from .merger import deep_merge
 
 # -----------------------------------------------------------------------------------------------
-
-
 
 
 def load_config(
@@ -45,7 +43,7 @@ def load_config(
 
 
 def load_config_with_logger(
-    profile: str, logger: Optional[ILogger], specific_flags: Optional[List[str]] = None
+    profile: str, logger: Optional[Logger], specific_flags: Optional[List[str]] = None
 ) -> "AppConfig":
     """Semantic helper to match Go LoadConfigWithLogger()."""
     return AppConfig(profile, specific_flags, logger=logger)
@@ -69,7 +67,7 @@ class AppConfig:
         self,
         profile: str,
         specific_flags: Optional[List[str]] = None,
-        logger: Optional[ILogger] = None,
+        logger: Optional[Logger] = None,
         input_args: Optional[List[str]] = None,
     ):
         self.cli_args = parse_cli_args(specific_flags, input_args=input_args)
@@ -79,14 +77,12 @@ class AppConfig:
         self.profile = profile
         self.data: Dict[str, Any] = {}
         self.logger = ensure_safe_logger(logger)
-        self.args = self.cli_args # Expose as self.args for consistency with Go
+        self.args = self.cli_args  # Expose as self.args for consistency with Go
         filename = f"{profile}.yaml"
 
-        # ---------------------------------------------------------------------
-        # PHASE 1: Initialize Bridge (The Master Source of Truth)
-        # ---------------------------------------------------------------------
+        # ### PHASE 1: Initialize Bridge (The Master Source of Truth) ###
         self._handle = None
-        self._callback_refs = {} # Keep references to avoid GC
+        self._callback_refs = {}  # Keep references to avoid GC
 
         if lib:
             try:
@@ -98,28 +94,20 @@ class AppConfig:
             except Exception as e:
                 self.logger.warning("{0} : Shared Engine initialization failed: {1}. Falling back to native loader.".format(self.Name, e))
 
-        # ---------------------------------------------------------------------
-        # PHASE 2: Native Fallback (Only if Bridge is missing or failed)
-        # ---------------------------------------------------------------------
+        # ### PHASE 2: Native Fallback (Only if Bridge is missing or failed) ###
         if not self._handle:
             if not osPathExists(filename):
                 # Try fallback to config/ folder
                 filename = f"config/{profile}.yaml"
                 if not osPathExists(filename):
-                    raise FileNotFoundError(f"Toolbox (Python): Config file not found for profile '{profile}'")
+                    raise FileNotFoundError(f"{self.Name} : Config file not found for profile '{profile}'")
             self._load_from_file(filename)
 
-        # ---------------------------------------------------------------------
-        # PHASE 2: Apply context-aware overrides
-        # We re-apply the local file as a hard override to ensure the 'local' section
-        # and any local overrides are loaded across all profiles.
-        # ---------------------------------------------------------------------
+        # ### PHASE 2: Apply context-aware overrides ###
         self.logger.info("{0} : Applying Local File as Hard Override (Ecosystem Parity).".format(self.Name))
         self._apply_file_override(filename)
 
-        # ---------------------------------------------------------------------
-        # PHASE 3: Apply CLI Overrides (The absolute Highest Priority)
-        # ---------------------------------------------------------------------
+        # ### PHASE 3: Apply CLI Overrides (The absolute Highest Priority) ###
         self._apply_cli_overrides()
 
         # If --key flag provided, set it as ENV override for the Private Key (decryption engine)
@@ -127,9 +115,7 @@ class AppConfig:
             from os import environ as os_environ
             os_environ["BASTIEN_PRIVATE_KEY_PATH"] = self.cli_args.key
 
-        # ---------------------------------------------------------------------
-        # PHASE 4: Load Public Key
-        # ---------------------------------------------------------------------
+        # ### PHASE 4: Load Public Key ###
         self._load_public_key()
 
     # -----------------------------------------------------------------------------------------------
@@ -154,10 +140,14 @@ class AppConfig:
         except Exception as e:
             self.logger.warning(f"{self.Name} : Failed to load public key from {path}: {e}")
 
+    # -----------------------------------------------------------------------------------------------
+
     @property
     def common(self) -> Dict[str, Any]:
         """Provides direct access to the 'common' configuration block."""
         return self.data.get("common", {})
+
+    # -----------------------------------------------------------------------------------------------
 
     def get_service_name(self) -> str:
         """Returns the standardized program name."""
@@ -191,7 +181,6 @@ class AppConfig:
                 self.logger.error(f"{self.Name} : Decryption failed via bridge: {e}")
 
         # If we reach here, it's an ENC(...) block but we couldn't decrypt it
-        # (either bridge failed or bridge is missing). Original behavior was to raise ValueError.
         raise ValueError(f"{self.Name} : Decryption not available or failed for ENC block")
 
     # -----------------------------------------------------------------------------------------------
@@ -215,6 +204,8 @@ class AppConfig:
                 self.data["local"] = self.data.get("local", {})
                 self.deep_merge(self.data["local"], file_data["local"])
 
+    # -----------------------------------------------------------------------------------------------
+
     def _read_and_expand_yaml(self, filename: str) -> Dict[str, Any]:
         """Helper to read YAML file with environment variable expansion."""
         if not osPathExists(filename):
@@ -226,6 +217,7 @@ class AppConfig:
 
             # Expand Environment Variables: ${VAR} or ${VAR:default}
             import re
+
             def env_expander(match):
                 token = match.group(1)
                 parts = token.split(":", 1)
@@ -234,7 +226,7 @@ class AppConfig:
                 return osGetenv(var_name, default_val)
 
             expanded_content = re.sub(r"\${([^}]+)}", env_expander, raw_content)
-            return yamlSafe_load(expanded_content) or {}
+            return yamlSafeLoad(expanded_content) or {}
         except Exception as e:
             self.logger.warning(f"{self.Name} : Failed to load {filename}: {e}")
             return {}
@@ -310,15 +302,15 @@ class AppConfig:
         caps = self.data.get("capabilities", {})
         cap = caps.get(capability)
         if not cap:
-            raise ValueError(f"capability {capability} not found")
+            raise ValueError(f"{self.Name} : capability {capability} not found")
 
         host = cap.get(host_key)
         if not host:
-            raise ValueError(f"host key {host_key} missing or empty in capability {capability}")
+            raise ValueError(f"{self.Name} : host key {host_key} missing or empty in capability {capability}")
 
         port = cap.get(port_key)
         if not port:
-            raise ValueError(f"port key {port_key} missing or empty in capability {capability}")
+            raise ValueError(f"{self.Name} : port key {port_key} missing or empty in capability {capability}")
 
         return f"{host}:{port}"
 
@@ -382,9 +374,10 @@ class AppConfig:
         """
         local_data = self.data.get("local")
         if not local_data:
-            raise ValueError("No local configuration found")
+            raise ValueError(f"{self.Name} : No local configuration found")
 
         import json
+
         raw_json = json.dumps(local_data)
         data = json.loads(raw_json)
 
@@ -416,7 +409,7 @@ class AppConfig:
             try:
                 data = jsonLoads(json_data.decode('utf-8'))
                 callback(data)
-                self._sync_from_bridge() # Keep local data in sync
+                self._sync_from_bridge()  # Keep local data in sync
             except Exception as e:
                 self.logger.error(f"{self.Name} : Live update callback failed: {e}")
 
@@ -462,11 +455,13 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def close(self):
+    def close(self) -> None:
         """Releases the underlying DistConf handle."""
         if hasattr(self, "_handle") and self._handle:
-            self._lib.DistConf_Close(self._handle)
+            lib.DistConf_Close(self._handle)
             self._handle = None
 
-    def __del__(self):
+    # -----------------------------------------------------------------------------------------------
+
+    def __del__(self) -> None:
         self.close()
