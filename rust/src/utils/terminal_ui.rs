@@ -1,5 +1,5 @@
 use crate::utils::helpers::get_hostname;
-use chrono::Local;
+use chrono::Utc;
 
 /// Formats and prints an internal toolbox log message
 pub fn print_internal_log(
@@ -9,7 +9,7 @@ pub fn print_internal_log(
     line: &str,
     message: &str,
 ) {
-    let timestamp = Local::now().format("%Y-%m-%dT%H:%M:%S%.9fZ").to_string();
+    let timestamp = Utc::now().format("%Y-%m-%dT%H:%M:%S%.9fZ").to_string();
     let hostname = get_hostname();
     
     // Colorize level

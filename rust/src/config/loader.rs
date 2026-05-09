@@ -109,17 +109,14 @@ impl AppConfig {
         }
 
         // Phase 2: Layered logic matching Go implementation
-        let is_dev = actual_profile == "standalone" || actual_profile == "test";
-        if is_dev {
-            ac.logger.info("Dev Mode detected. Re-applying Local File as Hard Override.");
-            let mut filename = format!("{}.yaml", actual_profile);
-            if !std::path::Path::new(&filename).exists() {
-                filename = format!("config/{}.yaml", actual_profile);
-            }
-            ac.apply_file_override(&filename);
-        } else {
-            ac.logger.info("Production Mode detected. Config Server remains authoritative.");
+        // We re-apply the local file as a hard override to ensure the 'local' section 
+        // and any local overrides are loaded across all profiles.
+        ac.logger.info("Applying Local File as Hard Override (Ecosystem Parity).");
+        let mut filename = format!("{}.yaml", actual_profile);
+        if !std::path::Path::new(&filename).exists() {
+            filename = format!("config/{}.yaml", actual_profile);
         }
+        ac.apply_file_override(&filename);
 
         ac.apply_cli_overrides();
         

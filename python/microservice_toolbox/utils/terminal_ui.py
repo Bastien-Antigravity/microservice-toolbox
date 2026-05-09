@@ -25,8 +25,8 @@ from .helpers import get_hostname
 
 def print_internal_log(level: str, module: str, filename: str, line: str, message: str) -> None:
     """Formats and prints an internal toolbox log message"""
-    # Precision timestamp in ISO 8601 format
-    timestamp = datetimeDateTime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "000Z"
+    # Precision timestamp in ISO 8601 format (UTC)
+    timestamp = datetimeDateTime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "000Z"
     hostname = get_hostname()
 
     # Colorize level

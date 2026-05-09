@@ -111,15 +111,11 @@ class AppConfig:
 
         # ---------------------------------------------------------------------
         # PHASE 2: Apply context-aware overrides
-        # In standalone/test modes, we ensure the local file is authoritative
-        # over any previous merges (matching Go behavior).
+        # We re-apply the local file as a hard override to ensure the 'local' section 
+        # and any local overrides are loaded across all profiles.
         # ---------------------------------------------------------------------
-        is_dev = profile in ["standalone", "test"]
-        if is_dev:
-            self.logger.info("{0} : Dev Mode detected. Re-applying Local File as Hard Override.".format(self.Name))
-            self._apply_file_override(filename)
-        else:
-            self.logger.info("{0} : Production Mode detected. Configuration state remains stable.".format(self.Name))
+        self.logger.info("{0} : Applying Local File as Hard Override (Ecosystem Parity).".format(self.Name))
+        self._apply_file_override(filename)
 
         # ---------------------------------------------------------------------
         # PHASE 3: Apply CLI Overrides (The absolute Highest Priority)
