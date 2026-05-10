@@ -17,7 +17,7 @@ bincode = "1.3.3"
 rand = "0.8"
 rmp-serde = "1.3.1"
 unilog-rs = { git = "https://github.com/Bastien-Antigravity/universal-logger", branch = "main", optional = true }
-libloading = "0.8"
+libloading = "0.9"
 regex = "1.10"
 
 [features]
