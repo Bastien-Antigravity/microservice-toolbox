@@ -107,14 +107,8 @@ class AppConfig:
                 if not osPathExists(filename):
                     raise FileNotFoundError(f"{self.Name} : Config file not found for profile '{profile}'")
             self._load_from_file(filename)
-            # Prime the bridge with the natively loaded data to ensure synchronization
+            # Sync back to bridge if needed (Optional, depending on bridge state)
             if self._handle:
-                self.logger.info("{0} : Priming Shared Engine with natively loaded data for profile: {1}".format(self.Name, profile))
-                # Push root keys to 'shared' section in bridge
-                for k, v in self.data.items():
-                    if k not in ["common", "capabilities", "local"]:
-                        lib.DistConf_Set(self._handle, b"shared", k.encode('utf-8'), str(v).encode('utf-8'))
-                # Push structured sections
                 self.share_config(self.data)
 
         # ### PHASE 2: Apply context-aware overrides ###
