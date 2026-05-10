@@ -86,9 +86,14 @@ impl AppConfig {
             _reg_cb: None,
         };
 
-        // ---------------------------------------------------------------------
-        // BRIDGE INITIALIZATION (v1.9.8 Standard)
-        // ---------------------------------------------------------------------
+        // Phase 1: Load base config from file (Native Fallback / Base Layer)
+        let mut filename = format!("{}.yaml", actual_profile);
+        if !std::path::Path::new(&filename).exists() {
+            filename = format!("config/{}.yaml", actual_profile);
+        }
+        ac.load_from_file(&filename);
+
+        // Phase 2: Bridge Layer
         if let Some(lib) = crate::config::ffi::get_lib() {
             let profile_c = CString::new(actual_profile.clone()).unwrap();
             let handle = (lib.dist_conf_new)(profile_c.as_ptr());
@@ -99,16 +104,7 @@ impl AppConfig {
             }
         }
 
-        // Phase 1: Load base config from file (Native Fallback)
-        if ac._handle.is_none() {
-            let mut filename = format!("{}.yaml", actual_profile);
-            if !std::path::Path::new(&filename).exists() {
-                filename = format!("config/{}.yaml", actual_profile);
-            }
-            ac.load_from_file(&filename);
-        }
-
-        // Phase 2: Layered logic matching Go implementation
+        // Phase 3: Override Layer (Ecosystem Parity)
         // We re-apply the local file as a hard override to ensure the 'local' section 
         // and any local overrides are loaded across all profiles.
         ac.logger.info("Applying Local File as Hard Override (Ecosystem Parity).");
@@ -328,16 +324,23 @@ impl AppConfig {
         let mut current = &mut self.data;
         let parts: Vec<&str> = path.split('.').collect();
         for part in parts.iter().take(parts.len() - 1) {
-            if !current.as_mapping().is_some_and(|m| m.contains_key(Value::String(part.to_string()))) 
-                && let Some(map) = current.as_mapping_mut() {
-                    map.insert(Value::String(part.to_string()), Value::Mapping(serde_yml::Mapping::new()));
+            let key = Value::String(part.to_string());
+            if !current.is_mapping() {
+                *current = Value::Mapping(serde_yml::Mapping::new());
             }
-            current = current.as_mapping_mut().unwrap().get_mut(Value::String(part.to_string())).unwrap();
+            
+            let map = current.as_mapping_mut().unwrap();
+            if !map.contains_key(&key) {
+                map.insert(key.clone(), Value::Mapping(serde_yml::Mapping::new()));
+            }
+            current = map.get_mut(&key).unwrap();
         }
+        
         if let Some(map) = current.as_mapping_mut() {
             map.insert(Value::String(parts.last().unwrap().to_string()), value);
         } else {
-            return Err("Config path tail is not a mapping".into());
+            *current = Value::Mapping(serde_yml::Mapping::new());
+            current.as_mapping_mut().unwrap().insert(Value::String(parts.last().unwrap().to_string()), value);
         }
         Ok(())
     }
@@ -362,7 +365,7 @@ impl AppConfig {
                 if let Some(json_str) = unsafe { crate::config::ffi::to_rust_string(ptr) }
                     && let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
                     && let Ok(yml_val) = serde_yml::from_str::<Value>(&val.to_string()) {
-                        self.data = yml_val;
+                        deep_merge(&mut self.data, &yml_val);
                 }
         }
     }
