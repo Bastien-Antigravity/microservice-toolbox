@@ -251,14 +251,25 @@ class AppConfig:
 
             if self.cli_args.host:
                 cap["ip"] = self.cli_args.host
+                if self._handle:
+                    lib.DistConf_Set(self._handle, b"capabilities", f"{target}.ip".encode('utf-8'), self.cli_args.host.encode('utf-8'))
             if self.cli_args.port:
                 cap["port"] = str(self.cli_args.port)
+                if self._handle:
+                    lib.DistConf_Set(self._handle, b"capabilities", f"{target}.port".encode('utf-8'), str(self.cli_args.port).encode('utf-8'))
             if self.cli_args.grpc_host:
                 cap["grpc_ip"] = self.cli_args.grpc_host
+                if self._handle:
+                    lib.DistConf_Set(self._handle, b"capabilities", f"{target}.grpc_ip".encode('utf-8'), self.cli_args.grpc_host.encode('utf-8'))
             if self.cli_args.grpc_port:
                 cap["grpc_port"] = str(self.cli_args.grpc_port)
+                if self._handle:
+                    lib.DistConf_Set(self._handle, b"capabilities", f"{target}.grpc_port".encode('utf-8'), str(self.cli_args.grpc_port).encode('utf-8'))
 
             self.data["capabilities"][target] = cap
+            # Ensure local mirror is up to date after bridge updates
+            if self._handle:
+                self._sync_from_bridge()
 
     # -----------------------------------------------------------------------------------------------
 
