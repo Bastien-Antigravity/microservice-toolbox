@@ -5,13 +5,13 @@
 Configuration management submodule.
 """
 
-from .loader import AppConfig, load_config, load_config_with_logger
 from .args import CLIArgs, parse_cli_args
+from .loader import AppConfig, load_config, load_config_with_logger
 
 __all__ = [
+    "AppConfig",
+    "CLIArgs",
     "load_config",
     "load_config_with_logger",
-    "AppConfig",
     "parse_cli_args",
-    "CLIArgs",
 ]
