@@ -48,6 +48,26 @@ jobs:
         with:
           go-version: '1.25'
 
+      - name: Download Core Library (If Native Provider)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: libdistconf
+          path: distributed-config/distconf/libdistconf/
+
+      - name: Checkout Distributed Config (If External Consumer)
+        if: github.repository != 'Bastien-Antigravity/distributed-config'
+        uses: actions/checkout@v4
+        with:
+          repository: Bastien-Antigravity/distributed-config
+          path: distributed-config
+          ref: develop
+
+      - name: Build Distributed Config Library (If External Consumer)
+        if: github.repository != 'Bastien-Antigravity/distributed-config'
+        working-directory: distributed-config
+        run: make build-lib
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -59,6 +79,8 @@ jobs:
 
       - name: Test Python SDK
         working-directory: python
+        env:
+          LIBDISTCONF_PATH: ${{ github.repository == 'Bastien-Antigravity/distributed-config' && format('{0}/distconf/libdistconf/libdistconf.so', github.workspace) || format('{0}/distributed-config/distconf/libdistconf/libdistconf.so', github.workspace) }}
         run: |
           pip install pytest build setuptools wheel
           if [ -f setup.py ]; then python setup.py build_go; fi
@@ -76,6 +98,26 @@ jobs:
         with:
           go-version: '1.25'
 
+      - name: Download Core Library (If Native Provider)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: libdistconf
+          path: distributed-config/distconf/libdistconf/
+
+      - name: Checkout Distributed Config (If External Consumer)
+        if: github.repository != 'Bastien-Antigravity/distributed-config'
+        uses: actions/checkout@v4
+        with:
+          repository: Bastien-Antigravity/distributed-config
+          path: distributed-config
+          ref: develop
+
+      - name: Build Distributed Config Library (If External Consumer)
+        if: github.repository != 'Bastien-Antigravity/distributed-config'
+        working-directory: distributed-config
+        run: make build-lib
+
       - name: Build CGO Bridges
         run: |
           if grep -q "^core:" Makefile; then make core; elif grep -q "^build:" Makefile; then make build; fi
@@ -87,6 +129,8 @@ jobs:
 
       - name: Test Rust SDK
         working-directory: rust
+        env:
+          LIBDISTCONF_PATH: ${{ github.repository == 'Bastien-Antigravity/distributed-config' && format('{0}/distconf/libdistconf/libdistconf.so', github.workspace) || format('{0}/distributed-config/distconf/libdistconf/libdistconf.so', github.workspace) }}
         run: cargo test
   cpp-ci:
     name: C/C++ Tests
@@ -100,10 +144,33 @@ jobs:
         with:
           go-version: '1.25'
 
+      - name: Download Core Library (If Native Provider)
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: libdistconf
+          path: distributed-config/distconf/libdistconf/
+
+      - name: Checkout Distributed Config (If External Consumer)
+        if: github.repository != 'Bastien-Antigravity/distributed-config'
+        uses: actions/checkout@v4
+        with:
+          repository: Bastien-Antigravity/distributed-config
+          path: distributed-config
+          ref: develop
+
+      - name: Build Distributed Config Library (If External Consumer)
+        if: github.repository != 'Bastien-Antigravity/distributed-config'
+        working-directory: distributed-config
+        run: make build-lib
+
       - name: Build CGO Bridges
         run: |
           if grep -q "^core:" Makefile; then make core; elif grep -q "^build:" Makefile; then make build; fi
 
       - name: Build and Test C/C++
         working-directory: cpp
+        env:
+          LIBDISTCONF_PATH: ${{ github.repository == 'Bastien-Antigravity/distributed-config' && format('{0}/distconf/libdistconf/libdistconf.so', github.workspace) || format('{0}/distributed-config/distconf/libdistconf/libdistconf.so', github.workspace) }}
+          DISTCONF_DIR: ${{ github.repository == 'Bastien-Antigravity/distributed-config' && format('{0}/distconf/libdistconf', github.workspace) || format('{0}/distributed-config/distconf/libdistconf', github.workspace) }}
         run: make test
