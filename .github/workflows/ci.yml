@@ -50,10 +50,14 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Build CGO Bridges
+        run: |
+          if grep -q "^core:" Makefile; then make core; elif grep -q "^build:" Makefile; then make build; fi
+
       - name: Test Python SDK
         working-directory: python
         run: |
-          pip install pytest
+          pip install pytest build setuptools wheel
           if [ -f setup.py ]; then python setup.py build_go; fi
           pip install -e .
           pytest
@@ -69,6 +73,10 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+
+      - name: Build CGO Bridges
+        run: |
+          if grep -q "^core:" Makefile; then make core; elif grep -q "^build:" Makefile; then make build; fi
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
