@@ -23,7 +23,7 @@ def test_app_config_deep_merge():
 
 def test_load_config_factory(tmp_path):
     """Verify the load_config() factory function works (Go LoadConfig parity)."""
-    config_file = tmp_path / "factory.yaml"
+    config_file = tmp_path / "test.yaml"
     yaml.dump({"common": {"name": "factory-app"}}, open(config_file, "w"))
 
     old_cwd = os.getcwd()
@@ -103,7 +103,7 @@ def test_decrypt_secret_plaintext_passthrough(tmp_path):
 
 def test_decrypt_secret_enc_raises(tmp_path):
     """Verify ENC(...) block raises ValueError when decryption fails."""
-    config_file = tmp_path / "secret.yaml"
+    config_file = tmp_path / "test.yaml"
     yaml.dump({"password": "ENC(dummy)"}, open(config_file, "w"))
 
     old_cwd = os.getcwd()
@@ -218,7 +218,7 @@ def test_set_logger(tmp_path):
 
 def test_cli_override_targets_single_capability(tmp_path):
     """Verify CLI --host/--port overrides only the target capability (Go parity)."""
-    config_file = tmp_path / "cli.yaml"
+    config_file = tmp_path / "standalone.yaml"
     yaml.dump({
         "common": {"name": "my-svc"},
         "capabilities": {
