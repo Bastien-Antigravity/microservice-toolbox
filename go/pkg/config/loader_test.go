@@ -133,7 +133,7 @@ iADG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZAiADG
 
 	err := os.WriteFile("private.pem", []byte(privPEM), 0600)
 	assert.NoError(t, err)
-	defer os.Remove("private.pem")
+	defer func() { _ = os.Remove("private.pem") }()
 
 	// We'll mock the encrypted value in a test yaml
 	yamlContent := `
@@ -143,11 +143,11 @@ capabilities:
 `
 	err = os.WriteFile("standalone.yaml", []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer os.Remove("standalone.yaml")
+	defer func() { _ = os.Remove("standalone.yaml") }()
 
 	// Set env to use our local key
-	os.Setenv("BASTIEN_PRIVATE_KEY_PATH", "private.pem")
-	defer os.Unsetenv("BASTIEN_PRIVATE_KEY_PATH")
+	_ = os.Setenv("BASTIEN_PRIVATE_KEY_PATH", "private.pem")
+	defer func() { _ = os.Unsetenv("BASTIEN_PRIVATE_KEY_PATH") }()
 
 	// Load
 	ac, _ := LoadConfig("standalone", nil)
@@ -168,7 +168,7 @@ func TestAppConfig_KeyFlag(t *testing.T) {
 	yamlContent := "common: {name: key-test}"
 	err := os.WriteFile("keytest.yaml", []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer os.Remove("keytest.yaml")
+	defer func() { _ = os.Remove("keytest.yaml") }()
 
 	// Mock os.Args
 	oldArgs := os.Args
@@ -183,7 +183,7 @@ func TestAppConfig_KeyFlag(t *testing.T) {
 	_ = ac.ParseCLIArgs(nil)
 
 	assert.Equal(t, "/tmp/my-key.pem", os.Getenv("BASTIEN_PRIVATE_KEY_PATH"))
-	os.Unsetenv("BASTIEN_PRIVATE_KEY_PATH")
+	_ = os.Unsetenv("BASTIEN_PRIVATE_KEY_PATH")
 }
 
 func TestAppConfig_AutoLoadPublicKey(t *testing.T) {

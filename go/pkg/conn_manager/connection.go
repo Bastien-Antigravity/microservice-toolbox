@@ -53,7 +53,7 @@ func (mc *ManagedConnection) Write(p []byte) (n int, err error) {
 	n, err = mc.currentConn.Write(p)
 	if err != nil {
 		mc.nm.Logger.Warning("ManagedConnection: Write failed (%v). Reconnecting...", err)
-		mc.currentConn.Close()
+		_ = mc.currentConn.Close()
 		mc.currentConn = nil
 
 		// Reconnect and retry once (unlocking during reconnect)

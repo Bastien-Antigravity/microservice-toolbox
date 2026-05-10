@@ -27,8 +27,8 @@ type AppConfig struct {
 
 // GetServiceName returns the standardized program name.
 func (ac *AppConfig) GetServiceName() string {
-	if ac.Config != nil && ac.Config.Common.Name != "" {
-		return ac.Config.Common.Name
+	if ac.Common.Name != "" {
+		return ac.Common.Name
 	}
 	return "unknown-service"
 }
@@ -93,7 +93,7 @@ func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []s
 
 	// Ensure the service name is synchronized to the base common config
 	if cliArgs.Name != "" {
-		ac.Config.Common.Name = cliArgs.Name
+		ac.Common.Name = cliArgs.Name
 	}
 
 	// Phase 4: Remote Sync (Managed by the base Distributed Config)
@@ -104,7 +104,7 @@ func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []s
 
 	// If --key flag provided, set it as ENV override for the Private Key (decryption engine)
 	if cliArgs.Key != "" {
-		os.Setenv("BASTIEN_PRIVATE_KEY_PATH", cliArgs.Key)
+		_ = os.Setenv("BASTIEN_PRIVATE_KEY_PATH", cliArgs.Key)
 	}
 
 	return ac, nil

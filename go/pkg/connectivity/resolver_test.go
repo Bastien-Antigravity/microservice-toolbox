@@ -39,7 +39,7 @@ func TestResolver_ResolveBindAddr(t *testing.T) {
 func TestNewResolver(t *testing.T) {
 	// Mocking environment variable
 	os.Setenv("DOCKER_ENV", "true")
-	defer os.Unsetenv("DOCKER_ENV")
+	defer func() { _ = os.Unsetenv("DOCKER_ENV") }()
 
 	r := NewResolver()
 	assert.True(t, r.IsDocker, "Should detect Docker from OS environment variable")

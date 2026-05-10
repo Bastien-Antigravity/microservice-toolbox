@@ -69,7 +69,7 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 
 	// If key provided, set it as ENV override for the decryption engine (Private Key)
 	if *key != "" {
-		os.Setenv("BASTIEN_PRIVATE_KEY_PATH", *key)
+		_ = os.Setenv("BASTIEN_PRIVATE_KEY_PATH", *key)
 	}
 
 	// Apply Docker Guard
