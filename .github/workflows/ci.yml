@@ -14,38 +14,28 @@ jobs:
   go-ci:
     name: Go Tests
     runs-on: ubuntu-latest
-    # Only run if go.mod exists in root
+    defaults:
+      run:
+        working-directory: go
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Check for go.mod
-        id: check_go
-        run: |
-          if [ -f go.mod ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Set up Go
-        if: steps.check_go.outputs.exists == 'true'
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
 
       - name: Run Go Tests
-        if: steps.check_go.outputs.exists == 'false'
         run: |
-          cd go
           go mod tidy
           go test -v ./...
 
       - name: Run golangci-lint
-        if: steps.check_go.outputs.exists == 'true'
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
+          working-directory: go
   python-ci:
     name: Python Tests
     runs-on: ubuntu-latest
@@ -67,23 +57,11 @@ jobs:
         run: |
           if grep -q "^core:" Makefile; then make core; elif grep -q "^build:" Makefile; then make build; fi
 
-      - name: Checkout Distributed Config (Dependency)
-        uses: actions/checkout@v4
-        with:
-          repository: Bastien-Antigravity/distributed-config
-          path: distributed-config
-          ref: develop
-
-      - name: Build Distributed Config Library
-        working-directory: distributed-config
-        run: make build-lib
-
       - name: Test Python SDK
         working-directory: python
-        env:
-          LIBDISTCONF_PATH: ../distributed-config/distconf/libdistconf/libdistconf.so
         run: |
-          pip install pytest build setuptools wheel pyyaml
+          pip install pytest build setuptools wheel
+          if [ -f setup.py ]; then python setup.py build_go; fi
           pip install -e .
           pytest
   rust-ci:
@@ -98,16 +76,9 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: Checkout Distributed Config (Dependency)
-        uses: actions/checkout@v4
-        with:
-          repository: Bastien-Antigravity/distributed-config
-          path: distributed-config
-          ref: develop
-
-      - name: Build Distributed Config Library
-        working-directory: distributed-config
-        run: make build-lib
+      - name: Build CGO Bridges
+        run: |
+          if grep -q "^core:" Makefile; then make core; elif grep -q "^build:" Makefile; then make build; fi
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -116,8 +87,6 @@ jobs:
 
       - name: Test Rust SDK
         working-directory: rust
-        env:
-          LIBDISTCONF_PATH: ../distributed-config/distconf/libdistconf/libdistconf.so
         run: cargo test
   cpp-ci:
     name: C/C++ Tests
@@ -131,17 +100,10 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: Checkout Distributed Config (Dependency)
-        uses: actions/checkout@v4
-        with:
-          repository: Bastien-Antigravity/distributed-config
-          path: distributed-config
-          ref: develop
-
-      - name: Build Distributed Config Library
-        working-directory: distributed-config
-        run: make build-lib
+      - name: Build CGO Bridges
+        run: |
+          if grep -q "^core:" Makefile; then make core; elif grep -q "^build:" Makefile; then make build; fi
 
       - name: Build and Test C/C++
         working-directory: cpp
-        run: make test DISTCONF_DIR=../distributed-config/distconf/libdistconf
+        run: make test
