@@ -191,7 +191,7 @@ func TestAppConfig_AutoLoadPublicKey(t *testing.T) {
 	keyContent := "test-key-content"
 	err := os.WriteFile("public.pem", []byte(keyContent), 0644)
 	assert.NoError(t, err)
-	defer os.Remove("public.pem")
+	defer func() { _ = os.Remove("public.pem") }()
 
 	// Load config - it should automatically find public.pem
 	ac, err := LoadConfig("standalone", nil)
@@ -296,7 +296,7 @@ capabilities:
 `
 	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer os.Remove("test.yaml")
+	defer func() { _ = os.Remove("test.yaml") }()
 
 	ac, err := LoadConfig("test", nil)
 	if err != nil {
@@ -333,7 +333,7 @@ capabilities:
 `
 	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer os.Remove("test.yaml")
+	defer func() { _ = os.Remove("test.yaml") }()
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()

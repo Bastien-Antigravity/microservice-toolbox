@@ -38,7 +38,7 @@ func TestResolver_ResolveBindAddr(t *testing.T) {
 
 func TestNewResolver(t *testing.T) {
 	// Mocking environment variable
-	os.Setenv("DOCKER_ENV", "true")
+	_ = os.Setenv("DOCKER_ENV", "true")
 	defer func() { _ = os.Unsetenv("DOCKER_ENV") }()
 
 	r := NewResolver()
