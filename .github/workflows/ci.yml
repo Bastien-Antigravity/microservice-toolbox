@@ -36,6 +36,7 @@ jobs:
         with:
           version: v2.12.2
           working-directory: go
+          args: --exclude="QF1008"
   python-ci:
     name: Python Tests
     runs-on: ubuntu-latest
