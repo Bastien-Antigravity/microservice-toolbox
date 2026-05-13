@@ -24,6 +24,8 @@ jobs:
       working_directory: 'python'
       python_version: '3.12'
       go_version: '1.25'
+      artifact_name: 'libdistconf'
+      artifact_path: 'distributed-config/distconf/libdistconf/'
     secrets: inherit
   rust-ci:
     uses: Bastien-Antigravity/fleet-operation-brain/.github/workflows/workflow-rust.yml@develop
@@ -31,10 +33,14 @@ jobs:
       working_directory: 'rust'
       rust_version: '1.91'
       go_version: '1.25'
+      artifact_name: 'libdistconf'
+      artifact_path: 'distributed-config/distconf/libdistconf/'
     secrets: inherit
   cpp-ci:
     uses: Bastien-Antigravity/fleet-operation-brain/.github/workflows/workflow-cpp.yml@develop
     with:
       working_directory: 'cpp'
       go_version: '1.25'
+      artifact_name: 'libdistconf'
+      artifact_path: 'distributed-config/distconf/libdistconf/'
     secrets: inherit
