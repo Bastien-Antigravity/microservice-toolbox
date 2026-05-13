@@ -146,6 +146,11 @@ def test_get_local(tmp_path):
         assert ac.get_local("nested.key") == "nested_value"
         assert ac.get_local("nested.missing") is None
         assert ac.get_local("missing") is None
+        
+        # Test default value support
+        assert ac.get_local("missing", "default_val") == "default_val"
+        assert ac.get_local("nested.missing", 999) == 999
+        assert ac.get_local("local_setting", "ignored") == "value_xyz"
     finally:
         os.chdir(old_cwd)
 

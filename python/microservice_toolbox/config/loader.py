@@ -367,14 +367,14 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def get_local(self, key: str) -> Any:
+    def get_local(self, key: str, default: Any = None) -> Any:
         """
         Returns a value from the 'local' configuration section.
         Supports nested lookups using dot notation (e.g., "database.host").
         """
         local_data = self.data.get("local")
         if local_data is None:
-            return None
+            return default
 
         parts = key.split(".")
         current = local_data
@@ -382,9 +382,9 @@ class AppConfig:
             if isinstance(current, dict):
                 current = current.get(part)
                 if current is None:
-                    return None
+                    return default
             else:
-                return None
+                return default
         return current
 
     # -----------------------------------------------------------------------------------------------
