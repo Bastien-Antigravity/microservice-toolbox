@@ -6,12 +6,17 @@ on:
   push:
     branches: [develop, main]
   pull_request:
-    branches: [main]
+    branches: [develop, main]
 
 env:
   GOTOOLCHAIN: auto
 
 jobs:
+  # Insert language-specific jobs from jobs/ folder here
+  # Example:
+  # go-ci:
+  #   uses: Bastien-Antigravity/fleet-operation-brain/.github/workflows/workflow-go.yml@develop
+  #   ...
   go-ci:
     uses: Bastien-Antigravity/fleet-operation-brain/.github/workflows/workflow-go.yml@develop
     with:
