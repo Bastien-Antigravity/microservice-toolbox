@@ -24,27 +24,39 @@ func NewResolver() *Resolver {
 
 // ResolveBindAddr resolves the requested IP into an actual address to bind to.
 //
-// Docker Connectivity Logic:
-// If running in a Docker container and a loopback address (127.0.0.1) is
-// provided, this method translates it to the container's internal
-// primary interface IP. This ensures that the service is actually
-// reachable by other containers in the same network/fleet.
+// Docker Guard Logic:
+// If running in a Docker container, this method suppresses the requested IP
+// and forces a bind to 0.0.0.0. This ensures that the container port mapping
+// (Docker/K8s) works regardless of what was specified in the configuration.
 func (r *Resolver) ResolveBindAddr(requestedIP string) (string, error) {
 	requestedIP = strings.Trim(requestedIP, "\"")
 
-	// If not in Docker, or if the IP isn't a loopback placeholder, use it directly.
-	if !r.IsDocker || !r.isLoopback(requestedIP) {
+	// If not in Docker, use the requested IP directly.
+	if !r.IsDocker {
 		return requestedIP, nil
 	}
 
-	// In Docker, we need the internal container IP (e.g., eth0) for other containers to reach us.
-	// We specifically avoid 0.0.0.0 per user requirement.
-	ip, err := r.getPrimaryInterfaceIP()
+	// In Docker, we force 0.0.0.0 to ensure orchestrated networking works.
+	// This "suppresses" any manual IP overrides.
+	return "0.0.0.0", nil
+}
+
+// ResolveFullBindAddr takes a "host:port" string and returns a resolved "host:port"
+// using the Docker Guard logic.
+func (r *Resolver) ResolveFullBindAddr(addr string) (string, error) {
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve container IP for bind: %w", err)
+		// If no port specified, treat the whole string as host
+		resolvedHost, err := r.ResolveBindAddr(addr)
+		return resolvedHost, err
 	}
 
-	return ip, nil
+	resolvedHost, err := r.ResolveBindAddr(host)
+	if err != nil {
+		return "", err
+	}
+
+	return net.JoinHostPort(resolvedHost, port), nil
 }
 
 // isLoopback checks if the IP is in the 127.0.0.0/8 range.
@@ -53,6 +65,7 @@ func (r *Resolver) isLoopback(ip string) bool {
 }
 
 // getPrimaryInterfaceIP finds the first non-loopback IP address.
+// Keep as utility for potential client-side discovery.
 func (r *Resolver) getPrimaryInterfaceIP() (string, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {

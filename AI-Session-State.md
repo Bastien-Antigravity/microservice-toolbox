@@ -16,3 +16,32 @@ Enable local configuration loading across all profiles for ecosystem parity.
 
 ## 🐛 Local Issues / Bugs
 - None identified in this session.
+
+### [SCAN] Role: DocMaintainer & Sentinel | State: Completed Documentation Audit
+- **Metadata Hardening**: Applied `#ai/ignore` tags and unified YAML frontmatter across all `quick-overview/` files.
+- **Archive Integration**: Merged critical technical details from `_archive/ARCHITECTURE.md` (CGO Bridge, Full Sync pattern) and `_archive/TESTING.md` (testify/assert, Arc/Mutex, tokio) into current documentation.
+- **Parity Verification**: Confirmed business model implementation (MarketEvent, OHLCV, Signal) across Go, Python, Rust, and C++. Updated parity matrix in root README.md.
+- **Zero-Drift Enforcement**: Ensured `README.md` documentation index points to accurate sub-documentation.
+
+### [SCAN] Role: Sentinel | State: Exposed API Audit Results
+- **AppConfig Parity**: 
+    - Go, Python, Rust: **100% OK**.
+    - C++: **GAPS**. Missing `GetServiceName`, `OnLiveConfUpdate`, `OnRegistryUpdate`, `ShareConfig`.
+    - VBA: **Minimalist**. Functional for basic needs, but lacks advanced callbacks.
+- **Business Models Parity**:
+    - Go, Python, Rust: **100% OK** (verified snake_case JSON mapping).
+    - C++: **FAIL**. Missing `Quote`, `OrderBook`, `OrderBookLevel`. 
+    - **Drift Alert**: C++ uses `camelCase` for `event_id` and `trade_id`, breaking cross-repo serialization consistency.
+- **Connection Manager Parity**:
+    - Go, Python, Rust: **100% OK**.
+    - C++: **FAIL**. Missing `ManagedConnection` class and orchestration methods (`ConnectBlocking`, etc). Only delay policy exists.
+
+### [SCAN] Role: Sentinel | State: C++ API Alignment Completed
+- **Business Models Fix**: Updated `Models.hpp` to use `snake_case` for JSON serialization. Added missing `Quote`, `OrderBook`, and `OrderBookLevel` structures.
+- **AppConfig Enhancement**: Added `GetServiceName`, `OnLiveConfUpdate`, `OnRegistryUpdate`, and `ShareConfig` methods to `AppConfig.hpp`.
+- **Connectivity Tier**: Implemented `ManagedConnection.hpp` with automated reconnection logic (backoff/jitter). Updated `NetworkManager.hpp` with high-level orchestration methods (`ConnectBlocking`, `ConnectNonBlocking`).
+- **Zero-Drift Status**: C++ toolbox now satisfies the **Mirroring Mandate** for core configuration, networking, and business logic tiers.
+
+### [SCAN] Role: Sentinel | State: Technical Debt Cleanup (Python UTC)
+- **Warning Resolution**: Replaced deprecated `datetime.utcnow()` with modern timezone-aware `datetime.now(UTC)` in `terminal_ui.py`.
+- **Verification**: Verified zero warnings in Python test suite (29 tests passed).

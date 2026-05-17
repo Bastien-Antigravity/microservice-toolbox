@@ -13,5 +13,5 @@ Testing in VBA is performed via the Immediate Window and specialized test proced
 
 ## Key Test Areas
 - **String Conversion**: Verifying that non-ASCII characters survive the BSTR -> C-string -> BSTR roundtrip.
-- **YAML Parsing**: Ensuring the `LoadLocalOverrides` correctly identifies the `private:` block in `.yaml` files.
+- **YAML Parsing**: Ensuring the `LoadLocalOverrides` correctly identifies the `local:` block in `.yaml` files.
 - **FFI Stability**: Confirming that `Class_Terminate` correctly calls `DistConf_Close` to prevent memory leaks in the Excel process.

@@ -18,7 +18,7 @@ A specialized networking layer that detects if a service is running inside a Doc
 Integrates directly with `distributed-config` to handle `ENC(...)` blocks. It uses process-local environment variables to discover the RSA keys, allowing for seamless CLI overrides via the `--key` flag.
 
 ## 4. Local Configuration (`Local`)
-The `AppConfig` struct includes a `Local` map (parsed from the `private:` YAML section). This section is reserved for service-specific, non-synchronized settings.
+The `AppConfig` struct includes a `Local` map (parsed from the `local:` YAML section). This section is reserved for service-specific, non-synchronized settings.
 - `UnmarshalLocal(target)`: Decodes this section into a user-provided struct.
 
 ## 5. Standardized Business Data

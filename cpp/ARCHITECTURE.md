@@ -20,7 +20,7 @@ While lookups are mirrored, **Decryption** is always delegated back to the Go co
 
 ## 4. Hierarchy of Truth
 - **CLI Flags**: Managed via the Go engine (if passed through) or system-level overrides.
-- **Local Overrides**: The `LoadLocalOverrides()` method manually parses the `private:` section of local YAML files to ensure engine decoupling for service-specific settings.
+- **Local Overrides**: The `LoadLocalOverrides()` method manually parses the `local:` section of local YAML files to ensure engine decoupling for service-specific settings.
 
 ## 5. Fallback Logic
 If the In-memory mirror fails to initialize or contains incomplete data for a specific capability, the toolbox automatically falls back to a direct FFI call to the Go engine as a failsafe.

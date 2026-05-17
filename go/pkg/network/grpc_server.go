@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -22,13 +23,28 @@ func NewGRPCServer(addr string, opts ...grpc.ServerOption) *GRPCServer {
 }
 
 // NewGRPCServerWithLogger creates a new gRPC server wrapper with an explicit logger.
+// It automatically applies the "Docker Guard" policy to the binding address.
 func NewGRPCServerWithLogger(addr string, logger utils.Logger, opts ...grpc.ServerOption) *GRPCServer {
+	safeLogger := utils.EnsureSafeLogger(logger)
+
+	// Apply Docker Guard Suppression
+	resolver := connectivity.NewResolver()
+	resolvedAddr, err := resolver.ResolveFullBindAddr(addr)
+	if err != nil {
+		safeLogger.Error("Toolbox: Failed to resolve gRPC bind address: %v", err)
+		resolvedAddr = addr // Fallback to original
+	}
+
+	if resolvedAddr != addr {
+		safeLogger.Info("Toolbox: Docker Guard suppressed bind address %s -> %s", addr, resolvedAddr)
+	}
+
 	s := grpc.NewServer(opts...)
 	reflection.Register(s) // Enable reflection by default for debugging
 	return &GRPCServer{
 		Server: s,
-		Addr:   addr,
-		Logger: utils.EnsureSafeLogger(logger),
+		Addr:   resolvedAddr,
+		Logger: safeLogger,
 	}
 }
 

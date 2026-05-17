@@ -60,6 +60,13 @@ public:
     logger_->Info("Logger updated successfully");
   }
 
+  std::string GetServiceName() const {
+    if (data_.contains("common") && data_["common"].contains("name")) {
+        return data_["common"]["name"].get<std::string>();
+    }
+    return "unknown-service";
+  }
+
   std::string DecryptSecret(const std::string &ciphertext) const {
     if (ciphertext.size() < 5 || ciphertext.compare(0, 4, "ENC(") != 0 ||
         ciphertext.back() != ')') {
@@ -168,6 +175,24 @@ public:
     return nlohmann::json::object();
   }
 
+  void OnLiveConfUpdate(std::function<void(const std::string&)> callback) {
+    config_->OnLiveConfUpdate([this, callback](const std::string& json_data) {
+        callback(json_data);
+        SyncFromBridge(); // Keep local mirror updated
+    });
+  }
+
+  void OnRegistryUpdate(std::function<void(const std::string&)> callback) {
+    config_->OnRegistryUpdate([this, callback](const std::string& json_data) {
+        callback(json_data);
+        SyncFromBridge();
+    });
+  }
+
+  bool ShareConfig(const nlohmann::json& payload) {
+    return config_->ShareConfig(payload.dump());
+  }
+
   distconf::DistConfig &GetRawConfig() { return *config_; }
   const std::string &GetProfile() const { return profile_; }
   const CLIArgs &GetArgs() const { return args_; }
@@ -197,6 +222,13 @@ private:
     std::vector<std::string> candidates = {profile_ + ".yaml",
                                            "config/" + profile_ + ".yaml"};
 
+    for (const auto &path : candidates) {
+        if (config_->ApplyFileOverride(path)) {
+            logger_->Info("Standardized Local overrides merged from: " + path);
+            return;
+        }
+    }
+  }
     for (const auto &path : candidates) {
       std::ifstream file(path);
       if (!file.is_open())
@@ -303,11 +335,6 @@ private:
     }
   }
 
-  std::string ExpandEnv(const std::string &input) const {
-    std::string result = input;
-    size_t start_pos = 0;
-    while ((start_pos = result.find("${", start_pos)) != std::string::npos) {
-      size_t end_pos = result.find("}", start_pos);
       if (end_pos == std::string::npos)
         break;
 

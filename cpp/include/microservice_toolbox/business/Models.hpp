@@ -45,7 +45,7 @@ struct MarketEvent {
 
     json to_json() const {
         return json{
-            {"eventId", event_id},
+            {"event_id", event_id},
             {"symbol", symbol},
             {"exchange", exchange},
             {"timestamp", timestamp},
@@ -80,7 +80,51 @@ struct Trade {
             {"price", price},
             {"size", size},
             {"aggressor", to_string(aggressor)},
-            {"tradeId", trade_id}
+            {"trade_id", trade_id}
+        };
+    }
+};
+
+struct Quote {
+    double bid_price;
+    double bid_size;
+    double ask_price;
+    double ask_size;
+
+    json to_json() const {
+        return json{
+            {"bid_price", bid_price},
+            {"bid_size", bid_size},
+            {"ask_price", ask_price},
+            {"ask_size", ask_size}
+        };
+    }
+};
+
+struct OrderBookLevel {
+    double price;
+    double size;
+
+    json to_json() const {
+        return json{
+            {"price", price},
+            {"size", size}
+        };
+    }
+};
+
+struct OrderBook {
+    std::vector<OrderBookLevel> bids;
+    std::vector<OrderBookLevel> asks;
+
+    json to_json() const {
+        json b = json::array();
+        for (const auto& l : bids) b.push_back(l.to_json());
+        json a = json::array();
+        for (const auto& l : asks) a.push_back(l.to_json());
+        return json{
+            {"bids", b},
+            {"asks", a}
         };
     }
 };

@@ -57,7 +57,7 @@ def load_libdistconf():
     try:
         lib_handle = ctypes.CDLL(lib_path)
 
-        # Define function signatures matching v1.9.8 standard
+        # Define function signatures matching v0.0.1 standard
         lib_handle.DistConf_New.argtypes = [c_char_p]
         lib_handle.DistConf_New.restype = c_void_p
 

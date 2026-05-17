@@ -17,6 +17,7 @@ KEY PARAMETERS:
 """
 
 from datetime import datetime as datetimeDateTime
+from datetime import UTC as datetimeUTC
 
 from .helpers import get_hostname
 
@@ -26,7 +27,8 @@ from .helpers import get_hostname
 def print_internal_log(level: str, module: str, filename: str, line: str, message: str) -> None:
     """Formats and prints an internal toolbox log message"""
     # Precision timestamp in ISO 8601 format (UTC)
-    timestamp = datetimeDateTime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "000Z"
+    # Replaced deprecated utcnow() with modern now(UTC) to satisfy Python 3.12+ requirements.
+    timestamp = datetimeDateTime.now(datetimeUTC).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "000Z"
     hostname = get_hostname()
 
     # Colorize level

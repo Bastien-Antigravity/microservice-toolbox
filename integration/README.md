@@ -1,22 +1,31 @@
 # Integration Tests: Polyglot Matrix
 
-This directory contains scripts and source code for verifying cross-language serialization compatibility.
+This directory contains the cross-language validation suite that ensures serialization parity across the Bastien-Antigravity fleet.
 
-## Business Data Standardization (WIP)
+## Business Data Standardization
 
-The `schemas/business` directory contains standardized Cap'n Proto definitions for:
-- `MarketEvent` (L1/L2 Market Data)
-- `OHLCV` (Time-series Bars)
-- `Signal` (Trading Strategy Signals)
+The `microservice-toolbox` enforces a unified data standard for the business logic tier, enabling seamless data flow between services written in different languages.
 
-### Current Implementation Status
-- **Go**: Full support in `microservice-toolbox/go/pkg/business`. Uses JSON serialization as a baseline.
-- **Python/Rust**: Pending implementation.
+### Implementation Status
+- **Go**: Reference implementation in `pkg/business`.
+- **Python**: Parity implementation in `microservice_toolbox.business.models`.
+- **Rust**: Parity implementation in `src/business/models.rs`.
+- **C++**: Parity implementation in `Models.hpp`.
 
-### Integration Strategy
-To add these models to the integration matrix:
-1. Generate Cap'n Proto bindings for each language.
-2. Update `matrix_gen.*` and `matrix_con.*` to include a `business` format test case.
-3. Update `run_tests.sh` to include the `business` format.
+### Integration Matrix (`run_tests.sh`)
+The matrix validates that any language can produce data that any other language can consume, using both **JSON** and **MessagePack** formats.
 
-Verification is currently handled by the `sandbox-testing` suite (`FEAT-004-Unified-Data`).
+**Validated Models:**
+- **MarketEvent**: L1/L2 Market Data envelope.
+- **OHLCV**: Time-series Bar representation.
+- **Signal**: Strategy generated signals.
+
+## Running the Matrix
+Ensure all language environments are set up and the Go bridge is compiled:
+
+```bash
+chmod +x run_tests.sh
+./run_tests.sh
+```
+
+Success is mandatory for all Pull Requests. The matrix verifies the **Mirroring Mandate** at the wire-protocol level.

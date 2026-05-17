@@ -1,77 +1,57 @@
-# Microservice Toolbox - Go Module
+# Microservice Toolbox - Go Module (Reference Implementation)
 
-The Go implementation of the `microservice-toolbox` provides a robust foundation for building high-performance, resilient microservices within the Bastien-Antigravity ecosystem.
+The Go implementation of the `microservice-toolbox` is the foundational library and core engine for the entire Bastien-Antigravity ecosystem. It provides the reference logic for configuration resolution, RSA decryption, and resilient networking.
 
 ## Installation
-
-Add the toolbox to your `go.mod`:
 
 ```bash
 go get github.com/Bastien-Antigravity/microservice-toolbox/go
 ```
 
-## Core Components
+## Core Pillars
 
 ### 1. Configuration (`pkg/config`)
-The configuration loader implements the "Hierarchy of Truth" and platform-aware merging.
+Implements the "Hierarchy of Truth" and the autoritative Go-bridge for non-Go SDKs.
 
 ```go
 import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/config"
 
-// Loads standalone.yaml, applies overrides, and enables Docker Guard
+// Loads standalone.yaml and applies layered priority
 cfg := config.LoadConfig("standalone")
 
-// Access capabilities
-addr := cfg.GetListenAddr("my-service")
+// Decrypt secrets using the centralized RSA engine
+secret, _ := cfg.DecryptSecret("ENC(...)")
 ```
 
 ### 2. Connection Manager (`pkg/conn_manager`)
-Handles TCP connections with automated retries, backoff, and background recovery.
+High-level TCP orchestration with multiplicative backoff and jitter.
 
 ```go
 import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/conn_manager"
 
-nm := conn_manager.NewNetworkManager(5, 200, 5000, 2000, 2.0, 0.1)
+nm := conn_manager.NewStandardStrategy(nil)
 
-// Unified error and retry hook
-nm.OnError = func(attempt int, err error, source string, msg string) {
-    log.Printf("[%d] Error in %s: %v", attempt, source, err)
-}
-
-// Blocking connection
+// Self-healing connection
 conn := nm.ConnectBlocking(&ip, &port, &publicIP, "raw")
-defer conn.Close()
 ```
 
-### 3. Lifecycle (`pkg/lifecycle`)
-Manages OS signals and ensures all registered components shut down gracefully.
+### 3. Business Models (`pkg/business`)
+Standardized Market Data and Signal models.
 
 ```go
-import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/lifecycle"
+import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/business"
 
-m := lifecycle.NewManager()
-m.Register("database", func() error {
-    return db.Close()
-})
-
-// Blocks until SIGINT/SIGTERM, then executes cleanups
-m.Wait()
+sig := business.Signal{
+    Symbol: "BTC/USDT",
+    Type: business.SignalBuy,
+}
 ```
 
-### 4. Serializers (`pkg/serializers`)
-Shared abstractions for JSON and high-performance **MsgPack** binary formats.
-
-```go
-import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/serializers"
-
-ser := serializers.NewJSONSerializer() // or serializers.NewBinSerializer()
-data, _ := ser.Marshal(myStruct)
-```
+## Architecture: The Reference Engine
+The Go module serves as the **Core Execution Engine**. All non-Go implementations (Python, Rust, C++, VBA) bridge to this library (via `libdistconf`) to perform sensitive operations like RSA decryption, ensuring absolute logic synchronization and zero security drift across the fleet.
 
 ## Testing
-
-Run the Go test suite:
-
+Run the comprehensive Go test suite:
 ```bash
-go test -v ./pkg/...
+cd go && go test -v ./pkg/...
 ```

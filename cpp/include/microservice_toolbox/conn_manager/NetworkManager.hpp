@@ -7,18 +7,27 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include "../utils/Logger.hpp"
 
 namespace microservice_toolbox {
 namespace conn_manager {
 
+class ManagedConnection; // Forward declaration
+
 using OnErrorHandler = std::function<void(int attempt, const std::string& error, const std::string& source, const std::string& msg)>;
+
+enum class ConnectionMode {
+    Blocking,
+    NonBlocking,
+    Indefinite
+};
 
 /**
  * NetworkManager handles reliable connection establishment policy with retries.
  * Implements backoff and jitter.
  */
-class NetworkManager {
+class NetworkManager : public std::enable_shared_from_this<NetworkManager> {
 public:
     int max_retries; // -1 for infinite
     std::chrono::milliseconds base_delay;
@@ -52,6 +61,17 @@ public:
 
         return std::chrono::milliseconds(static_cast<long long>(delay));
     }
+
+    // High-level connection API
+    std::shared_ptr<ManagedConnection> ConnectBlocking(const std::string& ip, const std::string& port, 
+                                                       const std::string& public_ip, const std::string& profile);
+    
+    std::shared_ptr<ManagedConnection> ConnectNonBlocking(const std::string& ip, const std::string& port, 
+                                                          const std::string& public_ip, const std::string& profile);
+
+    std::shared_ptr<ManagedConnection> Connect(const std::string& ip, const std::string& port, 
+                                               const std::string& public_ip, const std::string& profile, 
+                                               ConnectionMode mode);
 
     // Static Factory Methods for Strategies
     static std::shared_ptr<NetworkManager> NewCritical(std::shared_ptr<utils::Logger> logger = nullptr) {
