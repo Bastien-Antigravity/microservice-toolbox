@@ -3,9 +3,10 @@ microservice: microservice-toolbox
 type: architecture
 status: active
 tags:
-- \'#service/microservice-toolbox\'
-  - '#domain/architecture'
-  - '#domain/configuration'
+- '#service/microservice-toolbox'
+- '#domain/architecture'
+- '#domain/configuration'
+- '#zone/3-fleet'
 ---
 
 # Architecture Standards: Microservice Toolbox
