@@ -145,6 +145,8 @@ extern void DistConf_FreeString(char* ptr);
 extern char* DistConf_GetLastError(void);
 extern char* DistConf_Decrypt(GoUintptr handle, char* ciphertext);
 extern GoInt DistConf_ValidateMandatoryServices(GoUintptr handle);
+extern GoInt DistConf_IsValid(GoUintptr handle);
+extern char* DistConf_ApplyFileOverride(GoUintptr handle, char* filename);
 
 #ifdef __cplusplus
 }

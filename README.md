@@ -4,33 +4,54 @@ type: repository
 status: active
 language: polyglot
 tags:
-  - domain/architecture
-  - domain/configuration
+- '#service/microservice-toolbox'
+- '#domain/architecture'
+- '#domain/configuration'
+- '#zone/3-fleet'
 ---
 
 # Microservice Toolbox
 
 A unified infrastructure library for the Bastien-Antigravity microservices ecosystem. Supporting **Go, Python, Rust, C++, and VBA**.
 
+## 📚 Documentation Index
+- **[Architecture Overview](quick-overview/Architecture-Overview.md)**: System design, FFI bridging, and repository anatomy.
+- **[Features & Behavior](quick-overview/Features-Behavior.md)**: Configuration hierarchy, secret management, and data standards.
+- **[Testing Playbook](quick-overview/Testing-Playbook.md)**: Unit tests, integration matrix, and CI/CD validation.
+
+---
+
+## 🏗️ Executive Summary
+The `microservice-toolbox` provides common operational patterns for the Bastien-Antigravity fleet. It ensures that regardless of the language used, all microservices share identical configuration resolution, security boundaries, and data models.
+
 ## Core Features
 
 ### 1. Smart Configuration Loader
 Implements a strict "Hierarchy of Truth" for service configuration:
-1.  **Command Line Overrides** (`--key`, `--host`, `--port`, ): Highest Priority.
+1.  **Command Line Overrides** (`--key`, `--host`, `--port`): Highest Priority. 
 2.  **Environment Variables** (`BASTIEN_PRIVATE_KEY_PATH`): OS-level overrides.
 3.  **Local File Override** (`[profile].yaml`): Authoritative local source.
-4.  **Config Server Baseline**: Fleet configuration.
+4.  **Config Server Baseline**: Fleet configuration baseline.
+
+> [!NOTE]
+> **Universal Override Policy**: The local file override acts as an authoritative, unconditional override across all profiles (including production and staging) to ensure absolute local alignment.
 
 ### 2. Local Configuration Namespace (`Local`)
-Every implementation supports the `Local` configuration block (parsed from the `local:` YAML section). This is reserved for service-specific settings that are **never** synchronized to the fleet.
-- **Go/Python/Rust**: Support `UnmarshalLocal()` to map settings directly to language-native structs/classes.
-- **Transparency (v1.9.9+)**: All toolboxes now support raw error pass-through via the `GetLastError()` API, ensuring engine-level failures are visible to the caller.
+Every implementation supports the `local:` YAML section for service-specific settings that are **never** synchronized to the fleet.
+- **Go/Python/Rust**: Support `UnmarshalLocal()` to map settings directly to language-native structures.
+- **Error Transparency (v0.0.1+)**: All toolboxes support raw error pass-through via the `GetLastError()` API.
 
-### 3. RSA Secret Management (v1.2.2+)
+### 3. RSA Secret Management (v0.0.1+)
 Standardized on-demand secret decryption engine across the ecosystem:
 - **On-Demand Decryption**: Secrets remain encrypted as `ENC(...)` in memory. Call `DecryptSecret()` to get the plaintext.
 - **Centralized Security**: Decryption logic is centralized in the Go core; all other languages (Python, Rust, C++, VBA) bridge to this core for maximum security.
 - **FFI Bridge Sync**: High-performance in-memory mirroring ensures sub-millisecond lookups in all languages.
+
+### 4. Business Data Standards (v0.0.1+)
+Unified data models for the business logic tier, defined in `schemas/business` and implemented in Go (`pkg/business`):
+- **MarketEvent**: Low-latency envelope for L1/L2 data.
+- **OHLCV**: Standardized time-series bar representation.
+- **Signal**: Unified trading strategy signal format (Buy/Sell/Exit).
 
 ---
 
@@ -45,7 +66,17 @@ Standardized on-demand secret decryption engine across the ecosystem:
 | **Error Transparency** | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **In-Memory Mirroring** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **UnmarshalLocal** | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Connection Manager | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **Business Data Models**| ✅ | ✅ | ✅ | ✅ | ❌ |
+| Connection Manager | ✅ | ✅ | ✅ | ✅ | ❌ |
+
+---
+
+## Polyglot Parity Rules
+To ensure the ecosystem remains unified, all contributions to this toolbox must follow these rules:
+1. **The Mirroring Mandate**: New features added to the Go (Reference) implementation must be ported to Python, Rust, and C++ in the same PR/cycle.
+2. **Behavioral Identity**: Logic and error handling must be identical across all languages.
+3. **Semantic Naming**: Use language-appropriate casing (`PascalCase` for Go, `snake_case` for Python/Rust), but the semantic name must be identical (e.g., `GetListenAddr` vs `get_listen_addr`).
+4. **Integration Validation**: All changes must pass the `integration/run_tests.sh` matrix.
 
 ---
 

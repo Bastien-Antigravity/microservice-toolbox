@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"os"
 )
 
 // Logger is a structurally compatible interface with universal-logger.
@@ -51,19 +52,39 @@ func (n *noOpLogger) AddMetadata(string, string) {}
 // FmtLogger is a simple logger that prints to stdout, useful for debugging.
 type FmtLogger struct{}
 
-func (f *FmtLogger) Debug(fmt_str string, args ...any)   { fmt.Printf("DEBUG: "+fmt_str+"\n", args...) }
-func (f *FmtLogger) Info(fmt_str string, args ...any)    { fmt.Printf("INFO: "+fmt_str+"\n", args...) }
-func (f *FmtLogger) Warning(fmt_str string, args ...any) { fmt.Printf("WARN: "+fmt_str+"\n", args...) }
-func (f *FmtLogger) Error(fmt_str string, args ...any)   { fmt.Printf("ERROR: "+fmt_str+"\n", args...) }
+func (f *FmtLogger) Debug(fmt_str string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, "DEBUG: "+fmt_str+"\n", args...)
+}
+func (f *FmtLogger) Info(fmt_str string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, "INFO: "+fmt_str+"\n", args...)
+}
+func (f *FmtLogger) Warning(fmt_str string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, "WARN: "+fmt_str+"\n", args...)
+}
+func (f *FmtLogger) Error(fmt_str string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, "ERROR: "+fmt_str+"\n", args...)
+}
 func (f *FmtLogger) Critical(fmt_str string, args ...any) {
-	fmt.Printf("CRITICAL: "+fmt_str+"\n", args...)
+	_, _ = fmt.Fprintf(os.Stdout, "CRITICAL: "+fmt_str+"\n", args...)
 }
-func (f *FmtLogger) Logon(fmt_str string, args ...any)  { fmt.Printf("LOGON: "+fmt_str+"\n", args...) }
-func (f *FmtLogger) Logout(fmt_str string, args ...any) { fmt.Printf("LOGOUT: "+fmt_str+"\n", args...) }
-func (f *FmtLogger) Trade(fmt_str string, args ...any)  { fmt.Printf("TRADE: "+fmt_str+"\n", args...) }
+func (f *FmtLogger) Logon(fmt_str string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, "LOGON: "+fmt_str+"\n", args...)
+}
+func (f *FmtLogger) Logout(fmt_str string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, "LOGOUT: "+fmt_str+"\n", args...)
+}
+func (f *FmtLogger) Trade(fmt_str string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, "TRADE: "+fmt_str+"\n", args...)
+}
 func (f *FmtLogger) Schedule(fmt_str string, args ...any) {
-	fmt.Printf("SCHEDULE: "+fmt_str+"\n", args...)
+	_, _ = fmt.Fprintf(os.Stdout, "SCHEDULE: "+fmt_str+"\n", args...)
 }
-func (f *FmtLogger) Report(fmt_str string, args ...any) { fmt.Printf("REPORT: "+fmt_str+"\n", args...) }
-func (f *FmtLogger) Stream(fmt_str string, args ...any) { fmt.Printf("STREAM: "+fmt_str+"\n", args...) }
-func (f *FmtLogger) AddMetadata(k string, v string)     { fmt.Printf("META: %s=%s\n", k, v) }
+func (f *FmtLogger) Report(fmt_str string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, "REPORT: "+fmt_str+"\n", args...)
+}
+func (f *FmtLogger) Stream(fmt_str string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, "STREAM: "+fmt_str+"\n", args...)
+}
+func (f *FmtLogger) AddMetadata(k string, v string) {
+	_, _ = fmt.Fprintf(os.Stdout, "META: %s=%s\n", k, v)
+}

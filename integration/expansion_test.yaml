@@ -1,0 +1,5 @@
+local:
+  with_default: "${VAR_A:default_abc}"
+  without_default: "${VAR_B}"
+  nested:
+    val: "${VAR_C:nested_default}"

@@ -29,11 +29,15 @@ except ImportError:
     # Handle the case where safesocket is not installed/linked yet
     safesocket = None
 
-from ..utils.logger import ILogger, ensure_safe_logger
+from ..utils.logger import Logger, ensure_safe_logger
 from .connection import ManagedConnection
 from .errors import MaxRetriesReachedError
 
+# -----------------------------------------------------------------------------------------------
+
 OnErrorHandler = Callable[[int, Exception, str, str], None]
+
+# -----------------------------------------------------------------------------------------------
 
 
 class ConnectionMode(IntEnum):
@@ -67,7 +71,7 @@ class NetworkManager:
         backoff: float = 2.0,
         jitter: float = 0.0,
         on_error: Optional[OnErrorHandler] = None,
-        logger: Optional[ILogger] = None,
+        logger: Optional[Logger] = None,
     ):
         self.max_retries = max_retries
         self.base_delay = base_delay_ms / 1000.0
@@ -80,12 +84,27 @@ class NetworkManager:
 
     # -----------------------------------------------------------------------------------------------
 
+    def get_next_delay(self, attempt: int) -> float:
+        """
+        Calculates the delay for the next attempt using backoff and jitter.
+        """
+        delay = self.base_delay * mathPow(self.backoff, attempt)
+        if delay > self.max_delay:
+            delay = self.max_delay
+
+        if self.jitter > 0:
+            delay += randomUniform(0, self.jitter * delay)
+
+        return delay
+
+    # -----------------------------------------------------------------------------------------------
+
     def establish_connection(self, ip: str, port: str, public_ip: str, profile: str) -> Any:
         """
         Attempts a single connection to the resolved address.
         """
         if safesocket is None:
-            raise ImportError("safesocket library not found")
+            raise ImportError("{0} : safesocket library not found".format(self.Name))
 
         clean_ip = ip.strip('"')
         clean_port = port.strip('"')
@@ -117,16 +136,9 @@ class NetworkManager:
                 last_err = e
                 # Report failure to the optional on_error hook
                 if self.on_error:
-                    self.on_error(i + 1, e, "NetworkManager", f"Initial connection failure to {address}")
+                    self.on_error(i + 1, e, self.Name, f"Initial connection failure to {address}")
 
-                # Calculate backoff
-                delay = self.base_delay * mathPow(self.backoff, i)
-                if delay > self.max_delay:
-                    delay = self.max_delay
-
-                # Apply jitter
-                if self.jitter > 0:
-                    delay += randomUniform(0, self.jitter * delay)
+                delay = self.get_next_delay(i)
 
                 self.logger.info(
                     "{0} : Initial connection to {1} failed: {2}. Retrying in {3:.2f}s...".format(
@@ -136,7 +148,7 @@ class NetworkManager:
                 timeSleep(delay)
                 i += 1
 
-        raise MaxRetriesReachedError(f"{address} after {self.max_retries} attempts (last error: {last_err})")
+        raise MaxRetriesReachedError(f"{self.Name} : {address} after {self.max_retries} attempts (last error: {last_err})")
 
     # -----------------------------------------------------------------------------------------------
 
@@ -150,7 +162,7 @@ class NetworkManager:
             mc.reconnect()
         except Exception as e:
             if self.on_error:
-                self.on_error(1, e, "NetworkManager", f"Failed to connect to {ip}:{port}")
+                self.on_error(1, e, self.Name, f"Failed to connect to {ip}:{port}")
 
         return mc
 
@@ -169,7 +181,7 @@ class NetworkManager:
                 mc.reconnect()
             except Exception as e:
                 if self.on_error:
-                    self.on_error(1, e, "NetworkManager", f"Failed to connect to {ip}:{port} in background")
+                    self.on_error(1, e, self.Name, f"Failed to connect to {ip}:{port} in background")
 
         thread = threading.Thread(target=run_reconnect, daemon=True)
         thread.start()
@@ -186,8 +198,7 @@ class NetworkManager:
             try:
                 return self.connect_with_retry(ip, port, public_ip, profile)
             except Exception:
-                # To match Go behavior, we return the mc even if it failed?
-                # Actually Go returns mc, _ = connect_with_retry
+                # To match Go behavior, we return the mc even if it failed
                 return ManagedConnection(ip, port, public_ip, profile, self)
         elif mode == ConnectionMode.NON_BLOCKING:
             return self.connect_non_blocking(ip, port, public_ip, profile)
@@ -224,37 +235,39 @@ def new_network_manager_with_logger(
     backoff: float = 2.0,
     jitter: float = 0.0,
     on_error: Optional[OnErrorHandler] = None,
-    logger: Optional[ILogger] = None,
+    logger: Optional[Logger] = None,
 ) -> NetworkManager:
     """Semantic helper to match Go NewNetworkManagerWithLogger()."""
-    return NetworkManager(
-        max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error, logger
-    )
+    return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error, logger)
 
 
 # -----------------------------------------------------------------------------------------------
-# Strategies
+# ### STRATEGIES ###
+# -----------------------------------------------------------------------------------------------
 
 
-def new_critical_strategy(logger: Optional[ILogger] = None) -> NetworkManager:
+def new_critical_strategy(logger: Optional[Logger] = None) -> NetworkManager:
     """
-    Creates a manager configured for critical services:
-    Infinite retries, aggressive backoff.
+    Creates a manager configured for critical services with infinite retries.
     """
     return new_network_manager_with_logger(-1, 200, 10000, 5000, 2.0, 0.2, None, logger)
 
 
-def new_standard_strategy(logger: Optional[ILogger] = None) -> NetworkManager:
+# -----------------------------------------------------------------------------------------------
+
+
+def new_standard_strategy(logger: Optional[Logger] = None) -> NetworkManager:
     """
-    Creates a manager for standard services:
-    Limited retries, moderate backoff.
+    Creates a manager for standard services with limited retries.
     """
     return new_network_manager_with_logger(10, 500, 30000, 5000, 1.5, 0.1, None, logger)
 
 
-def new_performance_strategy(logger: Optional[ILogger] = None) -> NetworkManager:
+# -----------------------------------------------------------------------------------------------
+
+
+def new_performance_strategy(logger: Optional[Logger] = None) -> NetworkManager:
     """
-    Creates a manager for high-performance services:
-    Short timeouts, low delay, background reconnection.
+    Creates a manager for high-performance services with background reconnection.
     """
     return new_network_manager_with_logger(-1, 100, 2000, 1000, 1.2, 0.0, None, logger)

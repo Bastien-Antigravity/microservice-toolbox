@@ -4,11 +4,11 @@
 """
 ESSENTIAL PROCESS:
 Resolver handles environment-aware network address translation.
-Specifically manages Docker-specific IP translation to ensure fleet reachability.
+Implements the 'Docker Guard' policy to ensure fleet reachability.
 
 DATA FLOW:
 1. Detects Docker environment upon initialization.
-2. Translates loopback addresses (127.0.0.1) to primary interface IPs if in Docker.
+2. If in Docker, forces bind addresses to 0.0.0.0 to support container orchestration.
 
 KEY PARAMETERS:
 - requested_ip: The IP address provided by configuration or user.
@@ -43,19 +43,35 @@ class Resolver:
     def resolve_bind_addr(self, requested_ip: str) -> str:
         """
         Resolves the requested IP into an actual address to bind to.
+
+        Docker Guard Logic:
+        If running in a Docker container, this method suppresses the requested IP
+        and forces a bind to 0.0.0.0. This ensures that the container port mapping
+        (Docker/K8s) works regardless of what was specified in the configuration.
         """
         requested_ip = requested_ip.strip('"')
 
-        # If not in Docker, or if the IP isn't a loopback placeholder, use it directly.
-        if not self.is_docker or not self.is_loopback(requested_ip):
+        # If not in Docker, use the requested IP directly.
+        if not self.is_docker:
             return requested_ip
 
-        # In Docker, we need the internal container IP (e.g., eth0) for other containers to reach us.
-        try:
-            return self._get_primary_interface_ip()
-        except Exception as e:
-            # Fallback or re-raise depending on criticality. Matching Go's error handling.
-            raise RuntimeError("{0} : failed to resolve container IP for bind: {1}".format(self.Name, e))
+        # In Docker, we force 0.0.0.0 to ensure orchestrated networking works.
+        # This "suppresses" any manual IP overrides.
+        return "0.0.0.0"
+
+    # -----------------------------------------------------------------------------------------------
+
+    def resolve_full_bind_addr(self, addr: str) -> str:
+        """
+        Takes a "host:port" string and returns a resolved "host:port"
+        using the Docker Guard logic.
+        """
+        if ":" not in addr:
+            return self.resolve_bind_addr(addr)
+
+        host, port = addr.rsplit(":", 1)
+        resolved_host = self.resolve_bind_addr(host)
+        return f"{resolved_host}:{port}"
 
     # -----------------------------------------------------------------------------------------------
 
@@ -67,9 +83,10 @@ class Resolver:
 
     # -----------------------------------------------------------------------------------------------
 
-    def _get_primary_interface_ip(self) -> str:
+    def get_primary_interface_ip(self) -> str:
         """
         Finds the first non-loopback IP address using a UDP socket trick.
+        Keep as utility for potential client-side discovery.
         """
         s = socketSocket(socketAF_INET, socketSOCK_DGRAM)
         try:

@@ -119,7 +119,6 @@ class ManagedConnection:
             else:
                 self._reconnecting = True
 
-        delay = self.nm.base_delay
         i = 0
 
         while True:
@@ -137,8 +136,7 @@ class ManagedConnection:
                         i + 1, e, "NetworkManager", f"Failed to recover connection to {self.ip}:{self.port}"
                     )
 
+                delay = self.nm.get_next_delay(i)
                 timeSleep(delay)
-                delay *= 2
                 i += 1
-                if delay > self.nm.max_delay:
-                    delay = self.nm.max_delay
+

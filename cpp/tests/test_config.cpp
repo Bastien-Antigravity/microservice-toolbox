@@ -128,9 +128,7 @@ void test_grpc_missing_error() {
 void test_env_expansion() {
   std::cout << "Testing Environment Variable Expansion..." << std::endl;
 
-  // Using 'standalone' profile because it's known by the engine,
-  // but we use a local override to test expansion.
-  std::ofstream ofs("standalone.yaml");
+  std::ofstream ofs("expansion_test.yaml");
   ofs << "common: {name: expansion-test}\n"
       << "local:\n"
       << "  host: ${TEST_HOST:localhost}\n"
@@ -139,8 +137,12 @@ void test_env_expansion() {
 
   setenv("TEST_HOST", "127.0.0.5", 1);
   unsetenv("TEST_PORT");
+  
+  std::cout << "DEBUG: TEST_HOST=" << (getenv("TEST_HOST") ? getenv("TEST_HOST") : "NULL") << std::endl;
 
-  auto ac = LoadConfig("standalone");
+  auto ac = LoadConfig("expansion_test");
+  
+  std::cout << "DEBUG: Loaded host=" << ac->GetLocal("host") << std::endl;
 
   if (ac->GetLocal("host") != "127.0.0.5") {
     throw std::runtime_error("Env expansion failed for TEST_HOST. Got: " +
@@ -153,7 +155,7 @@ void test_env_expansion() {
   }
 
   std::cout << "  Passed." << std::endl;
-  std::remove("standalone.yaml");
+  std::remove("expansion_test.yaml");
 }
 
 void test_mirror_integrity() {
@@ -177,8 +179,14 @@ void test_mirror_integrity() {
 }
 
 int main() {
+  // Set TEST_HOST before Go runtime initializes via CGo
+  setenv("TEST_HOST", "127.0.0.5", 1);
+
   // Cleanup any interference
   std::remove("test_config.yaml");
+  std::remove("expansion_test.yaml");
+
+
 
   try {
     test_load_config_factory();

@@ -1,6 +1,6 @@
 [package]
 name = "microservice-toolbox"
-version = "1.2.2"
+version = "0.0.1"
 edition = "2024"
 
 [dependencies]
@@ -32,6 +32,10 @@ path = "../integration/rust_gen.rs"
 [[bin]]
 name = "integration_con"
 path = "../integration/rust_con.rs"
+
+[[bin]]
+name = "expansion_check"
+path = "../integration/expansion_check.rs"
 
 [[example]]
 name = "test_logger"

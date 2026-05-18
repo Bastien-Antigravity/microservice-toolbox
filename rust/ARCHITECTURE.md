@@ -19,4 +19,4 @@ Similar to Python, Rust performs a **Full Sync** on initialization:
 - **Local Mirror**: The `AppConfig` struct owns the mirrored configuration state.
 
 ## 4. Type-Safe Local Configuration (`Local`)
-- `unmarshal_local<T>()`: Leverages `serde` to deserialize the `private:` YAML section into any Rust struct that implements `Deserialize`.
+- `unmarshal_local<T>()`: Leverages `serde` to deserialize the `local:` YAML section into any Rust struct that implements `Deserialize`.

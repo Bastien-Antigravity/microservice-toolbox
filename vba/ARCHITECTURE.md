@@ -11,7 +11,7 @@ VBA interacts with the Go core via the standard Win32 API `Declare` mechanism.
 Each instance of the `AppConfig` class manages a unique `uintptr` handle to a Go-side session. This ensures thread-safety (within the limits of VBA) and isolated configuration state.
 
 ## 3. Local Configuration
-VBA uses a `Scripting.Dictionary` to mirror the `private:` section of local YAML files. 
+VBA uses a `Scripting.Dictionary` to mirror the `local:` section of local YAML files. 
 - A custom "YAML-lite" parser in `LoadLocalOverrides` handles top-level keys.
 - This allows VBA apps to store local settings without requiring a full YAML library.
 

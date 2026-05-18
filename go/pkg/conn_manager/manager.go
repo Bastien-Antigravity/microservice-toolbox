@@ -19,7 +19,7 @@ import (
 // msg: a descriptive message providing additional context.
 type OnErrorHandler func(attempt int, err error, source string, msg string)
 
-// ConnectionMode defines how the manager handles the initial connection.
+// ConnectionMode defines how the manager handles the initial connection behavior.
 type ConnectionMode int
 
 const (
@@ -34,17 +34,22 @@ const (
 // -----------------------------------------------------------------------------
 // NetworkManager handles reliable connection establishment with retries.
 type NetworkManager struct {
-	MaxRetries     int // Supports -1 for infinite retries
-	BaseDelay      time.Duration
-	MaxDelay       time.Duration
+	// MaxRetries is the maximum number of connection attempts. Set to -1 for infinite retries.
+	MaxRetries int
+	// BaseDelay is the starting delay between retry attempts.
+	BaseDelay time.Duration
+	// MaxDelay is the upper limit for the backoff delay.
+	MaxDelay time.Duration
+	// ConnectTimeout is the timeout for each individual connection attempt.
 	ConnectTimeout time.Duration
-	Backoff        float64
-	Jitter         float64 // 0.0 to 1.0 (multiplier for delay added as randomness)
+	// Backoff is the multiplier for the delay after each failed attempt.
+	Backoff float64
+	// Jitter is the amount of randomness (0.0 to 1.0) added to the delay.
+	Jitter float64
 
-	// OnError is an optional hook for fine-grained error reporting and retry logic
-	// (e.g., execute after X errors, or on specific error types).
+	// OnError is an optional hook for fine-grained error reporting and retry logic.
 	OnError OnErrorHandler
-	// Logger is the logger to use for logging.
+	// Logger is the logger instance used for reporting status and errors.
 	Logger utils.Logger
 }
 
@@ -67,6 +72,22 @@ func NewNetworkManagerWithLogger(maxRetries int, baseDelayMs, maxDelayMs, connec
 	}
 }
 
+// GetNextDelay calculates the delay for the next attempt using backoff and jitter.
+// attempt is 0-indexed.
+func (nm *NetworkManager) GetNextDelay(attempt int) time.Duration {
+	delay := float64(nm.BaseDelay) * math.Pow(nm.Backoff, float64(attempt))
+	if delay > float64(nm.MaxDelay) {
+		delay = float64(nm.MaxDelay)
+	}
+
+	if nm.Jitter > 0 {
+		jitterVal := rand.Float64() * nm.Jitter * delay
+		delay += jitterVal
+	}
+
+	return time.Duration(delay)
+}
+
 // -----------------------------------------------------------------------------
 // EstablishConnection attempts a single connection to the resolved address.
 func (nm *NetworkManager) EstablishConnection(ip, port, publicIP *string, profile string) (io.WriteCloser, error) {
@@ -77,7 +98,7 @@ func (nm *NetworkManager) EstablishConnection(ip, port, publicIP *string, profil
 }
 
 // -----------------------------------------------------------------------------
-// ConnectWithRetry attempts to connect and returns a ManagedConnection.
+// ConnectWithRetry attempts to connect and returns a ManagedConnection wrapper.
 func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile string) (io.WriteCloser, error) {
 	mc := NewManagedConnection(nm, ip, port, publicIP, profile)
 
@@ -94,23 +115,13 @@ func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile s
 		}
 		lastErr = err
 
-		// Calculate backoff
-		delay := float64(nm.BaseDelay) * math.Pow(nm.Backoff, float64(i))
-		if delay > float64(nm.MaxDelay) {
-			delay = float64(nm.MaxDelay)
-		}
+		delay := nm.GetNextDelay(i)
 
-		// Apply jitter
-		if nm.Jitter > 0 {
-			jitterVal := rand.Float64() * nm.Jitter * delay
-			delay += jitterVal
-		}
-
-		nm.Logger.Warning("ManagedConnection: Initial connection to %s failed: %v. Retrying in %v...", address, err, time.Duration(delay))
+		nm.Logger.Warning("ManagedConnection: Initial connection to %s failed: %v. Retrying in %v...", address, err, delay)
 		if nm.OnError != nil {
 			nm.OnError(i+1, err, "NetworkManager", fmt.Sprintf("Initial connection failure to %s", address))
 		}
-		time.Sleep(time.Duration(delay))
+		time.Sleep(delay)
 		address = fmt.Sprintf("%s:%s", cleanIP, cleanPort)
 	}
 
@@ -118,7 +129,7 @@ func (nm *NetworkManager) ConnectWithRetry(ip, port, publicIP *string, profile s
 }
 
 // -----------------------------------------------------------------------------
-// ConnectBlocking indefinitely retries connection until successful and returns ManagedConnection.
+// ConnectBlocking indefinitely retries connection until successful and returns a ManagedConnection.
 func (nm *NetworkManager) ConnectBlocking(ip, port, publicIP *string, profile string) io.WriteCloser {
 	mc := NewManagedConnection(nm, ip, port, publicIP, profile)
 
@@ -169,20 +180,17 @@ func (nm *NetworkManager) Connect(ip, port, publicIP *string, profile string, mo
 // -----------------------------------------------------------------------------
 // Strategies
 
-// NewCriticalStrategy creates a manager configured for critical services:
-// Infinite retries, aggressive backoff.
+// NewCriticalStrategy creates a manager configured for critical services with infinite retries.
 func NewCriticalStrategy(logger utils.Logger) *NetworkManager {
 	return NewNetworkManagerWithLogger(-1, 200, 10000, 5000, 2.0, 0.2, logger)
 }
 
-// NewStandardStrategy creates a manager for standard services:
-// Limited retries, moderate backoff.
+// NewStandardStrategy creates a manager for standard services with limited retries.
 func NewStandardStrategy(logger utils.Logger) *NetworkManager {
 	return NewNetworkManagerWithLogger(10, 500, 30000, 5000, 1.5, 0.1, logger)
 }
 
-// NewPerformanceStrategy creates a manager for high-performance services:
-// Short timeouts, low delay, background reconnection.
+// NewPerformanceStrategy creates a manager for high-performance services with background reconnection.
 func NewPerformanceStrategy(logger utils.Logger) *NetworkManager {
 	return NewNetworkManagerWithLogger(-1, 100, 2000, 1000, 1.2, 0.0, logger)
 }

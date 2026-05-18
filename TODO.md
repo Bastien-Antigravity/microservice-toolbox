@@ -1,20 +1,18 @@
-# Project TODOs
+# TODO: microservice-toolbox
 
-## Architectural Recommendations
+## 🏗️ Architecture & Refactoring
+- [x] Standardize the C++ wrapper to use the Go-bridge expansion logic (FEAT-002).
+- [x] Docker Guard for gRPC server builders (Go, Python, Rust parity).
+- [x] Log-level mapping: Simplified and standardized logic for cross-language log levels.
 
-### 1. Configuration Parity [COMPLETE]
-Achieved 100% feature parity for `distributed-config` integration across Go, Python, and Rust, including Live Updates, Registry Sync, and RSA Decryption offloading.
+## 🧪 Testing & CI/CD
+- [x] Cross-language parity tests for YAML expansion (Go, Python, Rust, C++ verified in integration/).
+- [ ] Full Matrix Integration: Expand matrix tests to cover all Serializer + Transport combinations.
 
-### 2. Unified Lifecycle Manager (Python & Rust) [IN PROGRESS]
-Currently, only the `Go` implementation of the `microservice-toolbox` contains the `lifecycle` package (`microservice-toolbox/go/pkg/lifecycle`). This module is highly effective at catching OS signals (`SIGINT`, `SIGTERM`) and orchestrating graceful termination across sub-routines.
-
-**Action Required**: 
-- Replicate the `lifecycle.Manager` behavior in both Python and Rust.
-- This will ensure that all microservices drop connections safely, flush `msgpack`/`json` logs uniformly, and prevent container zombie-states in Kubernetes/Docker Swarm.
-
-### 3. Dynamic Key Discovery
-Implement a "smart" context-aware key discovery mechanism across all languages. The goal is to support multi-tenancy on the same host by dynamically determining the private/public key paths based on `common.name` or other identifiers.
-
-### 4. C++ Library Audit & Completion
-While basic configuration parity is achieved (v1.9.9), the C++ library still lacks some advanced features present in the Go implementation.
-- **Action Required**: Perform a gap analysis of `microservice-toolbox/cpp` against the `Go` core. Implement missing high-level utilities (e.g., advanced connectivity retries, more robust health-check abstractions) to ensure C++ services are first-class citizens.
+## ✅ Completed (Verified)
+- [x] Initial BDD Spec migration: Moved all legacy specs to Obsidian vault.
+- [x] Standardize Business Data Models: MarketEvent, OHLCV, and Signal models are 1:1 across Go, Python, Rust, and C++.
+- [x] Standardize Lifecycle Manager across Go, Python, Rust, and C++.
+- [x] Resilience Standard: Added randomized jitter and backoff to Reconnect loops (Go, Python, Rust, and C++ policy).
+- [x] C++ Parity: Implemented ManagedConnection and orchestration methods (ConnectBlocking, etc).
+- [x] Networking Hardening: Implemented "Docker Guard" suppression to prevent broken network binds in containers.

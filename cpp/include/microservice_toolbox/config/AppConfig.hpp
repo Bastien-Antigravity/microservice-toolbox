@@ -11,46 +11,17 @@
 #include <string>
 #include <vector>
 
-// Include the underlying SDK (Vended for stability)
+#include "../utils/Logger.hpp"
+#include "CommandLine.hpp"
 #include "DistConf.hpp"
 #include "json.hpp"
 
 namespace microservice_toolbox {
 namespace config {
 
-/**
- * Basic Logger interface to match Toolbox pattern.
- */
-class Logger {
-public:
-  virtual ~Logger() = default;
-  virtual void Info(const std::string &msg) = 0;
-  virtual void Warning(const std::string &msg) = 0;
-  virtual void Error(const std::string &msg) = 0;
-};
-
-class NoOpLogger : public Logger {
-public:
-  void Info(const std::string &) override {}
-  void Warning(const std::string &) override {}
-  void Error(const std::string &) override {}
-};
-
-/**
- * Standard output logger for debugging and CLI tools.
- */
-class StdOutLogger : public Logger {
-public:
-  void Info(const std::string &msg) override {
-    std::cout << "[INFO] " << msg << std::endl;
-  }
-  void Warning(const std::string &msg) override {
-    std::cout << "[WARN] " << msg << std::endl;
-  }
-  void Error(const std::string &msg) override {
-    std::cerr << "[ERROR] " << msg << std::endl;
-  }
-};
+using Logger = microservice_toolbox::utils::Logger;
+using NoOpLogger = microservice_toolbox::utils::NoOpLogger;
+using StdOutLogger = microservice_toolbox::utils::StdOutLogger;
 
 /**
  * AppConfig is the C++ implementation of the Microservice Toolbox configuration
@@ -59,21 +30,25 @@ public:
 class AppConfig {
 public:
   explicit AppConfig(const std::string &profile,
-                     std::shared_ptr<Logger> logger = nullptr)
-      : profile_(profile),
-        logger_(logger ? logger : std::make_shared<NoOpLogger>()) {
+                     std::shared_ptr<Logger> logger = nullptr,
+                     const CLIArgs &args = {})
+      : profile_(args.profile.empty() ? profile : args.profile),
+        logger_(logger ? logger : std::make_shared<NoOpLogger>()),
+        args_(args) {
 
     try {
-      config_ = std::make_unique<distconf::DistConfig>(profile);
-      logger_->Info("libdistconf session initialized for profile: " + profile);
+      config_ = std::make_unique<distconf::DistConfig>(profile_);
+      logger_->Info("libdistconf session initialized for profile: " + profile_);
 
       // Full FFI Bridge Sync: Fetch entire config state once
       SyncFromBridge();
 
       // Phase 2: Manual loading of 'local' section (Parity with Go Toolbox)
-      // Note: distributed-config engine ignores 'local', so we handle it here
-      // as 'local' config.
       LoadLocalOverrides();
+
+      // Phase 3: Apply CLI Overrides
+      ApplyCLIOverrides();
+
     } catch (const std::exception &e) {
       logger_->Error(std::string("Failed to initialize DistConf: ") + e.what());
       throw;
@@ -83,6 +58,13 @@ public:
   void SetLogger(std::shared_ptr<Logger> logger) {
     logger_ = logger ? logger : std::make_shared<NoOpLogger>();
     logger_->Info("Logger updated successfully");
+  }
+
+  std::string GetServiceName() const {
+    if (data_.contains("common") && data_["common"].contains("name")) {
+        return data_["common"]["name"].get<std::string>();
+    }
+    return "unknown-service";
   }
 
   std::string DecryptSecret(const std::string &ciphertext) const {
@@ -141,23 +123,21 @@ public:
    * Supports nested lookups using dot notation (e.g., "database.host").
    */
   std::string GetLocal(const std::string &key) const {
-    // Look in the unified 'local' section of our data mirror
+    // Look in our private local config member (Ecosystem Parity)
     try {
-      if (data_.contains("local")) {
-        auto current = data_["local"];
-        std::stringstream ss(key);
-        std::string part;
-        while (std::getline(ss, part, '.')) {
-          if (current.contains(part)) {
-            current = current[part];
-          } else {
-            return "";
-          }
+      auto current = local_data_;
+      std::stringstream ss(key);
+      std::string part;
+      while (std::getline(ss, part, '.')) {
+        if (current.contains(part)) {
+          current = current[part];
+        } else {
+          return "";
         }
-        if (current.is_string())
-          return current.get<std::string>();
-        return current.dump();
       }
+      if (current.is_string())
+        return current.get<std::string>();
+      return current.dump();
     } catch (...) {
     }
     return "";
@@ -168,9 +148,7 @@ public:
    * Uses nlohmann::json's automatic mapping.
    */
   template <typename T> void UnmarshalLocal(T &target) const {
-    if (data_.contains("local")) {
-      target = data_["local"].get<T>();
-    }
+    target = local_data_.get<T>();
   }
 
   /**
@@ -178,9 +156,7 @@ public:
    * Parity with Go's raw local map.
    */
   nlohmann::json GetLocalJSON() const {
-    if (data_.contains("local"))
-      return data_["local"];
-    return nlohmann::json::object();
+    return local_data_;
   }
 
   /**
@@ -193,14 +169,35 @@ public:
     return nlohmann::json::object();
   }
 
+  void OnLiveConfUpdate(std::function<void(const std::string&)> callback) {
+    config_->OnLiveConfUpdate([this, callback](const std::string& json_data) {
+        callback(json_data);
+        SyncFromBridge(); // Keep local mirror updated
+    });
+  }
+
+  void OnRegistryUpdate(std::function<void(const std::string&)> callback) {
+    config_->OnRegistryUpdate([this, callback](const std::string& json_data) {
+        callback(json_data);
+        SyncFromBridge();
+    });
+  }
+
+  bool ShareConfig(const nlohmann::json& payload) {
+    return config_->ShareConfig(payload.dump());
+  }
+
   distconf::DistConfig &GetRawConfig() { return *config_; }
   const std::string &GetProfile() const { return profile_; }
+  const CLIArgs &GetArgs() const { return args_; }
 
 private:
   std::string profile_;
   std::shared_ptr<Logger> logger_;
   std::unique_ptr<distconf::DistConfig> config_;
   nlohmann::json data_;
+  nlohmann::json local_data_;
+  CLIArgs args_;
 
   void SyncFromBridge() {
     try {
@@ -221,100 +218,88 @@ private:
                                            "config/" + profile_ + ".yaml"};
 
     for (const auto &path : candidates) {
-      std::ifstream file(path);
-      if (!file.is_open())
-        continue;
-
-      std::string line;
-      std::vector<std::pair<int, std::string>> stack;
-
-      while (std::getline(file, line)) {
-        if (!line.empty() && line.back() == '\r')
-          line.pop_back();
-        std::string trimmed = line;
-        int indent = trimmed.find_first_not_of(" \t");
-        if (indent == std::string::npos)
-          continue;
-        trimmed.erase(0, indent);
-        if (trimmed.empty() || trimmed[0] == '#')
-          continue;
-
-        size_t colon = trimmed.find(':');
-        if (colon != std::string::npos) {
-          std::string k = trimmed.substr(0, colon);
-          std::string v = trimmed.substr(colon + 1);
-          v.erase(0, v.find_first_not_of(" \t"));
-          v.erase(v.find_last_not_of(" \t") + 1);
-
-          // Adjust stack based on indentation
-          while (!stack.empty() && indent <= stack.back().first) {
-            stack.pop_back();
+      std::string local_json = config_->ApplyFileOverride(path);
+      if (local_json != "{}") {
+        try {
+          auto parsed = nlohmann::json::parse(local_json);
+          // Standard Deep Merge for local config parity
+          for (auto it = parsed.begin(); it != parsed.end(); ++it) {
+            local_data_[it.key()] = it.value();
           }
-
-          // Traverse JSON to the current level
-          nlohmann::json *current = &data_;
-          for (const auto &level : stack) {
-            if (!current->contains(level.second))
-              (*current)[level.second] = nlohmann::json::object();
-            current = &((*current)[level.second]);
-          }
-
-          if (v.empty()) {
-            // It's a new level
-            stack.push_back({indent, k});
-            if (!current->contains(k))
-              (*current)[k] = nlohmann::json::object();
-          } else {
-            // It's a value
-            if (v.size() >= 2 && ((v.front() == '"' && v.back() == '"') ||
-                                  (v.front() == '\'' && v.back() == '\''))) {
-              v = v.substr(1, v.size() - 2);
-            }
-            (*current)[k] = ExpandEnv(v);
-          }
+          logger_->Info("Standardized Local overrides merged from: " + path);
+        } catch (...) {
+          logger_->Warning("Failed to parse expanded local config from bridge");
         }
+        SyncFromBridge(); // Refresh mirror for common/capabilities
+        return;
       }
-      file.close();
-      logger_->Info("Local overrides merged from " + path);
     }
   }
 
-  std::string ExpandEnv(const std::string &input) const {
-    std::string result = input;
-    size_t start_pos = 0;
-    while ((start_pos = result.find("${", start_pos)) != std::string::npos) {
-      size_t end_pos = result.find("}", start_pos);
-      if (end_pos == std::string::npos)
-        break;
-
-      std::string token = result.substr(start_pos + 2, end_pos - start_pos - 2);
-      std::string var_name = token;
-      std::string default_val = "";
-
-      size_t colon = token.find(':');
-      if (colon != std::string::npos) {
-        var_name = token.substr(0, colon);
-        default_val = token.substr(colon + 1);
-      }
-
-      const char *env_val = std::getenv(var_name.c_str());
-      std::string final_val = (env_val) ? std::string(env_val) : default_val;
-
-      result.replace(start_pos, end_pos - start_pos + 1, final_val);
-      start_pos += final_val.length();
+  void ApplyCLIOverrides() {
+    if (!args_.name.empty()) {
+      data_["common"]["name"] = args_.name;
     }
-    return result;
+
+    std::string target = args_.name;
+    if (target.empty() && data_.contains("common") &&
+        data_["common"].contains("name")) {
+      target = data_["common"]["name"].get<std::string>();
+    }
+    if (target.empty())
+      target = "config_server";
+
+    if (!args_.host.empty() || args_.port != 0) {
+      if (!data_.contains("capabilities"))
+        data_["capabilities"] = nlohmann::json::object();
+      if (!data_["capabilities"].contains(target))
+        data_["capabilities"][target] = nlohmann::json::object();
+
+      if (!args_.host.empty())
+        data_["capabilities"][target]["ip"] = args_.host;
+      if (args_.port != 0)
+        data_["capabilities"][target]["port"] = std::to_string(args_.port);
+    }
+
+    if (!args_.grpc_host.empty() || args_.grpc_port != 0) {
+      if (!data_.contains("capabilities"))
+        data_["capabilities"] = nlohmann::json::object();
+      if (!data_["capabilities"].contains(target))
+        data_["capabilities"][target] = nlohmann::json::object();
+
+      if (!args_.grpc_host.empty())
+        data_["capabilities"][target]["grpc_ip"] = args_.grpc_host;
+      if (args_.grpc_port != 0)
+        data_["capabilities"][target]["grpc_port"] = std::to_string(args_.grpc_port);
+    }
+
+    if (!args_.key.empty()) {
+      // Set environment variable for decryption engine
+#ifdef _WIN32
+      _putenv_s("BASTIEN_PRIVATE_KEY_PATH", args_.key.c_str());
+#else
+      setenv("BASTIEN_PRIVATE_KEY_PATH", args_.key.c_str(), 1);
+#endif
+    }
   }
 };
 
-inline std::unique_ptr<AppConfig> LoadConfig(const std::string &profile) {
-  return std::make_unique<AppConfig>(profile);
+inline std::unique_ptr<AppConfig>
+LoadConfigWithLogger(const std::string &profile,
+                     std::shared_ptr<Logger> logger,
+                     int argc = 0, char **argv = nullptr,
+                     const std::vector<std::string> &specific_flags = {}) {
+  CLIArgs args;
+  if (argc > 0 && argv != nullptr) {
+    args = CommandLine::Parse(argc, argv, specific_flags);
+  }
+  return std::make_unique<AppConfig>(profile, logger, args);
 }
 
 inline std::unique_ptr<AppConfig>
-LoadConfigWithLogger(const std::string &profile,
-                     std::shared_ptr<Logger> logger) {
-  return std::make_unique<AppConfig>(profile, logger);
+LoadConfig(const std::string &profile, int argc = 0, char **argv = nullptr,
+           const std::vector<std::string> &specific_flags = {}) {
+  return LoadConfigWithLogger(profile, nullptr, argc, argv, specific_flags);
 }
 
 } // namespace config

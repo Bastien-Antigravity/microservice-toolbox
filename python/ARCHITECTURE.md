@@ -20,4 +20,4 @@ To minimize FFI overhead, the Python toolbox performs a **Full Sync** on startup
 - **Local JSON Mirror**: Used for all high-frequency lookups.
 
 ## 4. Local Configuration (`Local`)
-- The `unmarshal_local(target)` method allows mapping the `private:` YAML section to a `dataclass` or any Python class instance.
+- The `unmarshal_local(target)` method allows mapping the `local:` YAML section to a `dataclass` or any Python class instance.

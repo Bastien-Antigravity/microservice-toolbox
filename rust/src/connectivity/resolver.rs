@@ -24,21 +24,39 @@ impl Default for Resolver {
 impl Resolver {
     /// Resolves the requested IP into an actual address to bind to.
     /// 
-    /// Docker Connectivity Logic:
-    /// If running in a Docker container and a loopback address (127.0.0.1) is 
-    /// provided, this method translates it to the container's internal 
-    /// primary interface IP. This ensures that the service is actually 
-    /// reachable by other containers in the same network/fleet.
+    /// Docker Guard Logic:
+    /// If running in a Docker container, this method suppresses the requested IP
+    /// and forces a bind to 0.0.0.0. This ensures that the container port mapping
+    /// (Docker/K8s) works regardless of what was specified in the configuration.
     pub fn resolve_bind_addr(&self, requested_ip: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let requested_ip = requested_ip.trim_matches('"');
 
-        // If not in Docker, or if the IP isn't a loopback placeholder, use it directly.
-        if !self.is_docker || !self.is_loopback(requested_ip) {
+        // If not in Docker, use the requested IP directly.
+        if !self.is_docker {
             return Ok(requested_ip.to_string());
         }
 
-        // In Docker, we need the internal container IP (e.g., eth0) for other containers to reach us.
-        self.get_primary_interface_ip()
+        // In Docker, we force 0.0.0.0 to ensure orchestrated networking works.
+        // This "suppresses" any manual IP overrides.
+        Ok("0.0.0.0".to_string())
+    }
+
+    /// Takes a "host:port" string and returns a resolved "host:port"
+    /// using the Docker Guard logic.
+    pub fn resolve_full_bind_addr(&self, addr: &str) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        if !addr.contains(':') {
+            return self.resolve_bind_addr(addr);
+        }
+
+        let parts: Vec<&str> = addr.rsplitn(2, ':').collect();
+        if parts.len() != 2 {
+            return self.resolve_bind_addr(addr);
+        }
+
+        let port = parts[0];
+        let host = parts[1];
+        let resolved_host = self.resolve_bind_addr(host)?;
+        Ok(format!("{}:{}", resolved_host, port))
     }
 
     /// Checks if the IP is in the 127.0.0.0/8 range or localhost.
@@ -47,6 +65,7 @@ impl Resolver {
     }
 
     /// Finds the first non-loopback IP address using a UDP socket trick.
+    /// Keep as utility for potential client-side discovery.
     pub fn get_primary_interface_ip(&self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         // UDP socket trick to find the primary outgoing interface IP
         let socket = UdpSocket::bind("0.0.0.0:0")?;
@@ -88,8 +107,16 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_bind_addr_docker_external() {
+    fn test_resolve_bind_addr_docker_suppression() {
         let r = Resolver { is_docker: true };
-        assert_eq!(r.resolve_bind_addr("8.8.8.8").unwrap(), "8.8.8.8");
+        assert_eq!(r.resolve_bind_addr("127.0.0.1").unwrap(), "0.0.0.0");
+        assert_eq!(r.resolve_bind_addr("8.8.8.8").unwrap(), "0.0.0.0");
+    }
+
+    #[test]
+    fn test_resolve_full_bind_addr() {
+        let r = Resolver { is_docker: true };
+        assert_eq!(r.resolve_full_bind_addr("127.0.0.1:50051").unwrap(), "0.0.0.0:50051");
+        assert_eq!(r.resolve_full_bind_addr("8.8.8.8:8080").unwrap(), "0.0.0.0:8080");
     }
 }

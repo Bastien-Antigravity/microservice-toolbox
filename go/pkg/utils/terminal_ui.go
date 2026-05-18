@@ -7,7 +7,7 @@ import (
 
 // PrintInternalLog prints a formatted internal log message
 func PrintInternalLog(level, module, filename, line, message string) {
-	timestamp := time.Now().Format("2006-01-02T15:04:05.000000000Z")
+	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05.000000000Z")
 	hostname := GetHostname()
 
 	// Colorize level

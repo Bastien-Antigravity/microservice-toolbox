@@ -61,6 +61,19 @@ public:
         return DistConf_Sync(handle_) != 0;
     }
 
+    /**
+     * Apply a local file override (Hierarchy of Truth).
+     * Standardized sections (common, capabilities) are merged into distributed state.
+     * Returns the 'local' section as a JSON string for AppConfig ownership.
+     */
+    std::string ApplyFileOverride(const std::string& filename) {
+        char* val = DistConf_ApplyFileOverride(handle_, const_cast<char*>(filename.c_str()));
+        if (!val) return "{}";
+        std::string result(val);
+        DistConf_FreeString(val);
+        return result;
+    }
+
     // Broadcast state to the ecosystem
     bool ShareConfig(const std::string& json_data) {
         return DistConf_ShareConfig(handle_, 

@@ -95,6 +95,21 @@ impl NetworkManager {
         }
     }
 
+    pub fn get_next_delay(&self, attempt: isize) -> Duration {
+        let mut current_delay = self.base_delay.as_secs_f64() * self.backoff.powi(attempt as i32);
+        if current_delay > self.max_delay.as_secs_f64() {
+            current_delay = self.max_delay.as_secs_f64();
+        }
+
+        // Apply jitter
+        if self.jitter > 0.0 {
+            let jitter_val = rand::thread_rng().gen_range(0.0..(self.jitter * current_delay));
+            current_delay += jitter_val;
+        }
+
+        Duration::from_secs_f64(current_delay)
+    }
+
     pub async fn connect_with_retry(
         self: Arc<Self>,
         ip: String,
@@ -102,7 +117,6 @@ impl NetworkManager {
     ) -> Result<ManagedConnection, Error> {
         let mut mc = ManagedConnection::new(ip, port, self.clone());
 
-        let _delay = self.base_delay;
         let mut last_error = None;
 
         let mut i = 0;
@@ -118,19 +132,7 @@ impl NetworkManager {
                     }
                     last_error = Some(e);
                     
-                    // Calculate backoff
-                    let mut current_delay = self.base_delay.as_secs_f64() * self.backoff.powi(i as i32);
-                    if current_delay > self.max_delay.as_secs_f64() {
-                        current_delay = self.max_delay.as_secs_f64();
-                    }
-
-                    // Apply jitter
-                    if self.jitter > 0.0 {
-                        let jitter_val = rand::thread_rng().gen_range(0.0..(self.jitter * current_delay));
-                        current_delay += jitter_val;
-                    }
-
-                    let sleep_duration = Duration::from_secs_f64(current_delay);
+                    let sleep_duration = self.get_next_delay(i);
 
                     self.logger.info(&format!(
                         "ManagedConnection: Initial connection to {}:{} failed. Retrying in {:?}...",
@@ -141,6 +143,7 @@ impl NetworkManager {
                 }
             }
         }
+
 
         Err(Error::MaxRetriesReached(format!(
             "Failed to connect to {}:{} after {} attempts. Last error: {:?}",
@@ -327,7 +330,7 @@ mod tests {
             nm_indef.connect(ip, port, ConnectionMode::Indefinite).await;
         });
  
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
         assert!(error_count.load(Ordering::SeqCst) > 2);
     }
 }

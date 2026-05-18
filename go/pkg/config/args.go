@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/pflag"
 )
@@ -17,6 +18,7 @@ type CLIArgs struct {
 	Conf     string
 	LogLevel string
 	Key      string
+	Profile  string
 	Extra    map[string]string
 }
 
@@ -34,6 +36,7 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 	conf := fs.String("conf", "", "Path to configuration file")
 	logLevel := fs.String("log_level", "", "Logging level (DEBUG, INFO, etc.)")
 	key := fs.String("key", "", "Path to RSA Public/Private key")
+	profile := fs.StringP("profile", "p", "", "Configuration profile (e.g. standalone, production)")
 
 	// Dynamic flags for extra arguments
 	extras := make(map[string]*string)
@@ -49,17 +52,24 @@ func (ac *AppConfig) ParseCLIArgs(specificFlags []string) *CLIArgs {
 		ac.Logger.Error("Error parsing flags: %v", err)
 	}
 
+	// Determine name with fallback to binary name
+	serviceName := *name
+	if serviceName == "" {
+		serviceName = filepath.Base(os.Args[0])
+	}
+
 	result := &CLIArgs{
-		Name:     *name,
+		Name:     serviceName,
 		Conf:     *conf,
 		LogLevel: *logLevel,
 		Key:      *key,
+		Profile:  *profile,
 		Extra:    make(map[string]string),
 	}
 
 	// If key provided, set it as ENV override for the decryption engine (Private Key)
 	if *key != "" {
-		os.Setenv("BASTIEN_PRIVATE_KEY_PATH", *key)
+		_ = os.Setenv("BASTIEN_PRIVATE_KEY_PATH", *key)
 	}
 
 	// Apply Docker Guard

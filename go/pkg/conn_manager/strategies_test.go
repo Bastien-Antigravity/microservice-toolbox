@@ -1,6 +1,7 @@
 package conn_manager
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -43,22 +44,22 @@ func TestUnifiedConnect(t *testing.T) {
 
 	// 2. Test Blocking with limited retries: should error out and return mc with nil conn
 	nm2 := NewNetworkManager(2, 10, 50, 50, 1.0, 0.0)
-	errorCount2 := 0
+	var errorCount2 atomic.Int32
 	nm2.OnError = func(attempt int, err error, source string, msg string) {
-		errorCount2++
+		errorCount2.Add(1)
 	}
 
 	mc2 := nm2.Connect(&ip, &port, &publicIP, profile, ModeBlocking)
-	if errorCount2 != 2 {
-		t.Errorf("Expected 2 retries for ModeBlocking, got %d", errorCount2)
+	if errorCount2.Load() != 2 {
+		t.Errorf("Expected 2 retries for ModeBlocking, got %d", errorCount2.Load())
 	}
 	_ = mc2.Close()
 
 	// 3. Test Indefinite: should continue retrying.
 	nm3 := NewNetworkManager(2, 10, 50, 50, 1.0, 0.0)
-	errorCount3 := 0
+	var errorCount3 atomic.Int32
 	nm3.OnError = func(attempt int, err error, source string, msg string) {
-		errorCount3++
+		errorCount3.Add(1)
 	}
 
 	// We'll run it in background because it blocks indefinitely
@@ -66,7 +67,7 @@ func TestUnifiedConnect(t *testing.T) {
 
 	// Wait enough time for > 2 retries
 	time.Sleep(100 * time.Millisecond)
-	if errorCount3 <= 2 {
-		t.Errorf("Expected Indefinite mode to exceed MaxRetries(2), but only got %d errors", errorCount3)
+	if errorCount3.Load() <= 2 {
+		t.Errorf("Expected Indefinite mode to exceed MaxRetries(2), but only got %d errors", errorCount3.Load())
 	}
 }

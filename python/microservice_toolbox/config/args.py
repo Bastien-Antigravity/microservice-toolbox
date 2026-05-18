@@ -1,12 +1,35 @@
+#!/usr/bin/env python
+# coding:utf-8
+
+"""
+ESSENTIAL PROCESS:
+Parses command-line arguments and environment variables for microservice initialization.
+Provides a standardized set of CLI flags (name, host, port, profile, etc.) used across the fleet.
+
+DATA FLOW:
+1. Receives sys.argv or explicit test arguments.
+2. Detects environment context (e.g., Docker Guard).
+3. Returns a structured CLIArgs namedtuple.
+
+KEY PARAMETERS:
+- specific_args: Optional list of additional flags to register.
+- input_args: Explicit list of arguments (for testing).
+"""
+
 from argparse import ArgumentParser as argparseArgumentParser
 from collections import namedtuple
 from os import environ as osEnviron
 from os.path import exists as osPathExists
+from typing import List, Optional
 
-CLIArgs = namedtuple("CLIArgs", ["name", "host", "port", "grpc_host", "grpc_port", "conf", "log_level", "key", "extras"])
+# -----------------------------------------------------------------------------------------------
+
+CLIArgs = namedtuple("CLIArgs", ["name", "host", "port", "grpc_host", "grpc_port", "conf", "log_level", "key", "profile", "extras"])
+
+# -----------------------------------------------------------------------------------------------
 
 
-def parse_cli_args(specific_args=None, input_args=None):
+def parse_cli_args(specific_args: Optional[List[str]] = None, input_args: Optional[List[str]] = None) -> CLIArgs:
     """
     Parses standard and specific command line arguments.
     Standard: --name, --host, --port, --grpc_host, --grpc_port, --conf, --log_level
@@ -27,6 +50,7 @@ def parse_cli_args(specific_args=None, input_args=None):
     parser.add_argument("--conf", type=str, help="Path to configuration file")
     parser.add_argument("--log_level", type=str, help="Logging level (DEBUG, INFO, etc.)")
     parser.add_argument("--key", type=str, help="Path to RSA Public/Private key")
+    parser.add_argument("--profile", "-p", type=str, help="Configuration profile (e.g. standalone, production)")
 
     # Specific arguments
     if specific_args:
@@ -79,5 +103,6 @@ def parse_cli_args(specific_args=None, input_args=None):
         conf=conf,
         log_level=log_level,
         key=key,
+        profile=args.profile,
         extras=extras,
     )

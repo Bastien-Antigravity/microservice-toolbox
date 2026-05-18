@@ -49,6 +49,10 @@ impl AppConfig {
     /// Loads and merges configuration data based on the provided profile.
     pub fn load_config(profile: &str, logger: Option<Arc<dyn Logger>>) -> Result<Self, Box<dyn std::error::Error>> {
         let cli_args = ToolboxArgs::parse_cli_args();
+        let mut actual_profile = profile.to_string();
+        if let Some(p) = &cli_args.profile {
+            actual_profile = p.clone();
+        }
         
         let final_logger = match logger {
             Some(l) => l,
@@ -56,7 +60,7 @@ impl AppConfig {
                 #[cfg(feature = "unilog")]
                 {
                     let app_name = cli_args.name.as_deref().unwrap_or("rust-app");
-                    match unilog_rs::UniLog::new(profile, app_name, "standard", LogLevel::Info, false) {
+                    match unilog_rs::UniLog::new(&actual_profile, app_name, "standard", LogLevel::Info, false) {
                         Ok(unilog) => Arc::new(UniLogger::new(unilog)),
                         Err(e) => {
                             let fallback = ensure_safe_logger(None);
@@ -73,7 +77,7 @@ impl AppConfig {
         };
 
         let mut ac = AppConfig {
-            profile: profile.to_string(),
+            profile: actual_profile.clone(),
             data: Value::Mapping(serde_yml::Mapping::new()),
             cli_args,
             logger: final_logger,
@@ -82,11 +86,16 @@ impl AppConfig {
             _reg_cb: None,
         };
 
-        // ---------------------------------------------------------------------
-        // BRIDGE INITIALIZATION (v1.9.8 Standard)
-        // ---------------------------------------------------------------------
+        // Phase 1: Load base config from file (Native Fallback / Base Layer)
+        let mut filename = format!("{}.yaml", actual_profile);
+        if !std::path::Path::new(&filename).exists() {
+            filename = format!("config/{}.yaml", actual_profile);
+        }
+        ac.load_from_file(&filename);
+
+        // Phase 2: Bridge Layer
         if let Some(lib) = crate::config::ffi::get_lib() {
-            let profile_c = CString::new(profile).unwrap();
+            let profile_c = CString::new(actual_profile.clone()).unwrap();
             let handle = (lib.dist_conf_new)(profile_c.as_ptr());
             if handle != 0 {
                 ac._handle = Some(handle);
@@ -95,29 +104,22 @@ impl AppConfig {
             }
         }
 
-        // Phase 1: Load base config from file (Native Fallback)
-        if ac._handle.is_none() {
-            let mut filename = format!("{}.yaml", profile);
-            if !std::path::Path::new(&filename).exists() {
-                filename = format!("config/{}.yaml", profile);
-            }
-            ac.load_from_file(&filename);
+        // Phase 3: Override Layer (Ecosystem Parity)
+        // We re-apply the local file as a hard override to ensure the 'local' section 
+        // and any local overrides are loaded across all profiles.
+        ac.logger.info("Applying Local File as Hard Override (Ecosystem Parity).");
+        let mut filename = format!("{}.yaml", actual_profile);
+        if !std::path::Path::new(&filename).exists() {
+            filename = format!("config/{}.yaml", actual_profile);
         }
-
-        // Phase 2: Layered logic matching Go implementation
-        let is_dev = profile == "standalone" || profile == "test";
-        if is_dev {
-            ac.logger.info("Dev Mode detected. Re-applying Local File as Hard Override.");
-            let mut filename = format!("{}.yaml", profile);
-            if !std::path::Path::new(&filename).exists() {
-                filename = format!("config/{}.yaml", profile);
-            }
-            ac.apply_file_override(&filename);
-        } else {
-            ac.logger.info("Production Mode detected. Config Server remains authoritative.");
-        }
+        ac.apply_file_override(&filename);
 
         ac.apply_cli_overrides();
+        
+        // Synchronize name to common.name
+        if let Some(name) = &ac.cli_args.name {
+            let _ = ac.set_value("common.name", Value::String(name.clone()));
+        }
         
         // If --key flag provided, set it as ENV override for the local Key (decryption engine)
         if let Some(key) = &ac.cli_args.key {
@@ -183,6 +185,31 @@ impl AppConfig {
     }
 
     fn apply_file_override(&mut self, filename: &str) {
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                let filename_c = CString::new(filename).unwrap();
+                let ptr = (lib.dist_conf_apply_file_override)(handle, filename_c.as_ptr());
+                if let Some(local_json) = unsafe { crate::config::ffi::to_rust_string(ptr) } {
+                    if local_json != "{}" {
+                        if let Ok(local_data) = serde_yml::from_str::<Value>(&local_json) {
+                            if self.data.get("local").is_none() {
+                                let _ = self.set_value("local", Value::Mapping(serde_yml::Mapping::new()));
+                            }
+                            if let Some(target_map) = self.data.get_mut("local").and_then(|v| v.as_mapping_mut())
+                                && let Some(source_map) = local_data.as_mapping() {
+                                    for (k, v) in source_map {
+                                        target_map.insert(k.clone(), v.clone());
+                                    }
+                            }
+                            self.logger.info(&format!("Standardized Local overrides merged via bridge: {}", filename));
+                        }
+                    }
+                    self.sync_from_bridge(); // capture common/capabilities updates
+                    return;
+                }
+        }
+
+        // Native fallback if bridge is unavailable
         if let Some(file_data) = self.read_and_expand_yaml(filename) {
             if let Some(caps) = file_data.get("capabilities") {
                 if self.data.get("capabilities").is_none() {
@@ -266,6 +293,10 @@ impl AppConfig {
         self.data.get(Value::String("common".to_string())).unwrap_or(&Value::Null)
     }
 
+    pub fn get_service_name(&self) -> String {
+        self.common().get("name").and_then(|v| v.as_str()).unwrap_or("unknown-service").to_string()
+    }
+
     pub fn get_local(&self, key: &str) -> Option<&Value> {
         self.get_value(&format!("local.{}", key))
     }
@@ -318,16 +349,23 @@ impl AppConfig {
         let mut current = &mut self.data;
         let parts: Vec<&str> = path.split('.').collect();
         for part in parts.iter().take(parts.len() - 1) {
-            if !current.as_mapping().is_some_and(|m| m.contains_key(Value::String(part.to_string()))) 
-                && let Some(map) = current.as_mapping_mut() {
-                    map.insert(Value::String(part.to_string()), Value::Mapping(serde_yml::Mapping::new()));
+            let key = Value::String(part.to_string());
+            if !current.is_mapping() {
+                *current = Value::Mapping(serde_yml::Mapping::new());
             }
-            current = current.as_mapping_mut().unwrap().get_mut(Value::String(part.to_string())).unwrap();
+            
+            let map = current.as_mapping_mut().unwrap();
+            if !map.contains_key(&key) {
+                map.insert(key.clone(), Value::Mapping(serde_yml::Mapping::new()));
+            }
+            current = map.get_mut(&key).unwrap();
         }
+        
         if let Some(map) = current.as_mapping_mut() {
             map.insert(Value::String(parts.last().unwrap().to_string()), value);
         } else {
-            return Err("Config path tail is not a mapping".into());
+            *current = Value::Mapping(serde_yml::Mapping::new());
+            current.as_mapping_mut().unwrap().insert(Value::String(parts.last().unwrap().to_string()), value);
         }
         Ok(())
     }
@@ -352,7 +390,7 @@ impl AppConfig {
                 if let Some(json_str) = unsafe { crate::config::ffi::to_rust_string(ptr) }
                     && let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
                     && let Ok(yml_val) = serde_yml::from_str::<Value>(&val.to_string()) {
-                        self.data = yml_val;
+                        deep_merge(&mut self.data, &yml_val);
                 }
         }
     }

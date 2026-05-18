@@ -21,11 +21,11 @@ def test_resolver_resolve_bind_addr_native():
 
 
 def test_resolver_resolve_bind_addr_docker_external():
-    # In Docker mode, but external IP is requested
+    # In Docker mode, ALL IPs are suppressed and forced to 0.0.0.0
     r = Resolver()
     r.is_docker = True
 
-    assert r.resolve_bind_addr("8.8.8.8") == "8.8.8.8"
+    assert r.resolve_bind_addr("8.8.8.8") == "0.0.0.0"
 
 
 # Note: Mocking get_primary_interface_ip would require monkeypatching socket.socket.connect

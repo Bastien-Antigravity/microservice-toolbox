@@ -21,7 +21,7 @@ type ManagedConnection struct {
 	mu           sync.Mutex
 }
 
-
+// NewManagedConnection creates a new connection wrapper.
 func NewManagedConnection(nm *NetworkManager, ip, port, publicIP *string, profile string) *ManagedConnection {
 	return &ManagedConnection{
 		nm:       nm,
@@ -35,6 +35,7 @@ func NewManagedConnection(nm *NetworkManager, ip, port, publicIP *string, profil
 
 // -----------------------------------------------------------------------------
 
+// Write sends data over the connection, automatically reconnecting if needed.
 func (mc *ManagedConnection) Write(p []byte) (n int, err error) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -52,7 +53,7 @@ func (mc *ManagedConnection) Write(p []byte) (n int, err error) {
 	n, err = mc.currentConn.Write(p)
 	if err != nil {
 		mc.nm.Logger.Warning("ManagedConnection: Write failed (%v). Reconnecting...", err)
-		mc.currentConn.Close()
+		_ = mc.currentConn.Close()
 		mc.currentConn = nil
 
 		// Reconnect and retry once (unlocking during reconnect)
@@ -87,6 +88,7 @@ func (mc *ManagedConnection) isClosing() bool {
 
 // -----------------------------------------------------------------------------
 
+// Close terminates the connection and stops the reconnection loop.
 func (mc *ManagedConnection) Close() error {
 	mc.mu.Lock()
 	select {
@@ -95,7 +97,7 @@ func (mc *ManagedConnection) Close() error {
 	default:
 		close(mc.closing)
 	}
-	
+
 	if mc.currentConn != nil {
 		err := mc.currentConn.Close()
 		mc.mu.Unlock()
@@ -140,8 +142,6 @@ func (mc *ManagedConnection) reconnect() error {
 	}
 
 	// Actual reconnection loop
-	var address string
-	delay := mc.nm.BaseDelay
 	i := 0
 
 	for {
@@ -156,7 +156,7 @@ func (mc *ManagedConnection) reconnect() error {
 		conn, err := mc.nm.EstablishConnection(mc.ip, mc.port, mc.publicIP, mc.profile)
 		if err == nil {
 			mc.mu.Lock()
-			address = fmt.Sprintf("%s:%s", *mc.ip, *mc.port)
+			address := fmt.Sprintf("%s:%s", *mc.ip, *mc.port)
 			mc.nm.Logger.Info("ManagedConnection: Reconnected to %s", address)
 			mc.currentConn = conn
 			mc.reconnecting = false
@@ -177,6 +177,8 @@ func (mc *ManagedConnection) reconnect() error {
 			mc.nm.OnError(i+1, err, "NetworkManager", fmt.Sprintf("Failed to recover connection to %s:%s", *mc.ip, *mc.port))
 		}
 
+		delay := mc.nm.GetNextDelay(i)
+
 		// Sleep with cancellation check
 		select {
 		case <-time.After(delay):
@@ -187,10 +189,6 @@ func (mc *ManagedConnection) reconnect() error {
 			return fmt.Errorf("connection closed during retry sleep")
 		}
 
-		delay *= 2
 		i++
-		if delay > mc.nm.MaxDelay {
-			delay = mc.nm.MaxDelay
-		}
 	}
 }
