@@ -6,8 +6,7 @@
 - [x] Log-level mapping: Simplified and standardized logic for cross-language log levels.
 
 ## 🧪 Testing & CI/CD
-- [x] Cross-language parity tests for YAML expansion (Go, Python verified in integration/).
-- [ ] Add Rust and C++ to the integration expansion parity suite.
+- [x] Cross-language parity tests for YAML expansion (Go, Python, Rust, C++ verified in integration/).
 - [ ] Full Matrix Integration: Expand matrix tests to cover all Serializer + Transport combinations.
 
 ## ✅ Completed (Verified)
