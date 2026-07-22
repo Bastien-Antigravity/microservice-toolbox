@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding:utf-8
+
 """
 ESSENTIAL PROCESS:
 Provides shared utility functions and helper methods used across the toolbox.
@@ -25,3 +26,21 @@ def get_hostname() -> str:
         return socketGetHostName()
     except Exception:
         return "localhost"
+
+# -----------------------------------------------------------------------------------------------
+
+def get_base_dir() -> str:
+    """
+    Returns the absolute path to the directory containing the main script.
+    Provides a stable anchor for logs and config files, similar to the Go implementation.
+    """
+    import sys
+    import os
+    try:
+        # Try sys.argv[0] first (standard script execution)
+        main_path = os.path.abspath(sys.argv[0])
+        if os.path.isfile(main_path):
+            return os.path.dirname(main_path)
+        return os.getcwd()
+    except Exception:
+        return os.getcwd()

@@ -1,14 +1,14 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
-	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
 
 	distributed_config "github.com/Bastien-Antigravity/distributed-config"
 
@@ -21,7 +21,7 @@ type AppConfig struct {
 	Local    map[string]interface{}
 	Resolver *connectivity.Resolver
 	Profile  string
-	Logger   utils.Logger
+	Logger   logger.Logger
 	Args     *CLIArgs
 }
 
@@ -34,8 +34,8 @@ func (ac *AppConfig) GetServiceName() string {
 }
 
 // SetLogger updates the logger after instantiation.
-func (ac *AppConfig) SetLogger(logger utils.Logger) {
-	ac.Logger = utils.EnsureSafeLogger(logger)
+func (ac *AppConfig) SetLogger(l logger.Logger) {
+	ac.Logger = logger.EnsureSafeLogger(l)
 	ac.Logger.Info("Logger updated successfully")
 }
 
@@ -49,8 +49,8 @@ func LoadConfig(profile string, specificFlags []string) (*AppConfig, error) {
 }
 
 // LoadConfigWithLogger loads the configuration with an explicit logger and layered priority.
-func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []string) (*AppConfig, error) {
-	safeLogger := utils.EnsureSafeLogger(logger)
+func LoadConfigWithLogger(profile string, l logger.Logger, specificFlags []string) (*AppConfig, error) {
+	safeLogger := logger.EnsureSafeLogger(l)
 
 	// Step 0: Preliminary CLI Parse to handle --profile override
 	tempAC := &AppConfig{
@@ -91,6 +91,12 @@ func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []s
 	ac.applyCLIOverrides(cliArgs)
 	ac.applyCLIGRPCOverrides(cliArgs)
 
+	// Inject the manually defined local config from the test if it was set before LoadConfig (though unlikely in prod)
+	// but mostly to ensure we don't wipe it out if it was already there.
+	if tempAC.Local != nil {
+		ac.Local = DeepMerge(ac.Local, tempAC.Local)
+	}
+
 	// Ensure the service name is synchronized to the base common config
 	if cliArgs.Name != "" {
 		ac.Common.Name = cliArgs.Name
@@ -105,6 +111,10 @@ func LoadConfigWithLogger(profile string, logger utils.Logger, specificFlags []s
 	// If --key flag provided, set it as ENV override for the Private Key (decryption engine)
 	if cliArgs.Key != "" {
 		_ = os.Setenv("BASTIEN_PRIVATE_KEY_PATH", cliArgs.Key)
+	}
+
+	if err := ac.ValidateUniquePorts(); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
 
 	return ac, nil
@@ -131,31 +141,11 @@ func (ac *AppConfig) loadPublicKey() {
 
 func (ac *AppConfig) applyFileOverride(filename string) {
 	// Build search candidates (matches distributed-config logic)
-	exePath, err := os.Executable()
-	exeName := ""
-	if err == nil {
-		exeName = filepath.Base(exePath)
-		exeName = strings.TrimSuffix(exeName, filepath.Ext(exeName))
-	}
+	targetName := strings.TrimSuffix(filename, filepath.Ext(filename))
+	path := distributed_config.ResolveConfigPath(targetName)
 
-	candidates := []string{
-		filename,
-		"config/" + filename,
-	}
-	if exeName != "" && exeName+".yaml" != filename {
-		candidates = append(candidates, exeName+".yaml")
-		candidates = append(candidates, "config/"+exeName+".yaml")
-	}
-
-	var data []byte
-	for _, path := range candidates {
-		if d, err := os.ReadFile(path); err == nil {
-			data = d
-			break
-		}
-	}
-
-	if data == nil {
+	data, err := os.ReadFile(path)
+	if err != nil {
 		return
 	}
 
@@ -220,11 +210,11 @@ func (ac *AppConfig) UnmarshalLocal(target interface{}) error {
 	if ac.Local == nil {
 		return fmt.Errorf("no local configuration found")
 	}
-	data, err := json.Marshal(ac.Local)
+	data, err := yaml.Marshal(ac.Local)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(data, target)
+	return yaml.Unmarshal(data, target)
 }
 
 // DecryptSecret decrypts a single ENC(...) ciphertext string.
@@ -338,4 +328,188 @@ func (ac *AppConfig) GetListenAddr(capability string) (string, error) {
 
 func (ac *AppConfig) GetGRPCListenAddr(capability string) (string, error) {
 	return ac.Config.GetGRPCAddress(capability)
+}
+
+// GetGRPCMgmtAddr returns the address for the gRPC management interface (Shadow + 2).
+func (ac *AppConfig) GetGRPCMgmtAddr(capability string) (string, error) {
+	// Re-uses base getAddr logic with specific keys
+	// This is not in distributed-config core yet, but follows the pattern.
+	// Actually, I should probably add it to distributed-config core if I want full parity.
+	// But I can implement it here first.
+	
+	// Direct access to internal getAddr isn't possible from another package if it's unexported.
+	// Let's check if distributed-config has it.
+	return ac.getAddr(capability, "grpc_ip", "grpc_mgmt_port")
+}
+
+// GetRESTAddr returns the address for the REST management interface (Shadow + 3).
+func (ac *AppConfig) GetRESTAddr(capability string) (string, error) {
+	return ac.getAddr(capability, "ip", "rest_port")
+}
+
+func (ac *AppConfig) getAddr(capability, hostKey, portKey string) (string, error) {
+	// Try LiveConfig first
+	host := ac.Config.Get(capability, hostKey)
+	port := ac.Config.Get(capability, portKey)
+
+	if host == "" || port == "" {
+		// Try static Capabilities
+		if caps, ok := ac.Config.Capabilities[capability].(map[string]interface{}); ok {
+			if host == "" {
+				if h, exists := caps[hostKey]; exists {
+					host = fmt.Sprintf("%v", h)
+				}
+			}
+			if port == "" {
+				if p, exists := caps[portKey]; exists {
+					port = fmt.Sprintf("%v", p)
+				}
+			}
+		}
+	}
+
+	if host == "" {
+		return "", fmt.Errorf("host key %s missing in capability %s", hostKey, capability)
+	}
+	if port == "" {
+		return "", fmt.Errorf("port key %s missing in capability %s", portKey, capability)
+	}
+
+	return fmt.Sprintf("%s:%s", host, port), nil
+}
+
+type endpointKey struct {
+	IP   string
+	Port int
+}
+
+func normalizeIP(ip string) string {
+	ip = strings.TrimSpace(strings.ToLower(ip))
+	if ip == "localhost" {
+		return "127.0.0.1"
+	}
+	return ip
+}
+
+func getPort(val interface{}) (int, bool) {
+	if val == nil {
+		return 0, false
+	}
+	switch v := val.(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	case string:
+		p, err := strconv.Atoi(v)
+		if err == nil {
+			return p, true
+		}
+	}
+	return 0, false
+}
+
+func getIP(val interface{}) string {
+	if val == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", val)
+}
+
+func (ac *AppConfig) ValidateUniquePorts() error {
+	if ac.Config == nil || ac.Config.Capabilities == nil {
+		return nil
+	}
+
+	seen := make(map[endpointKey]string)
+
+	checkAndAdd := func(ip string, port int, desc string) error {
+		nip := normalizeIP(ip)
+		for seenKey, seenDesc := range seen {
+			if seenKey.Port == port {
+				if nip == seenKey.IP || nip == "0.0.0.0" || seenKey.IP == "0.0.0.0" {
+					return fmt.Errorf("duplicate endpoint detected: %s:%d for %s conflicts with %s:%d for %s", ip, port, desc, seenKey.IP, seenKey.Port, seenDesc)
+				}
+			}
+		}
+		seen[endpointKey{IP: nip, Port: port}] = desc
+		return nil
+	}
+
+	for capName, capVal := range ac.Config.Capabilities {
+		capMap, ok := capVal.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		ip := getIP(capMap["ip"])
+		port, ok := getPort(capMap["port"])
+
+		if ip != "" && ok {
+			// Collect all explicit ports defined in this capability
+			explicitPorts := make(map[int]bool)
+			explicitPorts[port] = true
+			if gp, ok := getPort(capMap["grpc_port"]); ok {
+				explicitPorts[gp] = true
+			}
+			if rp, ok := getPort(capMap["rest_port"]); ok {
+				explicitPorts[rp] = true
+			}
+
+			if err := checkAndAdd(ip, port, fmt.Sprintf("%s (TCP)", capName)); err != nil {
+				return err
+			}
+
+			// Check shadow ports
+			gIP := getIP(capMap["grpc_ip"])
+			if gIP == "" {
+				gIP = ip
+			}
+
+			gPort := port + 1
+			_, hasExplicitGP := getPort(capMap["grpc_port"])
+			if gp, ok := getPort(capMap["grpc_port"]); ok {
+				gPort = gp
+			}
+			if hasExplicitGP || !explicitPorts[gPort] {
+				if err := checkAndAdd(gIP, gPort, fmt.Sprintf("%s (gRPC)", capName)); err != nil {
+					return err
+				}
+			}
+
+			rPort := port + 3
+			_, hasExplicitRP := getPort(capMap["rest_port"])
+			if rp, ok := getPort(capMap["rest_port"]); ok {
+				rPort = rp
+			}
+			if hasExplicitRP || !explicitPorts[rPort] {
+				if err := checkAndAdd(ip, rPort, fmt.Sprintf("%s (REST)", capName)); err != nil {
+					return err
+				}
+			}
+		} else {
+			// Check explicit grpc_port if no base port
+			gIP := getIP(capMap["grpc_ip"])
+			if gIP == "" {
+				gIP = ip
+			}
+			if gIP != "" {
+				if gp, ok := getPort(capMap["grpc_port"]); ok {
+					if err := checkAndAdd(gIP, gp, fmt.Sprintf("%s (gRPC)", capName)); err != nil {
+						return err
+					}
+				}
+			}
+			if ip != "" {
+				if rp, ok := getPort(capMap["rest_port"]); ok {
+					if err := checkAndAdd(ip, rp, fmt.Sprintf("%s (REST)", capName)); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
 }

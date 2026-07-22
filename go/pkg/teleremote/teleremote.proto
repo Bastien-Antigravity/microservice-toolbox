@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package teleremote;
+
+option go_package = "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/teleremote/grpc_client";
+
+service TeleRemoteService {
+    // Bi-directional stream for connecting a component to the bot gateway
+    rpc Connect (stream ComponentMessage) returns (stream BotCommand);
+}
+
+// A message sent from the external component/service to the Bot
+message ComponentMessage {
+    string component_name = 1;
+    string host = 2;
+    int32 port = 3;
+
+    oneof payload {
+        // Initial registration message
+        Registration registration = 4;
+        // Data to forward to the telegram chat (e.g. logging)
+        string telemetry = 5;
+        // A structured message (similar to legacy Qmsg)
+        QueueMessage qmsg = 6;
+    }
+}
+
+message Registration {
+    string menu_json = 1;
+}
+
+message QueueMessage {
+    string id = 1;
+    string msg = 2;
+    string from_addr = 3;
+    string to_addr = 4;
+    optional string ackw = 5;
+    bool priority = 6;
+}
+
+// A command sent from the Telegram Bot to the connected component(s)
+message BotCommand {
+    enum CommandType {
+        UNKNOWN = 0;
+        POWER_OFF = 1;
+        CLOSE_ALL_POSITIONS = 2;
+        REFRESH_MENU = 3;
+        // Extendable for arbitrarily complex commands
+        CUSTOM_COMMAND = 99;
+    }
+    CommandType command_type = 1;
+    string custom_payload = 2;
+    string input = 3;
+}

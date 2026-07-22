@@ -29,7 +29,7 @@ except ImportError:
     # Handle the case where safesocket is not installed/linked yet
     safesocket = None
 
-from ..utils.logger import Logger, ensure_safe_logger
+from ..logger import Logger, ensure_safe_logger
 from .connection import ManagedConnection
 from .errors import MaxRetriesReachedError
 

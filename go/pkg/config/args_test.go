@@ -9,7 +9,10 @@ import (
 
 func TestDockerGuard(t *testing.T) {
 	// Setup Resolver in Docker Mode
-	ac, _ := LoadConfig("standalone", nil)
+	ac, err := LoadConfig("standalone", nil)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
 	ac.Resolver.IsDocker = true
 
 	// Simulate CLI flags --host 1.2.3.4 --port 9999
@@ -24,7 +27,10 @@ func TestDockerGuard(t *testing.T) {
 
 func TestNativeMode(t *testing.T) {
 	// Setup Resolver in Native Mode
-	ac, _ := LoadConfig("standalone", nil)
+	ac, err := LoadConfig("standalone", nil)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
 	ac.Resolver.IsDocker = false
 
 	// Simulate CLI flags --host 1.2.3.4 --port 9999

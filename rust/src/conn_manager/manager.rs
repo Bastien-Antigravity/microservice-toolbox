@@ -333,4 +333,35 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(500)).await;
         assert!(error_count.load(Ordering::SeqCst) > 2);
     }
+
+    #[tokio::test]
+    async fn test_managed_connection_reconnect_max_retries() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let error_count = Arc::new(AtomicUsize::new(0));
+        let ec_clone = error_count.clone();
+
+        let on_error = Arc::new(move |_attempt, _err: &(dyn std::error::Error + Send + Sync), _src: &str, _msg: &str| {
+            ec_clone.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let nm = new_network_manager_with_all(
+            2, 10, 50, 50, 1.0, 0.0,
+            Some(on_error), None
+        );
+
+        let mc = nm.clone().connect(
+            "127.0.0.1".to_string(),
+            "9999".to_string(),
+            ConnectionMode::Indefinite,
+        ).await;
+
+        let res = mc.write(b"hello").await;
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            Error::MaxRetriesReached(_) => {}
+            other => panic!("Expected MaxRetriesReached error, got {:?}", other),
+        }
+
+        assert_eq!(error_count.load(Ordering::SeqCst), 5);
+    }
 }

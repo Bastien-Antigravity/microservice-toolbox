@@ -18,6 +18,7 @@ KEY PARAMETERS:
 
 from datetime import datetime as datetimeDateTime
 from datetime import UTC as datetimeUTC
+from sys import stderr as sysStderr
 
 from .helpers import get_hostname
 
@@ -53,7 +54,8 @@ def print_internal_log(level: str, module: str, filename: str, line: str, messag
         f"{truncate(filename, 20):<20} "
         f"{truncate(module, 25):<25} "
         f"{truncate(line, 6):<6} "
-        f"{message}"
+        f"{message}",
+        file=sysStderr
     )
 
 

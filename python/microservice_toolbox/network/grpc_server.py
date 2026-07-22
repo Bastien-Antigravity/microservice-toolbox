@@ -22,7 +22,7 @@ from typing import Any, Optional
 import grpc
 
 from ..connectivity.resolver import new_resolver
-from ..utils.logger import Logger, ensure_safe_logger
+from ..logger import Logger, ensure_safe_logger
 
 # -----------------------------------------------------------------------------------------------
 

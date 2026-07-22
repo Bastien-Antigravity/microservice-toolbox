@@ -1,4 +1,4 @@
-package utils
+package logger
 
 import (
 	"fmt"
@@ -59,7 +59,7 @@ func (f *FmtLogger) Info(fmt_str string, args ...any) {
 	_, _ = fmt.Fprintf(os.Stdout, "INFO: "+fmt_str+"\n", args...)
 }
 func (f *FmtLogger) Warning(fmt_str string, args ...any) {
-	_, _ = fmt.Fprintf(os.Stdout, "WARN: "+fmt_str+"\n", args...)
+	_, _ = fmt.Fprintf(os.Stdout, "WARNING: "+fmt_str+"\n", args...)
 }
 func (f *FmtLogger) Error(fmt_str string, args ...any) {
 	_, _ = fmt.Fprintf(os.Stdout, "ERROR: "+fmt_str+"\n", args...)

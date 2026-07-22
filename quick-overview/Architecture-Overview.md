@@ -1,8 +1,13 @@
 ---
+microservice: microservice-toolbox
+type: architecture
+status: active
+language: polyglot
 tags:
+- '#service/microservice-toolbox'
+- '#type/architecture'
+- '#state/active'
 - '#ai/ignore'
-- '#domain/architecture'
-- '#zone/3-fleet'
 ---
 
 # 🏗️ Architecture Overview

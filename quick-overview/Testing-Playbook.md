@@ -1,8 +1,13 @@
 ---
+microservice: microservice-toolbox
+type: testing-playbook
+status: active
+language: polyglot
 tags:
+- '#service/microservice-toolbox'
+- '#type/testing-playbook'
+- '#state/active'
 - '#ai/ignore'
-- '#domain/testing'
-- '#zone/3-fleet'
 ---
 
 # 🧪 Testing Playbook

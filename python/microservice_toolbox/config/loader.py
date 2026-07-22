@@ -19,12 +19,12 @@ KEY PARAMETERS:
 from json import dumps as jsonDumps
 from json import loads as jsonLoads
 from os import getenv as osGetenv
-from os.path import exists as osPathExists
+from os.path import exists as osPathExists, join as osPathJoin
 from typing import Any, Callable, Dict, List, Optional
 
 from yaml import safe_load as yamlSafeLoad
 
-from ..utils.logger import Logger, ensure_safe_logger
+from ..logger import Logger, ensure_safe_logger
 from .args import parse_cli_args
 from .lib_loader import CALLBACK_TYPE, lib
 from .merger import deep_merge
@@ -78,7 +78,15 @@ class AppConfig:
         self.data: Dict[str, Any] = {}
         self.logger = ensure_safe_logger(logger)
         self.args = self.cli_args  # Expose as self.args for consistency with Go
+        from microservice_toolbox.utils.helpers import get_base_dir
+        base_dir = get_base_dir()
         filename = f"{profile}.yaml"
+        candidates = [
+            filename,
+            f"config/{profile}.yaml",
+            osPathJoin(base_dir, filename),
+            osPathJoin(base_dir, "config", filename),
+        ]
 
         # ### PHASE 1: Initialize Bridge (The Master Source of Truth) ###
         self._handle = None
@@ -101,19 +109,35 @@ class AppConfig:
 
         # ### PHASE 2: Native Fallback (Only if Bridge is missing or failed) ###
         if not self._handle:
-            if not osPathExists(filename):
-                # Try fallback to config/ folder
-                filename = f"config/{profile}.yaml"
-                if not osPathExists(filename):
-                    raise FileNotFoundError(f"{self.Name} : Config file not found for profile '{profile}'")
-            self._load_from_file(filename)
+            found_path = None
+            for path in candidates:
+                if osPathExists(path):
+                    found_path = path
+                    break
+            
+            if not found_path:
+                raise FileNotFoundError(f"{self.Name} : Config file not found for profile '{profile}'")
+            
+            self._load_from_file(found_path)
             # Sync back to bridge if needed (Optional, depending on bridge state)
             if self._handle:
                 self.share_config(self.data)
 
         # ### PHASE 2: Apply context-aware overrides ###
         self.logger.info("{0} : Applying Local File as Hard Override (Ecosystem Parity).".format(self.Name))
-        self._apply_file_override(filename)
+        
+        # Determine which file to use for override
+        override_file = None
+        for path in candidates:
+            if osPathExists(path):
+                override_file = path
+                break
+        
+        if override_file:
+            self._apply_file_override(override_file)
+        else:
+            # Fallback to current behavior if nothing found locally
+            self._apply_file_override(filename)
 
         # ### PHASE 3: Apply CLI Overrides (The absolute Highest Priority) ###
         self._apply_cli_overrides()
@@ -125,6 +149,9 @@ class AppConfig:
 
         # ### PHASE 4: Load Public Key ###
         self._load_public_key()
+
+        # ### PHASE 5: Validate Unique Ports ###
+        self.validate_unique_ports()
 
     # -----------------------------------------------------------------------------------------------
 
@@ -339,6 +366,18 @@ class AppConfig:
 
         return self._get_addr(capability, "grpc_ip", "grpc_port")
 
+    def get_grpc_mgmt_addr(self, capability: str) -> str:
+        """
+        Resolves the gRPC Management address for a capability (Shadow + 2).
+        """
+        return self._get_addr(capability, "grpc_ip", "grpc_mgmt_port")
+
+    def get_rest_addr(self, capability: str) -> str:
+        """
+        Resolves the REST Management address for a capability (Shadow + 3).
+        """
+        return self._get_addr(capability, "ip", "rest_port")
+
     # -----------------------------------------------------------------------------------------------
 
     def _get_addr(self, capability: str, host_key: str, port_key: str) -> str:
@@ -511,3 +550,105 @@ class AppConfig:
 
     def __del__(self) -> None:
         self.close()
+
+    # -----------------------------------------------------------------------------------------------
+
+    def validate_unique_ports(self) -> None:
+        caps = self.data.get("capabilities", {})
+        if not caps:
+            return
+
+        seen_endpoints = {}
+
+        def _normalize_ip(ip_val: str) -> str:
+            val = str(ip_val).strip().lower()
+            if val == "localhost":
+                return "127.0.0.1"
+            return val
+
+        def _check_and_add(ip_val: str, port_val: Any, desc: str) -> None:
+            if not ip_val or port_val is None:
+                return
+            try:
+                port = int(port_val)
+            except (ValueError, TypeError):
+                return
+
+            nip = _normalize_ip(ip_val)
+            for (seen_ip, seen_port), seen_desc in seen_endpoints.items():
+                if seen_port == port:
+                    if nip == seen_ip or nip == "0.0.0.0" or seen_ip == "0.0.0.0":
+                        raise ValueError(
+                            f"Duplicate endpoint detected: {ip_val}:{port} for {desc} "
+                            f"conflicts with {seen_ip}:{seen_port} for {seen_desc}"
+                        )
+            seen_endpoints[(nip, port)] = desc
+
+        for cap_name, cap_data in caps.items():
+            if not isinstance(cap_data, dict):
+                continue
+
+            ip = cap_data.get("ip")
+            port_str = cap_data.get("port")
+
+            if ip and port_str is not None:
+                try:
+                    port = int(port_str)
+                except (ValueError, TypeError):
+                    continue
+
+                # Collect all explicit ports defined in this capability
+                explicit_ports = {port}
+                
+                g_port_str = cap_data.get("grpc_port")
+                if g_port_str is not None:
+                    try:
+                        explicit_ports.add(int(g_port_str))
+                    except (ValueError, TypeError):
+                        pass
+                
+                r_port_str = cap_data.get("rest_port")
+                if r_port_str is not None:
+                    try:
+                        explicit_ports.add(int(r_port_str))
+                    except (ValueError, TypeError):
+                        pass
+
+                _check_and_add(ip, port, f"{cap_name} (TCP)")
+
+                g_ip = cap_data.get("grpc_ip") or ip
+                has_explicit_gp = False
+                g_port = None
+                if g_port_str is not None:
+                    try:
+                        g_port = int(g_port_str)
+                        has_explicit_gp = True
+                    except (ValueError, TypeError):
+                        pass
+                if g_port is None:
+                    g_port = port + 1
+                if has_explicit_gp or g_port not in explicit_ports:
+                    _check_and_add(g_ip, g_port, f"{cap_name} (gRPC)")
+
+                has_explicit_rp = False
+                r_port = None
+                if r_port_str is not None:
+                    try:
+                        r_port = int(r_port_str)
+                        has_explicit_rp = True
+                    except (ValueError, TypeError):
+                        pass
+                if r_port is None:
+                    r_port = port + 3
+                if has_explicit_rp or r_port not in explicit_ports:
+                    _check_and_add(ip, r_port, f"{cap_name} (REST)")
+            else:
+                g_ip = cap_data.get("grpc_ip") or ip
+                if g_ip:
+                    g_port = cap_data.get("grpc_port")
+                    if g_port is not None:
+                        _check_and_add(g_ip, g_port, f"{cap_name} (gRPC)")
+                if ip:
+                    r_port = cap_data.get("rest_port")
+                    if r_port is not None:
+                        _check_and_add(ip, r_port, f"{cap_name} (REST)")

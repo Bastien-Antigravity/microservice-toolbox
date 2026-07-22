@@ -19,7 +19,7 @@ import signal
 import threading
 from typing import Callable, List, Optional
 
-from ..utils.logger import Logger, ensure_safe_logger
+from ..logger import Logger, ensure_safe_logger
 
 # -----------------------------------------------------------------------------------------------
 

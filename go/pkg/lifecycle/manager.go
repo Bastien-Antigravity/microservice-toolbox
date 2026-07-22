@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
 )
 
 // ShutdownFunc is a function called during graceful shutdown.
@@ -15,7 +15,7 @@ type ShutdownFunc func() error
 // Manager handles application lifecycle and graceful shutdown.
 type Manager struct {
 	cleanups []ShutdownFunc
-	Logger   utils.Logger
+	Logger   logger.Logger
 }
 
 // NewManager creates a new lifecycle manager with default logging.
@@ -24,10 +24,10 @@ func NewManager() *Manager {
 }
 
 // NewManagerWithLogger creates a new lifecycle manager with an explicit logger.
-func NewManagerWithLogger(logger utils.Logger) *Manager {
+func NewManagerWithLogger(l logger.Logger) *Manager {
 	return &Manager{
 		cleanups: make([]ShutdownFunc, 0),
-		Logger:   utils.EnsureSafeLogger(logger),
+		Logger:   logger.EnsureSafeLogger(l),
 	}
 }
 

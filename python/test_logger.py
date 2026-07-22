@@ -10,15 +10,14 @@ try:
     from unilog.facade import UniLog
 
     from microservice_toolbox.config.loader import load_config_with_logger
-    from microservice_toolbox.conn_manager.manager import NewNetworkManagerWithLogger
-    from microservice_toolbox.utils.logger import UniLogger
+    from microservice_toolbox.conn_manager.manager import new_network_manager_with_logger
 
     print(">>> Initializing UniLog (compiled)...")
     native_log = UniLog(config_profile="standalone", app_name="test-python")
-    logger = UniLogger(native_log)
+    logger = native_log
 
     print(">>> Testing NetworkManager with UniLogger...")
-    nm = NewNetworkManagerWithLogger(max_retries=2, logger=logger)
+    nm = new_network_manager_with_logger(max_retries=2, logger=logger)
     try:
         # This will fail and log retries
         nm.connect_with_retry("localhost", "1234", "127.0.0.1", "test")

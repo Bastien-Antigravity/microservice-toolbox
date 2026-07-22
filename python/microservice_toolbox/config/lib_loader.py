@@ -34,7 +34,7 @@ def load_libdistconf():
     Returns a ctypes.CDLL handle or None if not found.
     """
     # 1. Try environment variable
-    lib_path = osGetenv("LIBDISTCONF_PATH")
+    lib_path = osGetenv("LIBDISTCONF_PATH") or osGetenv("LIBUNILOG_PATH")
 
     if not lib_path:
         # 2. Try common locations

@@ -5,7 +5,7 @@ import (
 	"net"
 
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
-	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -14,7 +14,7 @@ import (
 type GRPCServer struct {
 	Server *grpc.Server
 	Addr   string
-	Logger utils.Logger
+	Logger logger.Logger
 }
 
 // NewGRPCServer creates a new gRPC server wrapper with default logging.
@@ -24,8 +24,8 @@ func NewGRPCServer(addr string, opts ...grpc.ServerOption) *GRPCServer {
 
 // NewGRPCServerWithLogger creates a new gRPC server wrapper with an explicit logger.
 // It automatically applies the "Docker Guard" policy to the binding address.
-func NewGRPCServerWithLogger(addr string, logger utils.Logger, opts ...grpc.ServerOption) *GRPCServer {
-	safeLogger := utils.EnsureSafeLogger(logger)
+func NewGRPCServerWithLogger(addr string, l logger.Logger, opts ...grpc.ServerOption) *GRPCServer {
+	safeLogger := logger.EnsureSafeLogger(l)
 
 	// Apply Docker Guard Suppression
 	resolver := connectivity.NewResolver()

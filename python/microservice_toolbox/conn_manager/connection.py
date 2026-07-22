@@ -19,7 +19,7 @@ from threading import Lock as threadingLock
 from time import sleep as timeSleep
 from typing import TYPE_CHECKING, Any
 
-from .errors import WriteFailedError
+from .errors import WriteFailedError, MaxRetriesReachedError
 
 if TYPE_CHECKING:
     from .manager import NetworkManager
@@ -130,6 +130,14 @@ class ManagedConnection:
                     self._reconnecting = False
                 return
             except Exception as e:
+                # Check if we reached max retries (if not infinite)
+                if self.nm.max_retries != -1 and i >= self.nm.max_retries:
+                    with self._lock:
+                        self._reconnecting = False
+                    raise MaxRetriesReachedError(
+                        f"{self.Name} : reached max retries {self.nm.max_retries} for {self.ip}:{self.port}"
+                    )
+
                 # Report failure to the optional hook
                 if self.nm.on_error:
                     self.nm.on_error(

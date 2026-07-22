@@ -71,6 +71,20 @@ Public Function GetGRPCListenAddr(ByVal capability As String) As String
     GetGRPCListenAddr = Toolbox.PtrToString(ptr)
 End Function
 
+' GetGRPCMgmtAddr returns the gRPC management address for a capability.
+Public Function GetGRPCMgmtAddr(ByVal capability As String) As String
+    Dim ptr As LongPtr
+    ptr = DistConf.DistConf_GetGRPCMgmtAddress(m_handle, capability)
+    GetGRPCMgmtAddr = Toolbox.PtrToString(ptr)
+End Function
+
+' GetRESTAddr returns the REST management address for a capability.
+Public Function GetRESTAddr(ByVal capability As String) As String
+    Dim ptr As LongPtr
+    ptr = DistConf.DistConf_GetRESTAddress(m_handle, capability)
+    GetRESTAddr = Toolbox.PtrToString(ptr)
+End Function
+
 ' DecryptSecret decrypts a secret ENC(...) block.
 ' Matches the hardened logic of the polyglot ecosystem (100% Transparency).
 Public Function DecryptSecret(ByVal ciphertext As String) As String

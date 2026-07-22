@@ -1,4 +1,13 @@
-# Microservice Toolbox - Go Module (Reference Implementation)
+---
+microservice: obsidian-brain
+type: note
+status: active
+tags:
+- '#service/obsidian-brain'
+- '#type/note'
+- '#state/active'
+- '#zone/3-fleet'
+---# Microservice Toolbox - Go Module (Reference Implementation)
 
 The Go implementation of the `microservice-toolbox` is the foundational library and core engine for the entire Bastien-Antigravity ecosystem. It provides the reference logic for configuration resolution, RSA decryption, and resilient networking.
 
@@ -45,6 +54,26 @@ sig := business.Signal{
     Symbol: "BTC/USDT",
     Type: business.SignalBuy,
 }
+```
+
+### 4. Messaging Connector (`pkg/messaging`)
+Unified NATS configuration models and connector factories.
+
+```go
+import (
+    "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/messaging"
+    "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
+)
+
+// Configure connection parameters
+cfg := &messaging.NatsConfig{
+    Servers:        []string{"nats://localhost:4222"},
+    ClientID:       "my-service",
+    ConnectTimeout: 2 * time.Second,
+}
+
+// Establish a connection pre-wired with standard retry and logging behavior
+nc, err := messaging.Connect(cfg, &utils.FmtLogger{})
 ```
 
 ## Architecture: The Reference Engine

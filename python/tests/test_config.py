@@ -23,22 +23,22 @@ def test_app_config_deep_merge():
 
 def test_load_config_factory(tmp_path):
     """Verify the load_config() factory function works (Go LoadConfig parity)."""
-    config_file = tmp_path / "test.yaml"
+    config_file = tmp_path / "test_factory.yaml"
     yaml.dump({"common": {"name": "factory-app"}}, open(config_file, "w"))
 
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("test", input_args=[])
+        ac = load_config("test_factory", input_args=[])
         assert isinstance(ac, AppConfig)
-        assert ac.profile == "test"
+        assert ac.profile == "test_factory"
     finally:
         os.chdir(old_cwd)
 
 
 def test_app_config_loading_and_addresses(tmp_path):
     """Verify loading, get_listen_addr, and get_grpc_listen_addr."""
-    config_file = tmp_path / "standalone.yaml"
+    config_file = tmp_path / "standalone_load.yaml"
     config_data = {
         "common": {"name": "test-app"},
         "capabilities": {
@@ -53,8 +53,8 @@ def test_app_config_loading_and_addresses(tmp_path):
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("standalone", input_args=[])
-        assert ac.profile == "standalone"
+        ac = load_config("standalone_load", input_args=[])
+        assert ac.profile == "standalone_load"
         assert ac.get_listen_addr("test-service") == "1.2.3.4:8080"
         assert ac.get_grpc_listen_addr("test-service") == "1.2.3.4:8081"
     finally:
@@ -69,13 +69,13 @@ def test_app_config_missing_file():
 
 def test_grpc_missing_raises(tmp_path):
     """Verify get_grpc_listen_addr raises when grpc_ip/grpc_port are absent (Go parity)."""
-    config_file = tmp_path / "standalone.yaml"
+    config_file = tmp_path / "standalone_grpc.yaml"
     yaml.dump({"capabilities": {"svc": {"ip": "1.2.3.4", "port": "8080"}}}, open(config_file, "w"))
 
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("standalone", input_args=[])
+        ac = load_config("standalone_grpc", input_args=[])
         with pytest.raises(ValueError):
             ac.get_grpc_listen_addr("svc")
     finally:
@@ -103,13 +103,13 @@ def test_decrypt_secret_plaintext_passthrough(tmp_path):
 
 def test_decrypt_secret_enc_raises(tmp_path):
     """Verify ENC(...) block raises ValueError when decryption fails."""
-    config_file = tmp_path / "test.yaml"
+    config_file = tmp_path / "test_decrypt.yaml"
     yaml.dump({"password": "ENC(dummy)"}, open(config_file, "w"))
 
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("test", input_args=[])
+        ac = load_config("test_decrypt", input_args=[])
 
         # Raw data is preserved
         assert ac.data["password"] == "ENC(dummy)"
@@ -125,7 +125,7 @@ def test_decrypt_secret_enc_raises(tmp_path):
 
 def test_get_local(tmp_path):
     """Verify get_local() returns values from the 'local' YAML section."""
-    config_file = tmp_path / "test.yaml"
+    config_file = tmp_path / "test_local.yaml"
     data = {
         "local": {
             "local_setting": "value_xyz",
@@ -140,7 +140,7 @@ def test_get_local(tmp_path):
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("test", input_args=[])
+        ac = load_config("test_local", input_args=[])
         assert ac.get_local("local_setting") == "value_xyz"
         assert ac.get_local("nested.val") == 123
         assert ac.get_local("nested.key") == "nested_value"
@@ -223,25 +223,25 @@ def test_set_logger(tmp_path):
 
 def test_cli_override_targets_single_capability(tmp_path):
     """Verify CLI --host/--port overrides only the target capability (Go parity)."""
-    config_file = tmp_path / "standalone.yaml"
+    config_file = tmp_path / "standalone_cli.yaml"
     yaml.dump({
         "common": {"name": "my-svc"},
         "capabilities": {
             "my-svc": {"ip": "0.0.0.0", "port": "9000"},
-            "other-svc": {"ip": "0.0.0.0", "port": "9001"},
+            "other-svc": {"ip": "0.0.0.0", "port": "9010"},
         },
     }, open(config_file, "w"))
 
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("standalone", input_args=["--host", "10.0.0.1", "--port", "5555"])
+        ac = load_config("standalone_cli", input_args=["--host", "10.0.0.1", "--port", "5555"])
 
         # Target capability (my-svc from common.name) should be overridden
         assert ac.get_listen_addr("my-svc") == "10.0.0.1:5555"
 
         # Other capability should NOT be affected
-        assert ac.get_listen_addr("other-svc") == "0.0.0.0:9001"
+        assert ac.get_listen_addr("other-svc") == "0.0.0.0:9010"
     finally:
         os.chdir(old_cwd)
 
@@ -250,7 +250,7 @@ def test_cli_override_targets_single_capability(tmp_path):
 
 def test_env_expansion(tmp_path):
     """Verify ${VAR:default} expansion in YAML loading."""
-    config_file = tmp_path / "test.yaml"
+    config_file = tmp_path / "test_env.yaml"
     yaml.dump({
         "local": {
             "host": "${TEST_HOST:localhost}",
@@ -265,7 +265,7 @@ def test_env_expansion(tmp_path):
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
-        ac = load_config("test", input_args=[])
+        ac = load_config("test_env", input_args=[])
         assert ac.get_local("host") == "127.0.0.5"
         # YAML parses 8080 as int unless quoted
         assert int(ac.get_local("port")) == 8080

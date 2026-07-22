@@ -24,6 +24,8 @@ Public Declare PtrSafe Sub DistConf_Close Lib LIB_PATH (ByVal handle As LongPtr)
 Public Declare PtrSafe Function DistConf_Get Lib LIB_PATH (ByVal handle As LongPtr, ByVal section As String, ByVal key As String) As LongPtr
 Public Declare PtrSafe Function DistConf_GetAddress Lib LIB_PATH (ByVal handle As LongPtr, ByVal capability As String) As LongPtr
 Public Declare PtrSafe Function DistConf_GetGRPCAddress Lib LIB_PATH (ByVal handle As LongPtr, ByVal capability As String) As LongPtr
+Public Declare PtrSafe Function DistConf_GetGRPCMgmtAddress Lib LIB_PATH (ByVal handle As LongPtr, ByVal capability As String) As LongPtr
+Public Declare PtrSafe Function DistConf_GetRESTAddress Lib LIB_PATH (ByVal handle As LongPtr, ByVal capability As String) As LongPtr
 Public Declare PtrSafe Function DistConf_GetCapability Lib LIB_PATH (ByVal handle As LongPtr, ByVal capability As String) As LongPtr
 Public Declare PtrSafe Function DistConf_GetFullConfig Lib LIB_PATH (ByVal handle As LongPtr) As LongPtr
 

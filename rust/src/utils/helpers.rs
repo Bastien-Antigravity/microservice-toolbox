@@ -18,3 +18,14 @@ pub fn get_hostname() -> &'static str {
             .unwrap_or_else(|| "localhost".to_string())
     })
 }
+
+/// Returns the absolute path to the directory containing the current executable.
+/// Provides a stable anchor for logs and config files, similar to the Go/Python implementations.
+pub fn get_base_dir() -> String {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            return dir.to_string_lossy().to_string();
+        }
+    }
+    ".".to_string()
+}

@@ -8,6 +8,8 @@ tags:
 - '#domain/architecture'
 - '#domain/configuration'
 - '#zone/3-fleet'
+- '#type/repository'
+- '#state/active'
 ---
 
 # Microservice Toolbox
@@ -53,6 +55,12 @@ Unified data models for the business logic tier, defined in `schemas/business` a
 - **OHLCV**: Standardized time-series bar representation.
 - **Signal**: Unified trading strategy signal format (Buy/Sell/Exit).
 
+### 5. Standardized NATS Connectors (v1.3.0+)
+Centralized NATS connection factories and configuration schemas to eliminate boilerplate across the fleet:
+- **Resiliency-by-Default**: Standardizes reconnection attempts, timing backoffs, and client names.
+- **Observability**: Automatically logs connection loss and recovery events, prefixed with the connection's `ClientID` for easy debugging.
+- **SDK Parity**: Implemented natively in Go (`pkg/messaging`), Python (`microservice_toolbox/messaging`), and Rust (`src/messaging`).
+
 ---
 
 ## Polyglot Parity Matrix
@@ -68,6 +76,7 @@ Unified data models for the business logic tier, defined in `schemas/business` a
 | **UnmarshalLocal** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **Business Data Models**| ✅ | ✅ | ✅ | ✅ | ❌ |
 | Connection Manager | ✅ | ✅ | ✅ | ✅ | ❌ |
+| NATS Standard Connector | ✅ | ✅ | ✅ | ❌ | ❌ |
 
 ---
 

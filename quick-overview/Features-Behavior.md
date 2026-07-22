@@ -1,9 +1,13 @@
 ---
+microservice: microservice-toolbox
+type: features-behavior
+status: active
+language: polyglot
 tags:
+- '#service/microservice-toolbox'
+- '#type/features-behavior'
+- '#state/active'
 - '#ai/ignore'
-- '#domain/configuration'
-- '#domain/security'
-- '#zone/3-fleet'
 ---
 
 # 🛠️ Features & Behavior
@@ -89,8 +93,22 @@ func SerializeMarketEvent(evt business.MarketEvent) ([]byte, error) {
 }
 ```
 
-## Quality & Alignment Observations
+### 6. Resilient Connection Manager (conn_manager)
+The `conn_manager` provides polyglot connection resilience (Go, Python, Rust, C++) with automatic reconnection, backoff, and error reporting.
 
+#### Connection Modes
+- **Blocking**: The connection manager blocks the initiating thread until a connection is established or `max_retries` is reached.
+- **Non-Blocking**: The manager returns immediately and handles reconnection asynchronously in the background.
+
+#### Retry Strategies & Polyglot Parity
+- **Infinite Retries (`max_retries = -1`)**: Used for critical self-healing. Reconnection loops run indefinitely, blocking the connection/writing tasks until the dependency recovers. **This is a design requirement, not a bug.**
+- **Finite Retries (`max_retries > 0`)**: Standard strategies terminate reconnection attempts after the limit is reached and return a `MaxRetriesReached` error.
+
+#### Best Practices
+1. **Asynchronous Handshake**: Use `NonBlocking` mode to prevent microservice startup from hanging when downstream dependencies are offline.
+2. **Synchronous Write Alert**: Synchronous calls to `Write`/`Send` trigger immediate inline reconnection upon failure. To prevent business logic from blocking during outages, wrap writes in buffered queues or handle reconnection events.
+
+## Quality & Alignment Observations
 
 - **Strict Polyglot Rules**: The project closely enforces the **Mirroring Mandate** and **Behavioral Identity** across the Go reference implementation and its target languages.
 - **UTC Time Sovereignty**: The terminal logger and core UI components correctly utilize UTC timestamps, fulfilling the fleet-wide alignment requirements.

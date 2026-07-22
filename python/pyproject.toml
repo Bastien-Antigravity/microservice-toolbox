@@ -13,6 +13,7 @@ dependencies = [
     "grpcio>=1.50.0",
     "msgpack>=1.0.0",
     "cryptography>=42.0.0",
+    "nats-py>=2.7.0",
 ]
 
 [project.optional-dependencies]

@@ -76,6 +76,13 @@ impl ManagedConnection {
                     return Ok(());
                 }
                 Err(e) => {
+                    if self.nm.max_retries != -1 && i >= self.nm.max_retries {
+                        return Err(Error::MaxRetriesReached(format!(
+                            "Reached max retries {} for {}:{}",
+                            self.nm.max_retries, self.ip, self.port
+                        )));
+                    }
+
                     if let Some(ref handler) = self.nm.on_error.0 {
                         handler(i + 1, &e, "NetworkManager", &format!("Failed to recover connection to {}:{}", self.ip, self.port));
                     }

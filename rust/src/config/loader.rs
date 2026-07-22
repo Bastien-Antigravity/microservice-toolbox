@@ -86,12 +86,28 @@ impl AppConfig {
             _reg_cb: None,
         };
 
-        // Phase 1: Load base config from file (Native Fallback / Base Layer)
-        let mut filename = format!("{}.yaml", actual_profile);
-        if !std::path::Path::new(&filename).exists() {
-            filename = format!("config/{}.yaml", actual_profile);
+        // Build search candidates (matches distributed-config locality)
+        let base_dir = crate::utils::helpers::get_base_dir();
+        let filename_base = format!("{}.yaml", actual_profile);
+        let candidates = [
+            std::path::Path::new(&base_dir).join("config").join(&filename_base),
+            std::path::Path::new(&base_dir).join(&filename_base),
+            std::path::Path::new("config").join(&filename_base),
+            std::path::Path::new(&filename_base).to_path_buf(),
+        ];
+
+        let mut found_path = None;
+        for path in &candidates {
+            if path.exists() {
+                found_path = Some(path.to_string_lossy().to_string());
+                break;
+            }
         }
-        ac.load_from_file(&filename);
+
+        // Phase 1: Load base config from file (Native Fallback / Base Layer)
+        if let Some(path) = &found_path {
+            ac.load_from_file(path);
+        }
 
         // Phase 2: Bridge Layer
         if let Some(lib) = crate::config::ffi::get_lib() {
@@ -105,14 +121,13 @@ impl AppConfig {
         }
 
         // Phase 3: Override Layer (Ecosystem Parity)
-        // We re-apply the local file as a hard override to ensure the 'local' section 
-        // and any local overrides are loaded across all profiles.
         ac.logger.info("Applying Local File as Hard Override (Ecosystem Parity).");
-        let mut filename = format!("{}.yaml", actual_profile);
-        if !std::path::Path::new(&filename).exists() {
-            filename = format!("config/{}.yaml", actual_profile);
+        if let Some(path) = found_path {
+            ac.apply_file_override(&path);
+        } else {
+            // Final fallback to profile.yaml in CWD if nothing found
+            ac.apply_file_override(&format!("{}.yaml", actual_profile));
         }
-        ac.apply_file_override(&filename);
 
         ac.apply_cli_overrides();
         
@@ -129,6 +144,8 @@ impl AppConfig {
         }
 
         ac.load_public_key();
+        
+        ac.validate_unique_ports()?;
         
         Ok(ac)
     }
@@ -333,6 +350,16 @@ impl AppConfig {
         self.get_addr(capability, "grpc_ip", "grpc_port")
     }
 
+    /// Resolves the gRPC Management address for a capability (Shadow + 2).
+    pub fn get_grpc_mgmt_addr(&self, capability: &str) -> Result<String, String> {
+        self.get_addr(capability, "grpc_ip", "grpc_mgmt_port")
+    }
+
+    /// Resolves the REST Management address for a capability (Shadow + 3).
+    pub fn get_rest_addr(&self, capability: &str) -> Result<String, String> {
+        self.get_addr(capability, "ip", "rest_port")
+    }
+
     fn get_addr(&self, capability: &str, host_key: &str, port_key: &str) -> Result<String, String> {
         let cap_path = format!("capabilities.{}", capability);
         let cap = self.get_value(&cap_path).ok_or_else(|| format!("capability {} not found", capability))?;
@@ -453,6 +480,139 @@ impl AppConfig {
                 return (lib.dist_conf_share_config)(handle, json_data.as_ptr());
         }
         false
+    }
+
+    pub fn validate_unique_ports(&self) -> Result<(), String> {
+        let caps = match self.get_value("capabilities") {
+            Some(Value::Mapping(m)) => m,
+            _ => return Ok(()),
+        };
+
+        let normalize_ip = |ip: &str| -> String {
+            let ip = ip.trim().to_lowercase();
+            if ip == "localhost" {
+                "127.0.0.1".to_string()
+            } else {
+                ip
+            }
+        };
+
+        let mut seen = std::collections::HashMap::new();
+
+        let mut check_and_add = |ip: &str, port: i64, desc: &str| -> Result<(), String> {
+            let nip = normalize_ip(ip);
+            for (seen_key, seen_desc) in &seen {
+                let (seen_ip, seen_port): &(String, i64) = seen_key;
+                if *seen_port == port {
+                    if nip == *seen_ip || nip == "0.0.0.0" || seen_ip == "0.0.0.0" {
+                        return Err(format!(
+                            "duplicate endpoint detected: {}:{} for {} conflicts with {}:{} for {}",
+                            ip, port, desc, seen_ip, seen_port, seen_desc
+                        ));
+                    }
+                }
+            }
+            seen.insert((nip, port), desc.to_string());
+            Ok(())
+        };
+
+        for (cap_name_val, cap_data_val) in caps {
+            let cap_name = cap_name_val.as_str().unwrap_or("");
+            if cap_name.is_empty() {
+                continue;
+            }
+
+            let ip = cap_data_val.get("ip").and_then(|v| v.as_str()).unwrap_or("");
+            let port_val = cap_data_val.get("port");
+
+            let port = port_val.and_then(|v| {
+                if let Some(i) = v.as_i64() {
+                    Some(i)
+                } else if let Some(s) = v.as_str() {
+                    s.parse::<i64>().ok()
+                } else {
+                    None
+                }
+            });
+
+            if !ip.is_empty() && port.is_some() {
+                let base_port = port.unwrap();
+
+                let mut explicit_ports = std::collections::HashSet::new();
+                explicit_ports.insert(base_port);
+
+                let gp_val = cap_data_val.get("grpc_port").and_then(|v| {
+                    if let Some(i) = v.as_i64() {
+                        Some(i)
+                    } else if let Some(s) = v.as_str() {
+                        s.parse::<i64>().ok()
+                    } else {
+                        None
+                    }
+                });
+                if let Some(gp) = gp_val {
+                    explicit_ports.insert(gp);
+                }
+
+                let rp_val = cap_data_val.get("rest_port").and_then(|v| {
+                    if let Some(i) = v.as_i64() {
+                        Some(i)
+                    } else if let Some(s) = v.as_str() {
+                        s.parse::<i64>().ok()
+                    } else {
+                        None
+                    }
+                });
+                if let Some(rp) = rp_val {
+                    explicit_ports.insert(rp);
+                }
+
+                check_and_add(ip, base_port, &format!("{} (TCP)", cap_name))?;
+
+                let g_ip = cap_data_val.get("grpc_ip").and_then(|v| v.as_str()).unwrap_or(ip);
+
+                let g_port = gp_val.unwrap_or(base_port + 1);
+                if gp_val.is_some() || !explicit_ports.contains(&g_port) {
+                    check_and_add(g_ip, g_port, &format!("{} (gRPC)", cap_name))?;
+                }
+
+                let r_port = rp_val.unwrap_or(base_port + 3);
+                if rp_val.is_some() || !explicit_ports.contains(&r_port) {
+                    check_and_add(ip, r_port, &format!("{} (REST)", cap_name))?;
+                }
+            } else {
+                let g_ip = cap_data_val.get("grpc_ip").and_then(|v| v.as_str()).unwrap_or(ip);
+                if !g_ip.is_empty() {
+                    if let Some(gp_val) = cap_data_val.get("grpc_port") {
+                        let gp = if let Some(i) = gp_val.as_i64() {
+                            Some(i)
+                        } else if let Some(s) = gp_val.as_str() {
+                            s.parse::<i64>().ok()
+                        } else {
+                            None
+                        };
+                        if let Some(p) = gp {
+                            check_and_add(g_ip, p, &format!("{} (gRPC)", cap_name))?;
+                        }
+                    }
+                }
+                if !ip.is_empty() {
+                    if let Some(rp_val) = cap_data_val.get("rest_port") {
+                        let rp = if let Some(i) = rp_val.as_i64() {
+                            Some(i)
+                        } else if let Some(s) = rp_val.as_str() {
+                            s.parse::<i64>().ok()
+                        } else {
+                            None
+                        };
+                        if let Some(p) = rp {
+                            check_and_add(ip, p, &format!("{} (REST)", cap_name))?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 

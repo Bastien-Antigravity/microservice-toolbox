@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
 	safesocket "github.com/Bastien-Antigravity/safe-socket"
 )
 
@@ -50,7 +50,7 @@ type NetworkManager struct {
 	// OnError is an optional hook for fine-grained error reporting and retry logic.
 	OnError OnErrorHandler
 	// Logger is the logger instance used for reporting status and errors.
-	Logger utils.Logger
+	Logger logger.Logger
 }
 
 // -----------------------------------------------------------------------------
@@ -60,7 +60,7 @@ func NewNetworkManager(maxRetries int, baseDelayMs, maxDelayMs, connectTimeoutMs
 }
 
 // NewNetworkManagerWithLogger creates a manager with provided retry policies and an explicit logger.
-func NewNetworkManagerWithLogger(maxRetries int, baseDelayMs, maxDelayMs, connectTimeoutMs int, backoff, jitter float64, logger utils.Logger) *NetworkManager {
+func NewNetworkManagerWithLogger(maxRetries int, baseDelayMs, maxDelayMs, connectTimeoutMs int, backoff, jitter float64, l logger.Logger) *NetworkManager {
 	return &NetworkManager{
 		MaxRetries:     maxRetries,
 		BaseDelay:      time.Duration(baseDelayMs) * time.Millisecond,
@@ -68,7 +68,7 @@ func NewNetworkManagerWithLogger(maxRetries int, baseDelayMs, maxDelayMs, connec
 		ConnectTimeout: time.Duration(connectTimeoutMs) * time.Millisecond,
 		Backoff:        backoff,
 		Jitter:         jitter,
-		Logger:         utils.EnsureSafeLogger(logger),
+		Logger:         logger.EnsureSafeLogger(l),
 	}
 }
 
@@ -181,16 +181,16 @@ func (nm *NetworkManager) Connect(ip, port, publicIP *string, profile string, mo
 // Strategies
 
 // NewCriticalStrategy creates a manager configured for critical services with infinite retries.
-func NewCriticalStrategy(logger utils.Logger) *NetworkManager {
-	return NewNetworkManagerWithLogger(-1, 200, 10000, 5000, 2.0, 0.2, logger)
+func NewCriticalStrategy(l logger.Logger) *NetworkManager {
+	return NewNetworkManagerWithLogger(-1, 200, 10000, 5000, 2.0, 0.2, l)
 }
 
 // NewStandardStrategy creates a manager for standard services with limited retries.
-func NewStandardStrategy(logger utils.Logger) *NetworkManager {
-	return NewNetworkManagerWithLogger(10, 500, 30000, 5000, 1.5, 0.1, logger)
+func NewStandardStrategy(l logger.Logger) *NetworkManager {
+	return NewNetworkManagerWithLogger(10, 500, 30000, 5000, 1.5, 0.1, l)
 }
 
 // NewPerformanceStrategy creates a manager for high-performance services with background reconnection.
-func NewPerformanceStrategy(logger utils.Logger) *NetworkManager {
-	return NewNetworkManagerWithLogger(-1, 100, 2000, 1000, 1.2, 0.0, logger)
+func NewPerformanceStrategy(l logger.Logger) *NetworkManager {
+	return NewNetworkManagerWithLogger(-1, 100, 2000, 1000, 1.2, 0.0, l)
 }

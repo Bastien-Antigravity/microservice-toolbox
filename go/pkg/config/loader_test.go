@@ -6,7 +6,7 @@ import (
 
 	distconf "github.com/Bastien-Antigravity/distributed-config"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
-	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -141,9 +141,10 @@ capabilities:
   db:
     password: ENC(dummy)
 `
-	err = os.WriteFile("standalone.yaml", []byte(yamlContent), 0644)
+	configPath := distconf.ResolveConfigPath("standalone")
+	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer func() { _ = os.Remove("standalone.yaml") }()
+	defer func() { _ = os.Remove(configPath) }()
 
 	// Set env to use our local key
 	_ = os.Setenv("BASTIEN_PRIVATE_KEY_PATH", "private.pem")
@@ -177,7 +178,7 @@ func TestAppConfig_KeyFlag(t *testing.T) {
 
 	ac := &AppConfig{
 		Config:   distconf.New("keytest"),
-		Logger:   utils.EnsureSafeLogger(nil),
+		Logger:   logger.EnsureSafeLogger(nil),
 		Resolver: connectivity.NewResolver(),
 	}
 	_ = ac.ParseCLIArgs(nil)
@@ -192,6 +193,9 @@ func TestAppConfig_AutoLoadPublicKey(t *testing.T) {
 	err := os.WriteFile("public.pem", []byte(keyContent), 0644)
 	assert.NoError(t, err)
 	defer func() { _ = os.Remove("public.pem") }()
+
+	_ = os.Setenv("BASTIEN_PUBLIC_KEY_PATH", "public.pem")
+	defer func() { _ = os.Unsetenv("BASTIEN_PUBLIC_KEY_PATH") }()
 
 	// Load config - it should automatically find public.pem
 	ac, err := LoadConfig("standalone", nil)
@@ -231,7 +235,6 @@ func TestAppConfig_GetLocal(t *testing.T) {
 
 func TestAppConfig_UnmarshalLocal(t *testing.T) {
 	ac := &AppConfig{
-		Config: distconf.New("standalone"),
 		Local: map[string]interface{}{
 			"local_setting": "value_xyz",
 			"item_count":    3,
@@ -239,8 +242,8 @@ func TestAppConfig_UnmarshalLocal(t *testing.T) {
 	}
 
 	type Config struct {
-		LocalSetting string `json:"local_setting"`
-		ItemCount    int    `json:"item_count"`
+		LocalSetting string `yaml:"local_setting"`
+		ItemCount    int    `yaml:"item_count"`
 	}
 
 	var cfg Config
@@ -253,7 +256,7 @@ func TestAppConfig_UnmarshalLocal(t *testing.T) {
 func TestAppConfig_GetLocalEmpty(t *testing.T) {
 	ac := &AppConfig{
 		Config: distconf.New("standalone"),
-		Logger: utils.EnsureSafeLogger(nil),
+		Logger: logger.EnsureSafeLogger(nil),
 	}
 	// Local is nil
 	assert.Nil(t, ac.GetLocal("anything"))
@@ -262,7 +265,7 @@ func TestAppConfig_GetLocalEmpty(t *testing.T) {
 func TestAppConfig_DecryptPlaintextPassthrough(t *testing.T) {
 	ac := &AppConfig{
 		Config: distconf.New("standalone"),
-		Logger: utils.EnsureSafeLogger(nil),
+		Logger: logger.EnsureSafeLogger(nil),
 	}
 
 	// Non-ENC strings pass through unchanged
@@ -304,14 +307,15 @@ capabilities:
 		return
 	}
 
-	_, err = ac.GetGRPCListenAddr("svc")
-	assert.Error(t, err, "gRPC should fail when grpc_ip/grpc_port are missing")
+	addr, err := ac.GetGRPCListenAddr("svc")
+	assert.NoError(t, err, "gRPC should now default to Shadow Port (Port+1)")
+	assert.Equal(t, "1.2.3.4:8081", addr)
 }
 
 func TestAppConfig_SetLogger(t *testing.T) {
 	ac := &AppConfig{
 		Config: distconf.New("standalone"),
-		Logger: utils.EnsureSafeLogger(nil),
+		Logger: logger.EnsureSafeLogger(nil),
 	}
 
 	// SetLogger(nil) should not panic and should leave a usable logger
@@ -354,4 +358,25 @@ capabilities:
 	addr2, err := ac.GetListenAddr("other-svc")
 	assert.NoError(t, err)
 	assert.Equal(t, "0.0.0.0:9001", addr2)
+}
+
+func TestAppConfig_DuplicatePorts(t *testing.T) {
+	yamlContent := `
+common:
+  name: test-app
+capabilities:
+  svc1:
+    ip: "127.0.0.1"
+    port: "8080"
+  svc2:
+    ip: "127.0.0.1"
+    port: "8081"
+`
+	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
+	assert.NoError(t, err)
+	defer func() { _ = os.Remove("test.yaml") }()
+
+	_, err = LoadConfig("test", nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate endpoint detected")
 }

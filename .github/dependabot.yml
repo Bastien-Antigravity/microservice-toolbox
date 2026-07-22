@@ -3,17 +3,17 @@
 version: 2
 updates:
   - package-ecosystem: "gomod"
-    directory: "/"
+    directory: "/integration"
     schedule:
       interval: "weekly"
 
   - package-ecosystem: "pip"
-    directory: "/{{PYTHON_DIR}}"
+    directory: "/python"
     schedule:
       interval: "weekly"
 
   - package-ecosystem: "cargo"
-    directory: "/{{RUST_DIR}}"
+    directory: "/rust"
     schedule:
       interval: "weekly"
 

@@ -150,3 +150,21 @@ def test_unified_connect():
 
     time.sleep(0.1)
     assert error_count > 2
+
+
+def test_managed_connection_reconnect_max_retries():
+    from microservice_toolbox.conn_manager.errors import MaxRetriesReachedError
+
+    nm = new_network_manager(max_retries=2, base_delay_ms=10)
+    nm.establish_connection = MagicMock(side_effect=Exception("Connection failed"))
+
+    mc = nm.connect_blocking("127.0.0.1", "8080", "1.2.3.4", "test")
+
+    with pytest.raises(MaxRetriesReachedError):
+        mc.write(b"hello")
+
+    # First reconnect() inside connect_blocking: i=0 (fail), i=1 (fail), i=2 (raises, caught in connect_blocking)
+    # Second reconnect() inside write(): i=0 (fail), i=1 (fail), i=2 (raises)
+    # Total calls: 6
+    assert nm.establish_connection.call_count == 6
+
