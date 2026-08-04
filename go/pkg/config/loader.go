@@ -336,7 +336,7 @@ func (ac *AppConfig) GetGRPCMgmtAddr(capability string) (string, error) {
 	// This is not in distributed-config core yet, but follows the pattern.
 	// Actually, I should probably add it to distributed-config core if I want full parity.
 	// But I can implement it here first.
-	
+
 	// Direct access to internal getAddr isn't possible from another package if it's unexported.
 	// Let's check if distributed-config has it.
 	return ac.getAddr(capability, "grpc_ip", "grpc_mgmt_port")

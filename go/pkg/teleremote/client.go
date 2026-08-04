@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/teleremote/grpc_client"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/teleremote/grpc_client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -37,7 +37,7 @@ type rowDef struct {
 type Action struct {
 	Label       string
 	SubMenu     []Action
-	InputPrompt string                 // If set, bot asks user for text input
+	InputPrompt string                   // If set, bot asks user for text input
 	Callback    func(input string) error // Handler receives optional user text
 }
 
@@ -193,7 +193,7 @@ func (tc *TeleClient) connectionManager() {
 		tc.mu.RUnlock()
 
 		tc.logger.Info("TeleClient connecting to %s...", addr)
-		
+
 		conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
 			tc.logger.Warning("TeleClient connection failed: %v", err)
@@ -203,7 +203,7 @@ func (tc *TeleClient) connectionManager() {
 
 		client := grpc_client.NewTeleRemoteServiceClient(conn)
 		ctx, cancel := context.WithCancel(context.Background())
-		
+
 		stream, err := client.Connect(ctx)
 		if err != nil {
 			tc.logger.Warning("TeleClient stream creation failed: %v", err)
@@ -231,7 +231,7 @@ func (tc *TeleClient) connectionManager() {
 				tc.logger.Warning("TeleClient disconnected from tele-remote: %v", err)
 				break
 			}
-			
+
 			if cmd.CommandType == grpc_client.BotCommand_REFRESH_MENU {
 				tc.logger.Info("TeleClient received REFRESH_MENU request")
 				tc.sendRegistration(stream)
