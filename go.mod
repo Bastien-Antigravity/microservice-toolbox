@@ -34,3 +34,8 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260523011958-0a33c5d7ca68 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 )
+
+replace (
+	github.com/Bastien-Antigravity/distributed-config => ../distributed-config
+	github.com/Bastien-Antigravity/safe-socket => ../safe-socket
+)

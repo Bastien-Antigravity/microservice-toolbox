@@ -2,6 +2,11 @@
 microservice: microservice-toolbox
 type: governance
 status: active
+tags:
+- '#service/microservice-toolbox'
+- '#type/governance'
+- '#state/active'
+- '#zone/3-fleet'
 ---
 
 # ⚡ AI Initialization: microservice-toolbox
