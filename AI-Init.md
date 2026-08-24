@@ -1,3 +1,7 @@
+# Metadata
+- Version: 0.0.1
+- Classification: Library
+
 ---
 microservice: microservice-toolbox
 type: governance
