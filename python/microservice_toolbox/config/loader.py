@@ -81,12 +81,16 @@ class AppConfig:
         from microservice_toolbox.utils.helpers import get_base_dir
         base_dir = get_base_dir()
         filename = f"{profile}.yaml"
-        candidates = [
+        candidates = []
+        custom_config_path = osGetenv("CONFIG_PATH") or osGetenv("SHARED_CONFIG_PATH")
+        if custom_config_path and osPathExists(custom_config_path):
+            candidates.append(custom_config_path)
+        candidates.extend([
             filename,
             f"config/{profile}.yaml",
             osPathJoin(base_dir, filename),
             osPathJoin(base_dir, "config", filename),
-        ]
+        ])
 
         # ### PHASE 1: Initialize Bridge (The Master Source of Truth) ###
         self._handle = None

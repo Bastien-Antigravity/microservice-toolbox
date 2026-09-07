@@ -97,10 +97,24 @@ impl AppConfig {
         ];
 
         let mut found_path = None;
-        for path in &candidates {
-            if path.exists() {
-                found_path = Some(path.to_string_lossy().to_string());
-                break;
+        if let Ok(custom_path) = std::env::var("CONFIG_PATH") {
+            if std::path::Path::new(&custom_path).exists() {
+                found_path = Some(custom_path);
+            }
+        }
+        if found_path.is_none() {
+            if let Ok(custom_path) = std::env::var("SHARED_CONFIG_PATH") {
+                if std::path::Path::new(&custom_path).exists() {
+                    found_path = Some(custom_path);
+                }
+            }
+        }
+        if found_path.is_none() {
+            for path in &candidates {
+                if path.exists() {
+                    found_path = Some(path.to_string_lossy().to_string());
+                    break;
+                }
             }
         }
 
@@ -364,7 +378,11 @@ impl AppConfig {
         let cap_path = format!("capabilities.{}", capability);
         let cap = self.get_value(&cap_path).ok_or_else(|| format!("capability {} not found", capability))?;
         let host = cap.get(host_key).and_then(|v| v.as_str()).ok_or_else(|| format!("host key {} missing in capability {}", host_key, capability))?;
-        let port = cap.get(port_key).and_then(|v| v.as_str()).ok_or_else(|| format!("port key {} missing in capability {}", port_key, capability))?;
+        let port = match cap.get(port_key) {
+            Some(Value::String(s)) => s.clone(),
+            Some(Value::Number(n)) => n.to_string(),
+            _ => return Err(format!("port key {} missing or invalid in capability {}", port_key, capability)),
+        };
         Ok(format!("{}:{}", host, port))
     }
 

@@ -30,13 +30,14 @@ The `microservice-toolbox` provides common operational patterns for the Bastien-
 
 ### 1. Smart Configuration Loader
 Implements a strict "Hierarchy of Truth" for service configuration:
-1.  **Command Line Overrides** (`--key`, `--host`, `--port`): Highest Priority. 
-2.  **Environment Variables** (`BASTIEN_PRIVATE_KEY_PATH`): OS-level overrides.
-3.  **Local File Override** (`[profile].yaml`): Authoritative local source.
-4.  **Config Server Baseline**: Fleet configuration baseline.
+1.  **Command Line Overrides** (`--key`, `--host`, `--port`): Highest Priority.
+2.  **Explicit Config Path Overrides** (`CONFIG_PATH`, `SHARED_CONFIG_PATH`): Direct pointer to the single source of truth YAML profile.
+3.  **Environment Variables** (`BASTIEN_PRIVATE_KEY_PATH`, `${VAR:default}`): OS-level expansion and overrides.
+4.  **Local File Override** (`[profile].yaml`): Authoritative local source.
+5.  **Config Server Baseline**: Fleet configuration baseline.
 
 > [!NOTE]
-> **Universal Override Policy**: The local file override acts as an authoritative, unconditional override across all profiles (including production and staging) to ensure absolute local alignment.
+> **Universal Override Policy**: The local file override and explicit `CONFIG_PATH` act as an authoritative, unconditional override across all profiles (including production and staging) to ensure absolute ecosystem alignment.
 
 ### 2. Local Configuration Namespace (`Local`)
 Every implementation supports the `local:` YAML section for service-specific settings that are **never** synchronized to the fleet.
