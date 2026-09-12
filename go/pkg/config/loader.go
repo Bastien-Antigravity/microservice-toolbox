@@ -183,7 +183,7 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 // GetLocal returns a value from the 'local' configuration section.
 // Supports nested lookups using dot notation (e.g., "database.host").
 func (ac *AppConfig) GetLocal(key string) interface{} {
-	if ac.Local == nil {
+	if ac == nil || ac.Local == nil {
 		return nil
 	}
 
