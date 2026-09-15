@@ -33,6 +33,24 @@ def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
     import json
 
     if not os.path.exists(filepath):
+        if mcp_url:
+            parent_dir = os.path.dirname(filepath)
+            if parent_dir and os.path.isdir(parent_dir):
+                initial_data = {
+                    "mcpServers": {
+                        "obsidian_rag": {
+                            "url": mcp_url,
+                            "serverURL": mcp_url
+                        }
+                    }
+                }
+                try:
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        json.dump(initial_data, f, indent=2, ensure_ascii=False)
+                    print(f"✅ Initialized new MCP configuration at {label}")
+                    return initial_data
+                except Exception:
+                    pass
         return {}
 
     try:

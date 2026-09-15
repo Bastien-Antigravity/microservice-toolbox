@@ -127,7 +127,7 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
     os.environ["GODEBUG"] = "cgocheck=0"
     _dylib_path = None
     _ext = ".dylib" if sys.platform == "darwin" else (".dll" if sys.platform == "win32" else ".so")
-    
+
     # Locate virtualenv lib site-packages dynamically
     _venv_lib_dir = repo_root / ".venv" / "lib"
     _venv_sp = None
