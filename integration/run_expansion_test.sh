@@ -10,8 +10,21 @@ echo ">>> BUILDING INTEGRATION UTILITIES <<<"
 (cd rust && cargo build --bin expansion_check --quiet && cp target/debug/expansion_check ../bin/rust_expansion_check)
 (cd cpp && make bin/expansion_check --quiet && cp bin/expansion_check ../bin/cpp_expansion_check)
 
-# Cleanup on exit
-trap 'rm -f standalone.yaml go/standalone.yaml rust/standalone.yaml cpp/standalone.yaml' EXIT
+# Safely backup existing standalone.yaml (preserve symlink to native.yaml)
+EXISTED_BACKUP=0
+if [ -e standalone.yaml ] || [ -L standalone.yaml ]; then
+    mv standalone.yaml standalone.yaml.bak
+    EXISTED_BACKUP=1
+fi
+
+# Cleanup on exit and restore
+cleanup() {
+    rm -f standalone.yaml go/standalone.yaml rust/standalone.yaml cpp/standalone.yaml
+    if [ "$EXISTED_BACKUP" -eq 1 ]; then
+        mv standalone.yaml.bak standalone.yaml
+    fi
+}
+trap cleanup EXIT
 
 # Copy test file to profile locations
 cp $YAML_FILE standalone.yaml
@@ -35,7 +48,7 @@ get_val() {
             ./bin/rust_expansion_check $PROFILE "$key" | grep -o 'VALUE:.*' | cut -d: -f2
             ;;
         cpp)
-            ./bin/cpp_expansion_check $PROFILE "$key" | grep -o 'VALUE:.*' | cut -d: -f2
+            DYLD_LIBRARY_PATH="../distributed-config/distconf/libdistconf:$$DYLD_LIBRARY_PATH" ./bin/cpp_expansion_check $PROFILE "$key" | grep -o 'VALUE:.*' | cut -d: -f2
             ;;
     esac
 }

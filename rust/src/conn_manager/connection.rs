@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Represents a resilient, auto-reconnecting network connection with exponential backoff.
+//
+// DATA FLOW:
+// Network Events -> Reconnect Loop + Backoff -> Active Socket Connection
+//
+// KEY PARAMETERS:
+// - target: Network endpoint address.
+// - backoff: Reconnection retry delay with randomized jitter.
+// -----------------------------------------------------------------------------
+
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;

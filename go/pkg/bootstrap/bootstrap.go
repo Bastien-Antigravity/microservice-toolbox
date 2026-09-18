@@ -1,5 +1,19 @@
 package bootstrap
 
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Standardized entrypoint and bootstrap ritual for Go microservices in the
+// Bastien-Antigravity fleet. Auto-detects runtime environment (Local vs Docker),
+// loads layered distributed configuration, and binds Universal Logger.
+//
+// DATA FLOW:
+// CLI / OS Environment -> LoadConfig() -> unilog.InitWithOptions() -> (AppConfig, Logger)
+//
+// KEY PARAMETERS:
+// - serviceName: Unique identifier for the microservice.
+// - specificFlags: Optional CLI arguments passed to configuration loader.
+// -----------------------------------------------------------------------------
+
 import (
 	"fmt"
 	"os"
@@ -11,9 +25,9 @@ import (
 	unilog_utils "github.com/Bastien-Antigravity/universal-logger/src/utils"
 )
 
-// BootstrapService provides a standardized 1-line entrypoint for Go microservices.
-// It auto-detects environment (DEV vs PROD/Docker), loads AppConfig, and binds Universal Logger.
-func BootstrapService(serviceName string, specificFlags ...string) (*toolbox_config.AppConfig, unilog_interfaces.Logger) {
+// BootstrapServiceSafe initializes AppConfig and Universal Logger without calling os.Exit.
+// Returns an error if configuration loading fails.
+func BootstrapServiceSafe(serviceName string, specificFlags ...string) (*toolbox_config.AppConfig, unilog_interfaces.Logger, error) {
 	profile := "standalone"
 	loggerProfile := "standard"
 
@@ -27,8 +41,7 @@ func BootstrapService(serviceName string, specificFlags ...string) (*toolbox_con
 
 	appConfig, err := toolbox_config.LoadConfig(profile, specificFlags)
 	if err != nil {
-		fmt.Printf("Critical Error loading config for service %s: %v\n", serviceName, err)
-		os.Exit(1)
+		return nil, nil, fmt.Errorf("loading config for service %s: %w", serviceName, err)
 	}
 
 	logLevel := os.Getenv("LOG_LEVEL")
@@ -46,5 +59,19 @@ func BootstrapService(serviceName string, specificFlags ...string) (*toolbox_con
 	})
 
 	appConfig.Logger = appLogger
+	return appConfig, appLogger, nil
+}
+
+// -----------------------------------------------------------------------------
+
+// BootstrapService provides a standardized 1-line entrypoint for Go microservices.
+// It auto-detects environment (DEV vs PROD/Docker), loads AppConfig, and binds Universal Logger.
+// For graceful error returns without process exit, use BootstrapServiceSafe.
+func BootstrapService(serviceName string, specificFlags ...string) (*toolbox_config.AppConfig, unilog_interfaces.Logger) {
+	appConfig, appLogger, err := BootstrapServiceSafe(serviceName, specificFlags...)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Critical Error: %v\n", err)
+		os.Exit(1)
+	}
 	return appConfig, appLogger
 }

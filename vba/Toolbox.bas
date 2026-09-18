@@ -1,6 +1,16 @@
 Attribute VB_Name = "Toolbox"
 ' -----------------------------------------------------------------------------------------------
-' Microservice Toolbox: Utility Module
+' ESSENTIAL PROCESS:
+' Utility and helper module providing the LoadConfig factory and string conversion routines for VBA.
+'
+' DATA FLOW:
+' 1. Input: Profile string to LoadConfig or raw C-pointer string (char*).
+' 2. Logic: Instantiates AppConfig or calculates C-string length and copies into BSTR.
+' 3. Output: Initialized AppConfig instance or native VBA String.
+'
+' KEY PARAMETERS:
+' - profile: Name of configuration profile to load.
+' - ptr: Raw memory pointer to null-terminated C string.
 ' -----------------------------------------------------------------------------------------------
 
 Option Explicit

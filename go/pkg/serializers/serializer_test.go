@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Defines the unified serialization interface for binary and text encoding formats.
+//
+// DATA FLOW:
+// Domain Objects <-> Serializer (JSON, MsgPack) <-> Byte Payloads
+//
+// KEY PARAMETERS:
+// - Marshal / Unmarshal: Bidirectional conversion methods.
+// -----------------------------------------------------------------------------
+
 package serializers
 
 import (

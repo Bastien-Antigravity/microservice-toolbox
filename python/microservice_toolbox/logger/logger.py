@@ -3,7 +3,15 @@
 
 """
 ESSENTIAL PROCESS:
-Logger Protocol, native Python logger wrapper, and safe logging initialization helper.
+Logger Protocol definition, native Python logger wrapper, and safe logger fallback helper.
+
+DATA FLOW:
+1. Input: Log severity strings, messages, and optional metadata from application callers.
+2. Logic: Enforces ecosystem Logger protocol compliance across concrete implementations.
+3. Output: Dispatched log messages or safe fallback logger instance.
+
+KEY PARAMETERS:
+- logger: Optional Logger instance passed to ensure_safe_logger.
 """
 
 from typing import Protocol, runtime_checkable, Optional

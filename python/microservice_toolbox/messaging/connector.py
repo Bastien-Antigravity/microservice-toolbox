@@ -1,39 +1,68 @@
 #!/usr/bin/env python
 # coding:utf-8
 
+"""
+ESSENTIAL PROCESS:
+Asynchronous client connector establishing robust NATS connections with lifecycle event logging.
+
+DATA FLOW:
+1. Input: NatsConfig specifying cluster endpoints and reconnect parameters.
+2. Logic: Initiates async connection with disconnected, reconnected, and closed callbacks.
+3. Output: Active nats.NATS connection instance.
+
+KEY PARAMETERS:
+- cfg: Validated NatsConfig instance with server addresses and reconnect policies.
+- logger: Optional Logger instance for logging lifecycle connection events.
+"""
+
 import nats
 from typing import Optional
 from microservice_toolbox.logger import Logger, ensure_safe_logger
 from .config import NatsConfig
 
+
+# -----------------------------------------------------------------------------------------------
+# ### NATS CONNECTOR ###
+# -----------------------------------------------------------------------------------------------
+
 async def connect(cfg: NatsConfig, logger: Optional[Logger] = None) -> nats.NATS:
-	"""
-	Establishes an asynchronous connection to the NATS server and configures event logging.
-	"""
-	log = ensure_safe_logger(logger)
+    """
+    Establishes an asynchronous connection to the NATS server and configures event logging.
 
-	if not cfg.servers:
-		raise ValueError("no nats servers configured")
+    Args:
+        cfg: Validated NATS configuration containing server endpoints and reconnect policies.
+        logger: Optional logger for connection state events.
 
-	async def disconnected_cb():
-		log.warning(f"[{cfg.client_id}] NATS disconnected, attempting reconnect...")
+    Returns:
+        nats.NATS: An active, connected NATS client.
 
-	async def reconnected_cb():
-		log.info(f"[{cfg.client_id}] NATS successfully reconnected")
+    Raises:
+        ValueError: If no NATS servers are configured.
+    """
+    log = ensure_safe_logger(logger)
 
-	async def closed_cb():
-		log.error(f"[{cfg.client_id}] NATS connection closed unexpectedly")
+    if not cfg.servers:
+        raise ValueError("no nats servers configured")
 
-	nc = await nats.connect(
-		servers=cfg.servers,
-		name=cfg.client_id,
-		connect_timeout=cfg.connect_timeout,
-		reconnect_time_wait=cfg.reconnect_wait,
-		max_reconnect_attempts=cfg.max_reconnects,
-		disconnected_cb=disconnected_cb,
-		reconnected_cb=reconnected_cb,
-		closed_cb=closed_cb,
-	)
+    async def disconnected_cb():
+        log.warning(f"[{cfg.client_id}] NATS disconnected, attempting reconnect...")
 
-	log.info(f"[{cfg.client_id}] Successfully connected to NATS at {nc.connected_url}")
-	return nc
+    async def reconnected_cb():
+        log.info(f"[{cfg.client_id}] NATS successfully reconnected")
+
+    async def closed_cb():
+        log.error(f"[{cfg.client_id}] NATS connection closed unexpectedly")
+
+    nc = await nats.connect(
+        servers=cfg.servers,
+        name=cfg.client_id,
+        connect_timeout=cfg.connect_timeout,
+        reconnect_time_wait=cfg.reconnect_wait,
+        max_reconnect_attempts=cfg.max_reconnects,
+        disconnected_cb=disconnected_cb,
+        reconnected_cb=reconnected_cb,
+        closed_cb=closed_cb,
+    )
+
+    log.info(f"[{cfg.client_id}] Successfully connected to NATS at {nc.connected_url}")
+    return nc

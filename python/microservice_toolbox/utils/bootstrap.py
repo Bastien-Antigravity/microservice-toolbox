@@ -5,6 +5,14 @@
 ESSENTIAL PROCESS:
 Bootstrapping utilities for running Python processes in the Bastien-Antigravity ecosystem.
 Manages automatic virtualenv re-execution, library path injections, and directory redirection.
+
+DATA FLOW:
+1. Input: Script execution directory and operating system environment variables.
+2. Logic: Traverses directory tree to resolve obsidian-brain vault root and nearest .venv.
+3. Output: Aligned sys.path, prepended PATH entries, and validated Python interpreter paths.
+
+KEY PARAMETERS:
+- start_dir: Base directory path to begin walking up toward the vault root.
 """
 
 import os
@@ -123,36 +131,21 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
             workspace_root = parent
             break
 
-    # 1. Align dynamic library path to prevent double Go runtime initialization
+    # 1. Align dynamic library paths using the single source of truth in utils.lib_loader
     os.environ["GODEBUG"] = "cgocheck=0"
-    _dylib_path = None
-    _ext = ".dylib" if sys.platform == "darwin" else (".dll" if sys.platform == "win32" else ".so")
+    from microservice_toolbox.utils.lib_loader import resolve_library_path
 
-    # Locate virtualenv lib site-packages dynamically
-    _venv_lib_dir = repo_root / ".venv" / "lib"
-    _venv_sp = None
-    if _venv_lib_dir.exists():
-        for _py_dir in _venv_lib_dir.glob("python*"):
-            _sp = _py_dir / "site-packages"
-            if _sp.exists():
-                _venv_sp = _sp
-                break
+    unilog_path = resolve_library_path("libunilog", "LIBUNILOG_PATH")
+    if unilog_path:
+        os.environ["LIBUNILOG_PATH"] = unilog_path
+        if sys.platform == "darwin":
+            # On macOS, prevent double Go runtime initialization by sharing the consolidated library
+            os.environ["LIBDISTCONF_PATH"] = unilog_path
 
-    _candidates = [
-        workspace_root / "universal-logger" / "unilog" / "libunilog" / f"libunilog{_ext}",
-        workspace_root / "universal-logger" / "unilog" / "python" / "unilog" / f"libunilog{_ext}"
-    ]
-    if _venv_sp:
-        _candidates.insert(0, _venv_sp / "unilog" / f"libunilog{_ext}")
-
-    for _c in _candidates:
-        if _c.exists():
-            _dylib_path = str(_c.resolve())
-            break
-
-    if _dylib_path:
-        os.environ["LIBUNILOG_PATH"] = _dylib_path
-        os.environ["LIBDISTCONF_PATH"] = _dylib_path
+    if not os.environ.get("LIBDISTCONF_PATH"):
+        distconf_path = resolve_library_path("libdistconf", "LIBDISTCONF_PATH")
+        if distconf_path:
+            os.environ["LIBDISTCONF_PATH"] = distconf_path
 
     # 2. Virtual Environment Redirect
     _venv_dir = repo_root / ".venv"
@@ -176,9 +169,16 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
         if path.exists() and path_str not in sys.path:
             sys.path.insert(0, path_str)
 
-    if _venv_sp:
-        site_pkg_str = str(_venv_sp.resolve())
-        if site_pkg_str not in sys.path:
-            sys.path.insert(0, site_pkg_str)
+    # Locate virtualenv lib site-packages
+    _venv_lib_dir = _venv_dir / "lib"
+    if _venv_lib_dir.exists():
+        for _py_dir in _venv_lib_dir.glob("python*"):
+            _sp = _py_dir / "site-packages"
+            if _sp.exists():
+                site_pkg_str = str(_sp.resolve())
+                if site_pkg_str not in sys.path:
+                    sys.path.insert(0, site_pkg_str)
+                break
+
 
 

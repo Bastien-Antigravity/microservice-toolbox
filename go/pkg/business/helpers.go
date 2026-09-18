@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Helper utilities and conversion routines for core business domain models.
+//
+// DATA FLOW:
+// Raw Market Data -> Business Helpers -> Validated Domain Structures
+//
+// KEY PARAMETERS:
+// - Helpers: Formatting, validation, and payload conversion utilities.
+// -----------------------------------------------------------------------------
+
 package business
 
 import (

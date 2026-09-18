@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Establishes and manages resilient connections to NATS message brokers.
+//
+// DATA FLOW:
+// NatsConfig -> Connection Pool -> NATS Client Instance
+//
+// KEY PARAMETERS:
+// - servers: Connection addresses for broker failover.
+// -----------------------------------------------------------------------------
+
 use std::sync::Arc;
 use std::time::Duration;
 use crate::utils::logger::{Logger, ensure_safe_logger};

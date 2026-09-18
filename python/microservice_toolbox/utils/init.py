@@ -3,7 +3,18 @@
 
 """
 ESSENTIAL PROCESS:
-Standardized, reliable bootstrapper for Python microservices.
+Standardized, reliable bootstrapper for Python microservices. Configures virtualenv paths, dynamic CGO library bindings, distributed configuration, and universal logging.
+
+DATA FLOW:
+1. Input: Application identity, profile names, and virtual environment paths.
+2. Logic: Aligns virtualenv and CGO environment variables (LIBUNILOG_PATH, LIBDISTCONF_PATH), loads distributed configuration, and binds UniLog.
+3. Output: Tuple of (config: AppConfig, logger: UniLog).
+
+KEY PARAMETERS:
+- app_name: Canonical identifier of the microservice application.
+- config_profile: Configuration profile to load (default: "standalone").
+- logger_profile: Optional logging profile sink (default: "cloud" in containers, "standard" on host).
+- log_level: Initial minimum logging level string (default: "info").
 """
 
 import os
@@ -21,6 +32,10 @@ from .bootstrap import (
 )
 
 
+# -----------------------------------------------------------------------------------------------
+# ### SERVICE BOOTSTRAPPER ###
+# -----------------------------------------------------------------------------------------------
+
 def init_microservice(
     app_name: str,
     config_profile: str = "standalone",
@@ -29,13 +44,23 @@ def init_microservice(
 ) -> Tuple[Any, Any]:
     """
     Standardized, reliable bootstrapper for Python microservices.
-    
-    1. Identifies the nearest virtualenv and CGO master dylib.
-    2. Forces a relaunch with aligned environment variables if not already set.
-    3. Loads the distributed configuration.
-    4. Initializes the UniLog logging client.
-    
-    Returns (config, logger). Raises RuntimeError or ValueError if initialization fails.
+
+    Aligns the process with the local virtualenv, binds to native CGO libraries (libunilog,
+    libdistconf), loads the distributed configuration, and initializes the universal logger.
+
+    Args:
+        app_name: Canonical identifier of the microservice application.
+        config_profile: Active configuration profile (e.g., 'standalone', 'production').
+        logger_profile: Optional sink profile override. Defaults to 'cloud' if running in
+            Docker/container, or 'standard' on host.
+        log_level: Minimum threshold for log dispatching ('debug', 'info', 'warning', etc.).
+
+    Returns:
+        Tuple[AppConfig, UniLog]: Initialized and bound configuration and logging instances.
+
+    Raises:
+        RuntimeError: If the CGO shared library (libunilog) is missing, process relaunch fails,
+            or configuration cannot be loaded.
     """
     # 1. Resolve path components
     script_dir = Path(sys.argv[0]).resolve().parent
@@ -43,37 +68,36 @@ def init_microservice(
     _venv_dir = _venv_parent / ".venv"
     _venv_python = get_venv_python(_venv_parent)
     
-    # Resolve the master libunilog dylib path
-    _dylib_path = None
-    _candidates = [
-        _venv_dir / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "unilog" / "libunilog.dylib",
-        _venv_parent / "universal-logger" / "unilog" / "libunilog" / "libunilog.dylib",
-        _venv_parent / "universal-logger" / "unilog" / "python" / "unilog" / "libunilog.dylib"
-    ]
-    # Fallback to walking up to find vault root
     vault_root = find_vault_root(str(script_dir))
-    _candidates.extend([
-        vault_root / "universal-logger" / "unilog" / "libunilog" / "libunilog.dylib",
-        vault_root / "universal-logger" / "unilog" / "python" / "unilog" / "libunilog.dylib"
-    ])
-    
-    for _c in _candidates:
-        if _c.exists():
-            _dylib_path = str(_c.resolve())
-            break
-            
+
+    from .lib_loader import resolve_library_path
+
+    # Resolve the master libunilog shared library path
+    _dylib_path = resolve_library_path("libunilog", "LIBUNILOG_PATH")
     if not _dylib_path:
-        sys.stderr.write("❌ INITIALIZATION ERROR: libunilog shared library not found in workspace candidates.\n")
-        sys.exit(1)
-        
+        _ext = ".dylib" if sys.platform == "darwin" else (".dll" if sys.platform == "win32" else ".so")
+        raise RuntimeError(
+            f"libunilog shared library (libunilog{_ext}) not found in workspace candidates or LIBUNILOG_PATH. "
+            f"Please compile the CGO library ('make shared-lib' in universal-logger) or set the LIBUNILOG_PATH environment variable."
+        )
+
+    # Resolve libdistconf path independently
+    _distconf_path = resolve_library_path("libdistconf", "LIBDISTCONF_PATH")
+    if sys.platform == "darwin" and not _distconf_path:
+        _distconf_path = _dylib_path
+
+
     # Check if environment is already aligned or we need to relaunch
-    has_venv = sys.prefix == str(_venv_dir)
-    has_env = os.environ.get("LIBUNILOG_PATH") == _dylib_path and os.environ.get("LIBDISTCONF_PATH") == _dylib_path
+    has_venv = sys.prefix == str(_venv_dir) if _venv_dir.exists() else True
+    has_env = (os.environ.get("LIBUNILOG_PATH") == _dylib_path) and (
+        _distconf_path is None or os.environ.get("LIBDISTCONF_PATH") == _distconf_path
+    )
     
     if not (has_venv and has_env):
         # Align environment and relaunch
         os.environ["LIBUNILOG_PATH"] = _dylib_path
-        os.environ["LIBDISTCONF_PATH"] = _dylib_path
+        if _distconf_path:
+            os.environ["LIBDISTCONF_PATH"] = _distconf_path
         os.environ["GODEBUG"] = "cgocheck=0"
         os.environ.pop("PYTHONPATH", None)
         
@@ -81,8 +105,7 @@ def init_microservice(
         try:
             os.execve(python_bin, [python_bin] + sys.argv, os.environ)
         except Exception as e:
-            sys.stderr.write(f"❌ INITIALIZATION ERROR: Failed to relaunch process: {e}\n")
-            sys.exit(1)
+            raise RuntimeError(f"Failed to relaunch process with aligned environment: {e}") from e
             
     # If we reach here, we are running in the aligned process!
     prepend_venv_bin(_venv_parent)
@@ -95,33 +118,31 @@ def init_microservice(
         
     redirect_working_directory(script_dir)
     
-    try:
-        from microservice_toolbox.config.lib_loader import load_libdistconf
-        load_libdistconf()
+    from .lib_loader import load_libdistconf
+    load_libdistconf()
+    
+    from microservice_toolbox.config.loader import load_config
+    from microservice_toolbox.logger import UniLog
+    
+    config = load_config(config_profile, input_args=[])
+    if not config:
+        raise RuntimeError("Failed to load configuration.")
         
-        from microservice_toolbox.config.loader import load_config
-        from microservice_toolbox.logger import UniLog
+    config_handle = getattr(config, "_handle", 0) or 0
+    
+    if not logger_profile:
+        if os.environ.get("DOCKER_ENV") == "true" or os.environ.get("CONTAINER") == "true":
+            logger_profile = os.environ.get("LOGGER_PROFILE", "cloud")
+        else:
+            logger_profile = os.environ.get("LOGGER_PROFILE", "standard")
         
-        config = load_config(config_profile, input_args=[])
-        if not config:
-            raise RuntimeError("Failed to load configuration.")
-            
-        config_handle = getattr(config, "_handle", 0) or 0
-        
-        if not logger_profile:
-            devel_mode = bool(config.data.get("capabilities", {}).get("rag_engine", {}).get("devel", True))
-            logger_profile = os.environ.get("LOGGER_PROFILE", "devel" if devel_mode else "standard")
-            
-        logger = UniLog(
-            app_name=app_name,
-            config_profile=config_profile,
-            logger_profile=logger_profile,
-            log_level=log_level,
-            config_handle=config_handle
-        )
-        
-        config.set_logger(logger)
-        return config, logger
-    except Exception as e:
-        sys.stderr.write(f"❌ INITIALIZATION ERROR: {e}\n")
-        sys.exit(1)
+    logger = UniLog(
+        app_name=app_name,
+        config_profile=config_profile,
+        logger_profile=logger_profile,
+        log_level=log_level,
+        config_handle=config_handle
+    )
+    
+    config.set_logger(logger)
+    return config, logger

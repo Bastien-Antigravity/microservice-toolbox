@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Defines standardized error types and categorization for connection manager failures.
+//
+// DATA FLOW:
+// Network Failure -> Error Classification -> Retry Decision / Fatal Error
+//
+// KEY PARAMETERS:
+// - Error codes: Transient network errors vs permanent configuration failures.
+// -----------------------------------------------------------------------------
+
 use std::fmt;
 
 #[derive(Debug)]

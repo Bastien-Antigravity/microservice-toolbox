@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// General-purpose helper utilities for string, path, and error manipulation.
+//
+// DATA FLOW:
+// Input Data -> Utility Routine -> Processed Result
+//
+// KEY PARAMETERS:
+// - Helpers: General support routines across the toolbox.
+// -----------------------------------------------------------------------------
+
 use std::process::Command;
 use std::sync::OnceLock;
 

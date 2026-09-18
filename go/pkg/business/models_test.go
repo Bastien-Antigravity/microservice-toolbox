@@ -1,3 +1,16 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Defines standard market data domain models (MarketEvent, OHLCV, Signal) across the fleet.
+//
+// DATA FLOW:
+// Market Feed -> Serialization -> Business Models -> Strategy Engines
+//
+// KEY PARAMETERS:
+// - MarketEvent: High-resolution market tick or event packet.
+// - OHLCV: Standard open-high-low-close-volume candlestick record.
+// - Signal: Trading signal event emitted by analytical services.
+// -----------------------------------------------------------------------------
+
 package business
 
 import (

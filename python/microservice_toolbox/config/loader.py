@@ -25,9 +25,11 @@ from typing import Any, Callable, Dict, List, Optional
 from yaml import safe_load as yamlSafeLoad
 
 from ..logger import Logger, ensure_safe_logger
+from ..utils.lib_loader import CALLBACK_TYPE, load_libdistconf
 from .args import parse_cli_args
-from .lib_loader import CALLBACK_TYPE, lib
 from .merger import deep_merge
+
+lib = load_libdistconf()
 
 # -----------------------------------------------------------------------------------------------
 
@@ -360,7 +362,7 @@ class AppConfig:
         Resolves the gRPC listening address for a capability.
         Requires explicit grpc_ip and grpc_port (matching Go GetGRPCAddress behavior).
         """
-        if self._handle:
+        if self._handle and lib:
             try:
                 res = lib.DistConf_GetGRPCAddress(self._handle, capability.encode('utf-8'))
                 if res:
@@ -370,16 +372,19 @@ class AppConfig:
 
         return self._get_addr(capability, "grpc_ip", "grpc_port")
 
-    def get_grpc_mgmt_addr(self, capability: str) -> str:
-        """
-        Resolves the gRPC Management address for a capability (Shadow + 2).
-        """
-        return self._get_addr(capability, "grpc_ip", "grpc_mgmt_port")
-
     def get_rest_addr(self, capability: str) -> str:
         """
-        Resolves the REST Management address for a capability (Shadow + 3).
+        Resolves the REST Management address for a capability.
+        Requires explicit ip and rest_port.
         """
+        if self._handle and lib:
+            try:
+                res = lib.DistConf_GetRESTAddress(self._handle, capability.encode('utf-8'))
+                if res:
+                    return res.decode('utf-8')
+            except Exception as e:
+                self.logger.warning(f"{self.Name} : Bridge GetRESTAddress failed: {e}")
+
         return self._get_addr(capability, "ip", "rest_port")
 
     # -----------------------------------------------------------------------------------------------
@@ -593,66 +598,19 @@ class AppConfig:
                 continue
 
             ip = cap_data.get("ip")
-            port_str = cap_data.get("port")
+            g_ip = cap_data.get("grpc_ip") or ip
 
-            if ip and port_str is not None:
-                try:
-                    port = int(port_str)
-                except (ValueError, TypeError):
-                    continue
+            # Explicit TCP port
+            port_val = cap_data.get("port")
+            if ip and port_val is not None:
+                _check_and_add(ip, port_val, f"{cap_name} (TCP)")
 
-                # Collect all explicit ports defined in this capability
-                explicit_ports = {port}
-                
-                g_port_str = cap_data.get("grpc_port")
-                if g_port_str is not None:
-                    try:
-                        explicit_ports.add(int(g_port_str))
-                    except (ValueError, TypeError):
-                        pass
-                
-                r_port_str = cap_data.get("rest_port")
-                if r_port_str is not None:
-                    try:
-                        explicit_ports.add(int(r_port_str))
-                    except (ValueError, TypeError):
-                        pass
+            # Explicit gRPC port
+            g_port_val = cap_data.get("grpc_port")
+            if g_ip and g_port_val is not None:
+                _check_and_add(g_ip, g_port_val, f"{cap_name} (gRPC)")
 
-                _check_and_add(ip, port, f"{cap_name} (TCP)")
-
-                g_ip = cap_data.get("grpc_ip") or ip
-                has_explicit_gp = False
-                g_port = None
-                if g_port_str is not None:
-                    try:
-                        g_port = int(g_port_str)
-                        has_explicit_gp = True
-                    except (ValueError, TypeError):
-                        pass
-                if g_port is None:
-                    g_port = port + 1
-                if has_explicit_gp or g_port not in explicit_ports:
-                    _check_and_add(g_ip, g_port, f"{cap_name} (gRPC)")
-
-                has_explicit_rp = False
-                r_port = None
-                if r_port_str is not None:
-                    try:
-                        r_port = int(r_port_str)
-                        has_explicit_rp = True
-                    except (ValueError, TypeError):
-                        pass
-                if r_port is None:
-                    r_port = port + 3
-                if has_explicit_rp or r_port not in explicit_ports:
-                    _check_and_add(ip, r_port, f"{cap_name} (REST)")
-            else:
-                g_ip = cap_data.get("grpc_ip") or ip
-                if g_ip:
-                    g_port = cap_data.get("grpc_port")
-                    if g_port is not None:
-                        _check_and_add(g_ip, g_port, f"{cap_name} (gRPC)")
-                if ip:
-                    r_port = cap_data.get("rest_port")
-                    if r_port is not None:
-                        _check_and_add(ip, r_port, f"{cap_name} (REST)")
+            # Explicit REST port
+            r_port_val = cap_data.get("rest_port")
+            if ip and r_port_val is not None:
+                _check_and_add(ip, r_port_val, f"{cap_name} (REST)")

@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Parses command-line arguments for C++ microservice toolbox configuration.
+//
+// DATA FLOW:
+// argc/argv -> CommandLine Parser -> Key-Value Options Map
+//
+// KEY PARAMETERS:
+// - argc, argv: Standard C++ argument vector.
+// -----------------------------------------------------------------------------
+
 #ifndef MICROSERVICE_TOOLBOX_COMMAND_LINE_HPP
 #define MICROSERVICE_TOOLBOX_COMMAND_LINE_HPP
 

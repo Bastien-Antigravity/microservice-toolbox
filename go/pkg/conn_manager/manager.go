@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Manages polyglot inter-service network connections with lifecycle hooks and circuit breakers.
+//
+// DATA FLOW:
+// Service Request -> Connection Pool / ManagedConnection -> Active Inter-service Link
+//
+// KEY PARAMETERS:
+// - connections: Active managed connections map.
+// - strategies: Backoff and retry presets.
+// -----------------------------------------------------------------------------
+
 package conn_manager
 
 import (

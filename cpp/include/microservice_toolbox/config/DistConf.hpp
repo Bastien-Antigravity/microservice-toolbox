@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// C++ wrapper for libdistconf CGO shared library exports.
+//
+// DATA FLOW:
+// C++ Calls -> DistConf Wrapper -> CGO libdistconf Shared Library
+//
+// KEY PARAMETERS:
+// - handle: Opaque pointer handle to distributed-config session.
+// -----------------------------------------------------------------------------
+
 #ifndef DISTCONF_HPP
 #define DISTCONF_HPP
 
@@ -97,6 +108,15 @@ public:
     // Get a gRPC address for a capability
     std::string GetGRPCAddress(const std::string& capability) const {
         char* val = DistConf_GetGRPCAddress(handle_, const_cast<char*>(capability.c_str()));
+        if (!val) return "";
+        std::string result(val);
+        DistConf_FreeString(val);
+        return result;
+    }
+
+    // Get a REST address for a capability
+    std::string GetRESTAddress(const std::string& capability) const {
+        char* val = DistConf_GetRESTAddress(handle_, const_cast<char*>(capability.c_str()));
         if (!val) return "";
         std::string result(val);
         DistConf_FreeString(val);

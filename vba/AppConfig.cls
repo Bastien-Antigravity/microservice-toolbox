@@ -8,9 +8,17 @@ Attribute VB_Creatable = False
 Attribute VB_PredeclaredId = False
 Attribute VB_Exposed = False
 ' -----------------------------------------------------------------------------------------------
-' Microservice Toolbox: AppConfig Class Module
-' -----------------------------------------------------------------------------------------------
-' Provides a high-level, object-oriented API for configuration management in VBA.
+' ESSENTIAL PROCESS:
+' Object-oriented configuration management class for VBA, encapsulating the libdistconf FFI session.
+'
+' DATA FLOW:
+' 1. Input: Profile name on Init, configuration key queries from Excel/Access macros.
+' 2. Logic: Delegates to DistConf FFI, parses JSON structures, caches local dictionary mirror.
+' 3. Output: Typed strings, addresses, and capability values returned to VBA callers.
+'
+' KEY PARAMETERS:
+' - m_profile: Active profile name (e.g. "standalone", "production").
+' - m_handle: CGO session handle allocated by DistConf_New.
 ' -----------------------------------------------------------------------------------------------
 
 Option Explicit
@@ -69,13 +77,6 @@ Public Function GetGRPCListenAddr(ByVal capability As String) As String
     Dim ptr As LongPtr
     ptr = DistConf.DistConf_GetGRPCAddress(m_handle, capability)
     GetGRPCListenAddr = Toolbox.PtrToString(ptr)
-End Function
-
-' GetGRPCMgmtAddr returns the gRPC management address for a capability.
-Public Function GetGRPCMgmtAddr(ByVal capability As String) As String
-    Dim ptr As LongPtr
-    ptr = DistConf.DistConf_GetGRPCMgmtAddress(m_handle, capability)
-    GetGRPCMgmtAddr = Toolbox.PtrToString(ptr)
 End Function
 
 ' GetRESTAddr returns the REST management address for a capability.

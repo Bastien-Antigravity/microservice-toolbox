@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Deep merges configuration maps and environment variables with precedence rules.
+//
+// DATA FLOW:
+// Source Map + Target Map -> Deep Merge -> Unified Configuration Map
+//
+// KEY PARAMETERS:
+// - dst: Destination map receiving merged keys.
+// - src: Source map providing override keys.
+// -----------------------------------------------------------------------------
+
 use serde_yml::Value;
 
 /// Recursive deep merge of src into dst.

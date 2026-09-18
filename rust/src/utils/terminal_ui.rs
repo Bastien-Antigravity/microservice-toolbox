@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Formats console diagnostic output, tables, and CLI banners for microservices.
+//
+// DATA FLOW:
+// Log Data / Metrics -> Terminal UI Formatter -> Styled Console Output
+//
+// KEY PARAMETERS:
+// - Banner and tabular display utilities.
+// -----------------------------------------------------------------------------
+
 use crate::utils::helpers::get_hostname;
 use chrono::Utc;
 

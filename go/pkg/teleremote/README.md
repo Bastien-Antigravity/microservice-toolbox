@@ -17,7 +17,8 @@ The `teleremote` package in the microservice-toolbox provides a robust, interfac
 ```go
 import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/teleremote"
 
-tc := teleremote.NewTeleClient("My Service", "127.0.0.1", 50051, logger)
+// Tele-remote canonical gRPC port is 1863
+tc := teleremote.NewTeleClient("My Service", "127.0.0.1", 1863, logger)
 ```
 
 ### 2. Add Simple Commands

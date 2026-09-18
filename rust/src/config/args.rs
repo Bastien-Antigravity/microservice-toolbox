@@ -1,3 +1,16 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Parses command-line overrides for service configuration parameters.
+//
+// DATA FLOW:
+// OS Arguments -> Flag Parsing -> Config Overrides Map
+//
+// KEY PARAMETERS:
+// - name: Target service/capability name.
+// - host: Host/IP override.
+// - port: Port override.
+// -----------------------------------------------------------------------------
+
 use clap::Parser;
 use std::collections::HashMap;
 use std::path::Path;

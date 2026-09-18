@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: test_lifecycle.rs.
+//
+// DATA FLOW:
+// Callers -> test_lifecycle.rs -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 use microservice_toolbox::lifecycle::new_manager;
 use std::sync::Arc;
 use tokio::sync::Mutex;

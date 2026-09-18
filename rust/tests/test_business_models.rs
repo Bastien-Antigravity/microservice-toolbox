@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: test_business_models.rs.
+//
+// DATA FLOW:
+// Callers -> test_business_models.rs -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 use microservice_toolbox::business::models::*;
 use serde_json;
 

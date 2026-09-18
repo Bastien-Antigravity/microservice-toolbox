@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Dynamic foreign function interface (FFI) bindings to the CGO libdistconf engine.
+//
+// DATA FLOW:
+// Host Language -> FFI Bridge -> CGO libdistconf Shared Library
+//
+// KEY PARAMETERS:
+// - LIBDISTCONF_PATH: Environment path to the libdistconf shared library.
+// -----------------------------------------------------------------------------
+
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int};
 use std::sync::OnceLock;
@@ -16,6 +27,7 @@ pub struct DistConfLib {
     pub dist_conf_on_registry_update: Symbol<'static, extern "C" fn(handle: usize, cb: ConfigUpdateCb)>,
     pub dist_conf_get_address: Symbol<'static, extern "C" fn(handle: usize, capability: *const c_char) -> *mut c_char>,
     pub dist_conf_get_grpc_address: Symbol<'static, extern "C" fn(handle: usize, capability: *const c_char) -> *mut c_char>,
+    pub dist_conf_get_rest_address: Symbol<'static, extern "C" fn(handle: usize, capability: *const c_char) -> *mut c_char>,
     pub dist_conf_get_capability: Symbol<'static, extern "C" fn(handle: usize, capability: *const c_char) -> *mut c_char>,
     pub dist_conf_get_full_config: Symbol<'static, extern "C" fn(handle: usize) -> *mut c_char>,
     pub dist_conf_get_last_error: Symbol<'static, unsafe extern "C" fn() -> *const c_char>,
@@ -56,7 +68,8 @@ pub fn get_lib() -> Option<&'static DistConfLib> {
                 dist_conf_on_live_conf_update: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, ConfigUpdateCb)>, Symbol<'static, extern "C" fn(usize, ConfigUpdateCb)>>(lib.get::<extern "C" fn(usize, ConfigUpdateCb)>(b"DistConf_OnLiveConfUpdate").ok()?),
                 dist_conf_on_registry_update: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, ConfigUpdateCb)>, Symbol<'static, extern "C" fn(usize, ConfigUpdateCb)>>(lib.get::<extern "C" fn(usize, ConfigUpdateCb)>(b"DistConf_OnRegistryUpdate").ok()?),
                 dist_conf_get_address: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetAddress").ok()?),
-                dist_conf_get_grpc_address: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const i8) -> *mut i8>(b"DistConf_GetGRPCAddress").ok()?),
+                dist_conf_get_grpc_address: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetGRPCAddress").ok()?),
+                dist_conf_get_rest_address: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetRESTAddress").ok()?),
                 dist_conf_get_capability: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_GetCapability").ok()?),
                 dist_conf_get_full_config: std::mem::transmute::<Symbol<'_, extern "C" fn(usize) -> *mut c_char>, Symbol<'static, extern "C" fn(usize) -> *mut c_char>>(lib.get::<extern "C" fn(usize) -> *mut c_char>(b"DistConf_GetFullConfig").ok()?),
                 dist_conf_get_last_error: std::mem::transmute::<Symbol<'_, unsafe extern "C" fn() -> *const c_char>, Symbol<'static, unsafe extern "C" fn() -> *const c_char>>(lib.get::<unsafe extern "C" fn() -> *const c_char>(b"DistConf_GetLastError").ok()?),

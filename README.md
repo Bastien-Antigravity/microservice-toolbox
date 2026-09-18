@@ -125,7 +125,10 @@ secret = cfg.decrypt_secret("ENC(...)")
 ### Go
 Located in `/go`. The reference implementation.
 ```go
-cfg := config.LoadConfig("standalone")
+cfg, err := config.LoadConfig("standalone")
+if err != nil {
+    log.Fatalf("Failed to load config: %v", err)
+}
 addr := cfg.GetListenAddr("svc")
 ```
 
@@ -136,9 +139,11 @@ addr := cfg.GetListenAddr("svc")
 This repository uses a comprehensive, cross-language test suite to ensure architectural parity.
 
 ### Running Unit Tests
-- **Go**: `cd go && go test ./...`
-- **Python**: `cd python && pytest` (requires `ruff` for linting)
+- **All Languages (Root)**: `make test`
+- **Go**: `go test -v ./go/...`
+- **Python**: `pytest python/`
 - **Rust**: `cd rust && cargo test`
+- **C++**: `cd cpp && make test`
 
 ### Integration Tests
 Cross-language compatibility (e.g., Go -> Python serialization) is validated via the integration runner:

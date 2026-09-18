@@ -9,16 +9,19 @@ version:
 
 build:
 	@echo "Building repository (version $(VERSION))..."
-	@if [ -f "go.mod" ]; then go build ./... || true; fi
-	@if [ -f "Cargo.toml" ]; then cargo build --release || true; fi
-	@if [ -f "setup.py" ] || [ -f "pyproject.toml" ]; then python3 -m build || true; fi
+	@if [ -f "go.mod" ]; then go build ./go/...; fi
+	@if [ -f "rust/Cargo.toml" ]; then (cd rust && cargo build --release); fi
+	@if [ -f "cpp/Makefile" ]; then $(MAKE) -C cpp all; fi
 
 test:
 	@echo "Running tests (version $(VERSION))..."
-	@if [ -f "go.mod" ]; then go test ./... 2>/dev/null || go test ./src/... 2>/dev/null || true; fi
-	@if [ -f "Cargo.toml" ]; then cargo test 2>/dev/null || true; fi
-	@if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ]; then pytest 2>/dev/null || true; fi
+	@if [ -f "go.mod" ]; then go test ./go/...; fi
+	@if [ -f "rust/Cargo.toml" ]; then (cd rust && cargo test); fi
+	@if [ -f "python/pyproject.toml" ]; then pytest python/; fi
+	@if [ -f "cpp/Makefile" ]; then $(MAKE) -C cpp test; fi
 
 clean:
 	@echo "Cleaning build artifacts..."
-	@rm -rf dist build *.egg-info target/
+	@rm -rf dist build *.egg-info bin/
+	@if [ -f "cpp/Makefile" ]; then $(MAKE) -C cpp clean; fi
+

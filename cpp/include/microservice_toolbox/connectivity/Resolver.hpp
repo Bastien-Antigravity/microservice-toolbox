@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: Resolver.hpp.
+//
+// DATA FLOW:
+// Callers -> Resolver.hpp -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 #ifndef MICROSERVICE_TOOLBOX_CONNECTIVITY_RESOLVER_HPP
 #define MICROSERVICE_TOOLBOX_CONNECTIVITY_RESOLVER_HPP
 

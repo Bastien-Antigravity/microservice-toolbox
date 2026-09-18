@@ -36,4 +36,5 @@ require (
 replace (
 	github.com/Bastien-Antigravity/distributed-config => ../distributed-config
 	github.com/Bastien-Antigravity/safe-socket => ../safe-socket
+	github.com/Bastien-Antigravity/universal-logger => ../universal-logger
 )

@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: Logger.hpp.
+//
+// DATA FLOW:
+// Callers -> Logger.hpp -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 #ifndef MICROSERVICE_TOOLBOX_UTILS_LOGGER_HPP
 #define MICROSERVICE_TOOLBOX_UTILS_LOGGER_HPP
 

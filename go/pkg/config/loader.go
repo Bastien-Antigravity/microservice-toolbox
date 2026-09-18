@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Loads layered configuration from local YAML, environment variables, and distributed config server.
+//
+// DATA FLOW:
+// YAML File / Env Vars / Remote Server -> Config Parsing -> AppConfig Instance
+//
+// KEY PARAMETERS:
+// - profile: Configuration profile (standalone, test, staging, production).
+// - data: In-memory configuration key-value tree.
+// -----------------------------------------------------------------------------
+
 package config
 
 import (
@@ -330,53 +342,11 @@ func (ac *AppConfig) GetGRPCListenAddr(capability string) (string, error) {
 	return ac.Config.GetGRPCAddress(capability)
 }
 
-// GetGRPCMgmtAddr returns the address for the gRPC management interface (Shadow + 2).
-func (ac *AppConfig) GetGRPCMgmtAddr(capability string) (string, error) {
-	// Re-uses base getAddr logic with specific keys
-	// This is not in distributed-config core yet, but follows the pattern.
-	// Actually, I should probably add it to distributed-config core if I want full parity.
-	// But I can implement it here first.
-
-	// Direct access to internal getAddr isn't possible from another package if it's unexported.
-	// Let's check if distributed-config has it.
-	return ac.getAddr(capability, "grpc_ip", "grpc_mgmt_port")
-}
-
-// GetRESTAddr returns the address for the REST management interface (Shadow + 3).
+// GetRESTAddr returns the address for the REST management interface.
 func (ac *AppConfig) GetRESTAddr(capability string) (string, error) {
-	return ac.getAddr(capability, "ip", "rest_port")
+	return ac.Config.GetRESTAddress(capability)
 }
 
-func (ac *AppConfig) getAddr(capability, hostKey, portKey string) (string, error) {
-	// Try LiveConfig first
-	host := ac.Config.Get(capability, hostKey)
-	port := ac.Config.Get(capability, portKey)
-
-	if host == "" || port == "" {
-		// Try static Capabilities
-		if caps, ok := ac.Config.Capabilities[capability].(map[string]interface{}); ok {
-			if host == "" {
-				if h, exists := caps[hostKey]; exists {
-					host = fmt.Sprintf("%v", h)
-				}
-			}
-			if port == "" {
-				if p, exists := caps[portKey]; exists {
-					port = fmt.Sprintf("%v", p)
-				}
-			}
-		}
-	}
-
-	if host == "" {
-		return "", fmt.Errorf("host key %s missing in capability %s", hostKey, capability)
-	}
-	if port == "" {
-		return "", fmt.Errorf("port key %s missing in capability %s", portKey, capability)
-	}
-
-	return fmt.Sprintf("%s:%s", host, port), nil
-}
 
 type endpointKey struct {
 	IP   string
@@ -445,69 +415,29 @@ func (ac *AppConfig) ValidateUniquePorts() error {
 		}
 
 		ip := getIP(capMap["ip"])
-		port, ok := getPort(capMap["port"])
+		gIP := getIP(capMap["grpc_ip"])
+		if gIP == "" {
+			gIP = ip
+		}
 
-		if ip != "" && ok {
-			// Collect all explicit ports defined in this capability
-			explicitPorts := make(map[int]bool)
-			explicitPorts[port] = true
-			if gp, ok := getPort(capMap["grpc_port"]); ok {
-				explicitPorts[gp] = true
-			}
-			if rp, ok := getPort(capMap["rest_port"]); ok {
-				explicitPorts[rp] = true
-			}
-
+		// Explicit TCP port
+		if port, ok := getPort(capMap["port"]); ok && ip != "" {
 			if err := checkAndAdd(ip, port, fmt.Sprintf("%s (TCP)", capName)); err != nil {
 				return err
 			}
+		}
 
-			// Check shadow ports
-			gIP := getIP(capMap["grpc_ip"])
-			if gIP == "" {
-				gIP = ip
+		// Explicit gRPC port
+		if gp, ok := getPort(capMap["grpc_port"]); ok && gIP != "" {
+			if err := checkAndAdd(gIP, gp, fmt.Sprintf("%s (gRPC)", capName)); err != nil {
+				return err
 			}
+		}
 
-			gPort := port + 1
-			_, hasExplicitGP := getPort(capMap["grpc_port"])
-			if gp, ok := getPort(capMap["grpc_port"]); ok {
-				gPort = gp
-			}
-			if hasExplicitGP || !explicitPorts[gPort] {
-				if err := checkAndAdd(gIP, gPort, fmt.Sprintf("%s (gRPC)", capName)); err != nil {
-					return err
-				}
-			}
-
-			rPort := port + 3
-			_, hasExplicitRP := getPort(capMap["rest_port"])
-			if rp, ok := getPort(capMap["rest_port"]); ok {
-				rPort = rp
-			}
-			if hasExplicitRP || !explicitPorts[rPort] {
-				if err := checkAndAdd(ip, rPort, fmt.Sprintf("%s (REST)", capName)); err != nil {
-					return err
-				}
-			}
-		} else {
-			// Check explicit grpc_port if no base port
-			gIP := getIP(capMap["grpc_ip"])
-			if gIP == "" {
-				gIP = ip
-			}
-			if gIP != "" {
-				if gp, ok := getPort(capMap["grpc_port"]); ok {
-					if err := checkAndAdd(gIP, gp, fmt.Sprintf("%s (gRPC)", capName)); err != nil {
-						return err
-					}
-				}
-			}
-			if ip != "" {
-				if rp, ok := getPort(capMap["rest_port"]); ok {
-					if err := checkAndAdd(ip, rp, fmt.Sprintf("%s (REST)", capName)); err != nil {
-						return err
-					}
-				}
+		// Explicit REST port
+		if rp, ok := getPort(capMap["rest_port"]); ok && ip != "" {
+			if err := checkAndAdd(ip, rp, fmt.Sprintf("%s (REST)", capName)); err != nil {
+				return err
 			}
 		}
 	}

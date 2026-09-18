@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Standardized logging abstraction implementing the unified ILogger interface.
+//
+// DATA FLOW:
+// Log Calls (Debug, Info, Warning, Error, Critical) -> Sink Dispatcher
+//
+// KEY PARAMETERS:
+// - level: Minimum active log level threshold.
+// - metadata: Structured key-value log fields.
+// -----------------------------------------------------------------------------
+
 package logger
 
 import (

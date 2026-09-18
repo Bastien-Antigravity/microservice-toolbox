@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Concrete serializer implementations for JSON and MsgPack formats.
+//
+// DATA FLOW:
+// Objects <-> JSONSerializer / MsgPackSerializer <-> Serialized Buffers
+//
+// KEY PARAMETERS:
+// - JSON: Human-readable text format.
+// - MsgPack: High-performance binary format.
+// -----------------------------------------------------------------------------
+
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json;
 use rmp_serde;

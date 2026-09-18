@@ -1,3 +1,24 @@
+#!/usr/bin/env python
+# coding:utf-8
+
+"""
+ESSENTIAL PROCESS:
+Domain-specific exception hierarchy for network connection management, retries, and write failures.
+
+DATA FLOW:
+1. Input: Low-level socket, protocol, or timeout error conditions.
+2. Logic: Encapsulates connection lifecycle failures into strongly-typed exceptions.
+3. Output: Raised to callers of NetworkManager and ManagedConnection.
+
+KEY PARAMETERS:
+- None (Domain Exception Definitions).
+"""
+
+
+# -----------------------------------------------------------------------------------------------
+# ### CONNECTION MANAGER EXCEPTIONS ###
+# -----------------------------------------------------------------------------------------------
+
 class ConnectionManagerError(Exception):
     """Base class for connection manager errors."""
 

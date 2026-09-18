@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: test_logger.rs.
+//
+// DATA FLOW:
+// Callers -> test_logger.rs -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 use std::sync::Arc;
 use microservice_toolbox::utils::logger::{UniLogger, Logger};
 use microservice_toolbox::conn_manager::manager::new_network_manager_with_logger;

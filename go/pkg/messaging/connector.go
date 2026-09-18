@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Establishes and manages resilient connections to NATS message brokers.
+//
+// DATA FLOW:
+// NatsConfig -> Connection Pool -> NATS Client Instance
+//
+// KEY PARAMETERS:
+// - servers: Connection addresses for broker failover.
+// -----------------------------------------------------------------------------
+
 package messaging
 
 import (

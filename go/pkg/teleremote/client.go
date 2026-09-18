@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Client facade connecting Go services to the central tele-remote Telegram bot via gRPC.
+//
+// DATA FLOW:
+// Service State -> TeleClient -> gRPC Stream -> TeleRemote Server -> Telegram Bot
+//
+// KEY PARAMETERS:
+// - serviceName: Identifier displayed in Telegram menu.
+// - addr: tele-remote server address.
+// -----------------------------------------------------------------------------
+
 package teleremote
 
 import (

@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Configuration parameters for message broker connectors (NATS, JetStream).
+//
+// DATA FLOW:
+// Config YAML -> NatsConfig -> Broker Client Connection
+//
+// KEY PARAMETERS:
+// - servers: List of broker cluster server URLs.
+// - cluster_id: Optional cluster identifier.
+// -----------------------------------------------------------------------------
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -12,4 +12,10 @@ from .process_lock import (
     prevent_double_start as prevent_double_start,
     ProcessLock as ProcessLock
 )
+from .lib_loader import (
+    resolve_library_path as resolve_library_path,
+    load_libunilog as load_libunilog,
+    load_libdistconf as load_libdistconf,
+)
+
 

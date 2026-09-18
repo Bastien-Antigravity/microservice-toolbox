@@ -4,7 +4,18 @@
 """
 ESSENTIAL PROCESS:
 Python Facade for the Universal Logger (Go) shared library.
-Provides integrated configuration management and high-performance logging.
+Provides integrated configuration management and high-performance logging over CGO.
+
+DATA FLOW:
+1. Input: Log messages, severity levels, and structured metadata from application code.
+2. Logic: Captures caller frame information and marshals calls into libunilog via ctypes.
+3. Output: Structured log entries dispatched to console, file, or log-server via safe-socket.
+
+KEY PARAMETERS:
+- app_name: Name of the microservice application.
+- logger_profile: Sink configuration profile ("standard", "cloud", etc.).
+- log_level: Minimum logging severity threshold.
+- config_handle: Pointer handle to the active CGO AppConfig instance.
 """
 
 from os.path import basename as osPathBasename
@@ -22,7 +33,9 @@ from typing import Union, Dict, List, Callable, Optional, Set, Any, Tuple
 
 from .models import LogLevel
 from .logger import Logger
-from .lib_loader import lib, CALLBACK_TYPE
+from ..utils.lib_loader import CALLBACK_TYPE, load_libunilog
+
+lib = load_libunilog()
 
 
 class ConfigUpdateListener:

@@ -3,7 +3,15 @@
 
 """
 ESSENTIAL PROCESS:
-LogLevel constants matching the Go logger_models.Level.
+LogLevel constants matching the canonical Go universal-logger levels.
+
+DATA FLOW:
+1. Input: Log severity strings or integer levels from callers.
+2. Logic: Enforces exact numeric parity with universal-logger Go CGO constants.
+3. Output: Typed integer log level for FFI dispatch.
+
+KEY PARAMETERS:
+- None (Enumeration Definitions).
 """
 
 from enum import IntEnum

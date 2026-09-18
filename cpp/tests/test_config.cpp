@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: test_config.cpp.
+//
+// DATA FLOW:
+// Callers -> test_config.cpp -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 #include "../include/microservice_toolbox/config/AppConfig.hpp"
 #include <cassert>
 #include <cstdio>
@@ -32,7 +43,7 @@ void test_address_resolution() {
   std::ofstream ofs("config/test.yaml");
   ofs << "common:\n  name: test-app\n"
       << "capabilities:\n"
-      << "  log_server: {ip: '127.0.0.2', port: '9999'}\n"
+      << "  log_server: {ip: '127.0.0.2', port: '9998'}\n"
       << "  config_server: {ip: '127.0.0.2', port: '9999'}\n"
       << "  svc:\n    ip: 127.0.0.2\n    port: '8080'\n    grpc_ip: "
          "127.0.0.2\n    grpc_port: '8081'";
@@ -106,7 +117,7 @@ void test_grpc_missing_error() {
   std::ofstream ofs("config/test.yaml");
   ofs << "common: {name: test}\n"
       << "capabilities:\n"
-      << "  log_server: {ip: '127.0.0.2', port: '9999'}\n"
+      << "  log_server: {ip: '127.0.0.2', port: '9998'}\n"
       << "  config_server: {ip: '127.0.0.2', port: '9999'}\n"
       << "  svc:\n    ip: 127.0.0.2\n    port: '8080'";
   ofs.close();
@@ -127,8 +138,9 @@ void test_grpc_missing_error() {
 
 void test_env_expansion() {
   std::cout << "Testing Environment Variable Expansion..." << std::endl;
+  ensure_config_dir();
 
-  std::ofstream ofs("expansion_test.yaml");
+  std::ofstream ofs("config/test.yaml");
   ofs << "common: {name: expansion-test}\n"
       << "local:\n"
       << "  host: ${TEST_HOST:localhost}\n"
@@ -137,12 +149,8 @@ void test_env_expansion() {
 
   setenv("TEST_HOST", "127.0.0.5", 1);
   unsetenv("TEST_PORT");
-  
-  std::cout << "DEBUG: TEST_HOST=" << (getenv("TEST_HOST") ? getenv("TEST_HOST") : "NULL") << std::endl;
 
-  auto ac = LoadConfig("expansion_test");
-  
-  std::cout << "DEBUG: Loaded host=" << ac->GetLocal("host") << std::endl;
+  auto ac = LoadConfig("test");
 
   if (ac->GetLocal("host") != "127.0.0.5") {
     throw std::runtime_error("Env expansion failed for TEST_HOST. Got: " +
@@ -154,8 +162,8 @@ void test_env_expansion() {
         ac->GetLocal("port"));
   }
 
+  std::remove("config/test.yaml");
   std::cout << "  Passed." << std::endl;
-  std::remove("expansion_test.yaml");
 }
 
 void test_mirror_integrity() {
@@ -178,6 +186,30 @@ void test_mirror_integrity() {
   std::remove("config/test.yaml");
 }
 
+void test_validate_unique_ports() {
+  std::cout << "Testing ValidateUniquePorts..." << std::endl;
+  ensure_config_dir();
+
+  std::ofstream ofs("config/test.yaml");
+  ofs << "common:\n  name: test-dup\n"
+      << "capabilities:\n"
+      << "  svc1:\n    ip: '127.0.0.1'\n    port: '8080'\n"
+      << "  svc2:\n    ip: '127.0.0.1'\n    port: '8080'\n";
+  ofs.close();
+
+  bool caught = false;
+  try {
+    auto ac = LoadConfig("test");
+  } catch (const std::exception &e) {
+    caught = true;
+    std::string msg = e.what();
+    assert(msg.find("Duplicate endpoint detected") != std::string::npos);
+  }
+  std::remove("config/test.yaml");
+  assert(caught);
+  std::cout << "  Passed (Duplicate endpoint caught)." << std::endl;
+}
+
 int main() {
   // Set TEST_HOST before Go runtime initializes via CGo
   setenv("TEST_HOST", "127.0.0.5", 1);
@@ -185,8 +217,6 @@ int main() {
   // Cleanup any interference
   std::remove("test_config.yaml");
   std::remove("expansion_test.yaml");
-
-
 
   try {
     test_load_config_factory();
@@ -196,6 +226,7 @@ int main() {
     test_grpc_missing_error();
     test_env_expansion();
     test_mirror_integrity();
+    test_validate_unique_ports();
 
     std::cout << "\n=======================================" << std::endl;
     std::cout << "  All C++ Toolbox Parity Tests Passed!" << std::endl;

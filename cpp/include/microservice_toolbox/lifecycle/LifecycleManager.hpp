@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: LifecycleManager.hpp.
+//
+// DATA FLOW:
+// Callers -> LifecycleManager.hpp -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 #ifndef MICROSERVICE_TOOLBOX_LIFECYCLE_MANAGER_HPP
 #define MICROSERVICE_TOOLBOX_LIFECYCLE_MANAGER_HPP
 
@@ -78,17 +89,12 @@ private:
         }
     }
 
-    static LifecycleManager* instance_;
+    inline static LifecycleManager* instance_ = nullptr;
     std::shared_ptr<utils::Logger> logger_;
     std::vector<CleanupEntry> cleanups_;
     std::atomic<bool> shutdown_requested;
     std::mutex mutex_;
 };
-
-// Initialize static member
-#ifdef MICROSERVICE_TOOLBOX_LIFECYCLE_IMPL
-LifecycleManager* LifecycleManager::instance_ = nullptr;
-#endif
 
 } // namespace lifecycle
 } // namespace microservice_toolbox

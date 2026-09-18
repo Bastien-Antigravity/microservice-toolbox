@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Resolves capability network addresses and applies Docker Guard suppression rules.
+//
+// DATA FLOW:
+// Capability Query -> Address Resolution + Docker Guard -> Final Bind Address
+//
+// KEY PARAMETERS:
+// - capability: Service name to resolve.
+// - Docker Guard: Suppresses localhost to 0.0.0.0 in container environments.
+// -----------------------------------------------------------------------------
+
 package connectivity
 
 import (

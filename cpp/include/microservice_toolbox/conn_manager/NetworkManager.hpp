@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: NetworkManager.hpp.
+//
+// DATA FLOW:
+// Callers -> NetworkManager.hpp -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 #ifndef MICROSERVICE_TOOLBOX_CONN_MANAGER_NETWORK_MANAGER_HPP
 #define MICROSERVICE_TOOLBOX_CONN_MANAGER_NETWORK_MANAGER_HPP
 

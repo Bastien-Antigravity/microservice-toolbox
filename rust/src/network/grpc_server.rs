@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Configures and launches gRPC servers with Docker Guard address binding rules.
+//
+// DATA FLOW:
+// Listen Address -> Docker Guard Resolver -> gRPC Listener
+//
+// KEY PARAMETERS:
+// - addr: Configured host:port listen string.
+// -----------------------------------------------------------------------------
+
 use std::net::SocketAddr;
 use std::str::FromStr;
 use tonic::transport::Server;

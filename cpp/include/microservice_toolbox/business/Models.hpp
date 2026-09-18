@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: Models.hpp.
+//
+// DATA FLOW:
+// Callers -> Models.hpp -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 #ifndef MICROSERVICE_TOOLBOX_BUSINESS_MODELS_HPP
 #define MICROSERVICE_TOOLBOX_BUSINESS_MODELS_HPP
 

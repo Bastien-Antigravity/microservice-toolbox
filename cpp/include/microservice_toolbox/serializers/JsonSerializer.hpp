@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: JsonSerializer.hpp.
+//
+// DATA FLOW:
+// Callers -> JsonSerializer.hpp -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 #ifndef MICROSERVICE_TOOLBOX_SERIALIZERS_JSON_SERIALIZER_HPP
 #define MICROSERVICE_TOOLBOX_SERIALIZERS_JSON_SERIALIZER_HPP
 

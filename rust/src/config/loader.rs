@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Loads layered configuration from local YAML, environment variables, and distributed config server.
+//
+// DATA FLOW:
+// YAML File / Env Vars / Remote Server -> Config Parsing -> AppConfig Instance
+//
+// KEY PARAMETERS:
+// - profile: Configuration profile (standalone, test, staging, production).
+// - data: In-memory configuration key-value tree.
+// -----------------------------------------------------------------------------
+
 use serde_yml::Value;
 use std::fs;
 use std::ffi::{CStr, CString, c_char};
@@ -364,13 +376,17 @@ impl AppConfig {
         self.get_addr(capability, "grpc_ip", "grpc_port")
     }
 
-    /// Resolves the gRPC Management address for a capability (Shadow + 2).
-    pub fn get_grpc_mgmt_addr(&self, capability: &str) -> Result<String, String> {
-        self.get_addr(capability, "grpc_ip", "grpc_mgmt_port")
-    }
 
-    /// Resolves the REST Management address for a capability (Shadow + 3).
+    /// Resolves the REST Management address for a capability.
     pub fn get_rest_addr(&self, capability: &str) -> Result<String, String> {
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                let cap_c = CString::new(capability).map_err(|e| e.to_string())?;
+                let ptr = (lib.dist_conf_get_rest_address)(handle, cap_c.as_ptr());
+                if let Some(addr) = unsafe { crate::config::ffi::to_rust_string(ptr) } {
+                    return Ok(addr);
+                }
+        }
         self.get_addr(capability, "ip", "rest_port")
     }
 
@@ -534,16 +550,8 @@ impl AppConfig {
             Ok(())
         };
 
-        for (cap_name_val, cap_data_val) in caps {
-            let cap_name = cap_name_val.as_str().unwrap_or("");
-            if cap_name.is_empty() {
-                continue;
-            }
-
-            let ip = cap_data_val.get("ip").and_then(|v| v.as_str()).unwrap_or("");
-            let port_val = cap_data_val.get("port");
-
-            let port = port_val.and_then(|v| {
+        let parse_port = |val: Option<&Value>| -> Option<i64> {
+            val.and_then(|v| {
                 if let Some(i) = v.as_i64() {
                     Some(i)
                 } else if let Some(s) = v.as_str() {
@@ -551,82 +559,36 @@ impl AppConfig {
                 } else {
                     None
                 }
-            });
+            })
+        };
 
-            if !ip.is_empty() && port.is_some() {
-                let base_port = port.unwrap();
+        for (cap_name_val, cap_data_val) in caps {
+            let cap_name = cap_name_val.as_str().unwrap_or("");
+            if cap_name.is_empty() {
+                continue;
+            }
 
-                let mut explicit_ports = std::collections::HashSet::new();
-                explicit_ports.insert(base_port);
+            let ip = cap_data_val.get("ip").and_then(|v| v.as_str()).unwrap_or("");
+            let g_ip = cap_data_val.get("grpc_ip").and_then(|v| v.as_str()).unwrap_or(ip);
 
-                let gp_val = cap_data_val.get("grpc_port").and_then(|v| {
-                    if let Some(i) = v.as_i64() {
-                        Some(i)
-                    } else if let Some(s) = v.as_str() {
-                        s.parse::<i64>().ok()
-                    } else {
-                        None
-                    }
-                });
-                if let Some(gp) = gp_val {
-                    explicit_ports.insert(gp);
+            // Explicit TCP port
+            if !ip.is_empty() {
+                if let Some(port) = parse_port(cap_data_val.get("port")) {
+                    check_and_add(ip, port, &format!("{} (TCP)", cap_name))?;
                 }
+            }
 
-                let rp_val = cap_data_val.get("rest_port").and_then(|v| {
-                    if let Some(i) = v.as_i64() {
-                        Some(i)
-                    } else if let Some(s) = v.as_str() {
-                        s.parse::<i64>().ok()
-                    } else {
-                        None
-                    }
-                });
-                if let Some(rp) = rp_val {
-                    explicit_ports.insert(rp);
+            // Explicit gRPC port
+            if !g_ip.is_empty() {
+                if let Some(gp) = parse_port(cap_data_val.get("grpc_port")) {
+                    check_and_add(g_ip, gp, &format!("{} (gRPC)", cap_name))?;
                 }
+            }
 
-                check_and_add(ip, base_port, &format!("{} (TCP)", cap_name))?;
-
-                let g_ip = cap_data_val.get("grpc_ip").and_then(|v| v.as_str()).unwrap_or(ip);
-
-                let g_port = gp_val.unwrap_or(base_port + 1);
-                if gp_val.is_some() || !explicit_ports.contains(&g_port) {
-                    check_and_add(g_ip, g_port, &format!("{} (gRPC)", cap_name))?;
-                }
-
-                let r_port = rp_val.unwrap_or(base_port + 3);
-                if rp_val.is_some() || !explicit_ports.contains(&r_port) {
-                    check_and_add(ip, r_port, &format!("{} (REST)", cap_name))?;
-                }
-            } else {
-                let g_ip = cap_data_val.get("grpc_ip").and_then(|v| v.as_str()).unwrap_or(ip);
-                if !g_ip.is_empty() {
-                    if let Some(gp_val) = cap_data_val.get("grpc_port") {
-                        let gp = if let Some(i) = gp_val.as_i64() {
-                            Some(i)
-                        } else if let Some(s) = gp_val.as_str() {
-                            s.parse::<i64>().ok()
-                        } else {
-                            None
-                        };
-                        if let Some(p) = gp {
-                            check_and_add(g_ip, p, &format!("{} (gRPC)", cap_name))?;
-                        }
-                    }
-                }
-                if !ip.is_empty() {
-                    if let Some(rp_val) = cap_data_val.get("rest_port") {
-                        let rp = if let Some(i) = rp_val.as_i64() {
-                            Some(i)
-                        } else if let Some(s) = rp_val.as_str() {
-                            s.parse::<i64>().ok()
-                        } else {
-                            None
-                        };
-                        if let Some(p) = rp {
-                            check_and_add(ip, p, &format!("{} (REST)", cap_name))?;
-                        }
-                    }
+            // Explicit REST port
+            if !ip.is_empty() {
+                if let Some(rp) = parse_port(cap_data_val.get("rest_port")) {
+                    check_and_add(ip, rp, &format!("{} (REST)", cap_name))?;
                 }
             }
         }

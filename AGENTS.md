@@ -5,10 +5,15 @@
 
 - **Ecosystem Role**: Universal Facade and SDK.
 - **Sub-packages (Go)**:
-  - `go/pkg/bootstrap`: Single-call service initialization (`BootstrapService`)
-  - `go/pkg/lifecycle`: OS signal handling (`SignalContext`), shutdown hooks
-  - `go/pkg/resilience`: Circuit breakers, retry policies
-  - `go/pkg/timeseries`: TimescaleDB connection and query helpers
+  - `go/pkg/bootstrap`: Single-call service initialization (`BootstrapService`, `BootstrapServiceSafe`)
+  - `go/pkg/config`: Layered configuration management (`LoadConfig`, CLI overrides, port validation)
+  - `go/pkg/conn_manager`: Resilient network connections with backoff and retry policies
+  - `go/pkg/connectivity`: Dynamic address resolution and Docker Guard network suppression
+  - `go/pkg/lifecycle`: Graceful shutdown management (`Manager.Wait`), OS signal trapping (SIGINT/SIGTERM)
+  - `go/pkg/network`: gRPC server builder with Docker Guard integration
+  - `go/pkg/serializers`: Unified JSON and MsgPack binary serialization
+  - `go/pkg/business`: Canonical market domain models (MarketEvent, OHLCV, Signal)
+  - `go/pkg/teleremote`: Telegram bot client facade and menu tree builder
 - **Configuration Link**: `standalone.yaml -> ../docker-deployment/modes/local/config/native.yaml`
 
 ## Key Build & Test Commands

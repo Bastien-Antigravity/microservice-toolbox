@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: Serializer.hpp.
+//
+// DATA FLOW:
+// Callers -> Serializer.hpp -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 #ifndef MICROSERVICE_TOOLBOX_SERIALIZERS_SERIALIZER_HPP
 #define MICROSERVICE_TOOLBOX_SERIALIZERS_SERIALIZER_HPP
 

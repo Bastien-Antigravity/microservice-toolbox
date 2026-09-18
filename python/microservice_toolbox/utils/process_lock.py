@@ -6,10 +6,13 @@ Provides cross-platform process locking using file locking to prevent multiple
 instances of the same service/command from running concurrently.
 
 DATA FLOW:
-1. Process attempts to acquire a lock file in the system temp directory.
-2. Uses fcntl.flock on Unix (macOS, Linux) and msvcrt.locking on Windows.
-3. If successful, writes its PID to the lock file.
-4. On exit or crash, the OS releases the lock.
+1. Input: Lock name string representing the unique service instance.
+2. Logic: Acquires OS-level file lock (fcntl on Unix, msvcrt on Windows) and records PID.
+3. Output: Acquired ProcessLock context manager or raises RuntimeError.
+
+KEY PARAMETERS:
+- lock_name: Unique identifier for the process lock file.
+- fail_fast: If True, raises RuntimeError immediately instead of waiting for lock.
 """
 
 import os

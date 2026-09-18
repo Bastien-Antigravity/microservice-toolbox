@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Loads layered configuration from local YAML, environment variables, and distributed config server.
+//
+// DATA FLOW:
+// YAML File / Env Vars / Remote Server -> Config Parsing -> AppConfig Instance
+//
+// KEY PARAMETERS:
+// - profile: Configuration profile (standalone, test, staging, production).
+// - data: In-memory configuration key-value tree.
+// -----------------------------------------------------------------------------
+
 package config
 
 import (
@@ -308,8 +320,8 @@ capabilities:
 	}
 
 	addr, err := ac.GetGRPCListenAddr("svc")
-	assert.NoError(t, err, "gRPC should now default to Shadow Port (Port+1)")
-	assert.Equal(t, "1.2.3.4:8081", addr)
+	assert.Error(t, err, "gRPC should return error when grpc_port is missing")
+	assert.Empty(t, addr)
 }
 
 func TestAppConfig_SetLogger(t *testing.T) {
@@ -370,7 +382,7 @@ capabilities:
     port: "8080"
   svc2:
     ip: "127.0.0.1"
-    port: "8081"
+    port: "8080"
 `
 	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
 	assert.NoError(t, err)

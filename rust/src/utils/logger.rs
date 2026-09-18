@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Standardized logging abstraction implementing the unified ILogger interface.
+//
+// DATA FLOW:
+// Log Calls (Debug, Info, Warning, Error, Critical) -> Sink Dispatcher
+//
+// KEY PARAMETERS:
+// - level: Minimum active log level threshold.
+// - metadata: Structured key-value log fields.
+// -----------------------------------------------------------------------------
+
 use std::sync::Arc;
 
 /// Logger trait defines the standard interface for structured logging across the toolbox.

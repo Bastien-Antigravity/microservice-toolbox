@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// High-level application configuration interface providing typed accessors and resolution.
+//
+// DATA FLOW:
+// Config Hierarchy -> AppConfig Resolution -> Service Endpoint Strings
+//
+// KEY PARAMETERS:
+// - capability: Target service capability name.
+// -----------------------------------------------------------------------------
+
 #ifndef MICROSERVICE_TOOLBOX_APP_CONFIG_HPP
 #define MICROSERVICE_TOOLBOX_APP_CONFIG_HPP
 
@@ -49,6 +60,8 @@ public:
       // Phase 3: Apply CLI Overrides
       ApplyCLIOverrides();
 
+      // Phase 4: Validate Unique Endpoints (Parity with Go, Python, Rust)
+      ValidateUniquePorts();
     } catch (const std::exception &e) {
       logger_->Error(std::string("Failed to initialize DistConf: ") + e.what());
       throw;
@@ -117,6 +130,27 @@ public:
     }
     return addr;
   }
+
+  std::string GetRESTAddr(const std::string &capability) const {
+    try {
+      if (data_.contains("capabilities") &&
+          data_["capabilities"].contains(capability)) {
+        auto cap = data_["capabilities"][capability];
+        if (cap.contains("ip") && cap.contains("rest_port")) {
+          return cap["ip"].get<std::string>() + ":" +
+                 cap["rest_port"].get<std::string>();
+        }
+      }
+    } catch (...) {
+    }
+
+    std::string addr = config_->GetRESTAddress(capability);
+    if (addr.empty()) {
+      throw std::runtime_error("REST capability not found: " + capability);
+    }
+    return addr;
+  }
+
 
   /**
    * Access service-specific local configuration.
@@ -191,6 +225,84 @@ public:
   const std::string &GetProfile() const { return profile_; }
   const CLIArgs &GetArgs() const { return args_; }
 
+  void ValidateUniquePorts() const {
+    if (!data_.contains("capabilities") || !data_["capabilities"].is_object()) {
+      return;
+    }
+
+    struct Endpoint {
+      std::string ip;
+      int port;
+      bool operator<(const Endpoint &other) const {
+        if (ip != other.ip) return ip < other.ip;
+        return port < other.port;
+      }
+    };
+
+    auto normalize_ip = [](const std::string &ip_in) {
+      std::string s = ip_in;
+      std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+      if (s == "localhost") return std::string("127.0.0.1");
+      return s;
+    };
+
+    std::map<Endpoint, std::string> seen;
+
+    auto check_and_add = [&](const std::string &ip_val, int port_val, const std::string &desc) {
+      if (ip_val.empty() || port_val <= 0) return;
+      std::string nip = normalize_ip(ip_val);
+      for (const auto &kv : seen) {
+        if (kv.first.port == port_val) {
+          if (nip == kv.first.ip || nip == "0.0.0.0" || kv.first.ip == "0.0.0.0") {
+            throw std::runtime_error("Duplicate endpoint detected: " + ip_val + ":" + std::to_string(port_val) +
+                                     " for " + desc + " conflicts with " + kv.first.ip + ":" +
+                                     std::to_string(kv.first.port) + " for " + kv.second);
+          }
+        }
+      }
+      seen[{nip, port_val}] = desc;
+    };
+
+    auto parse_port = [](const nlohmann::json &v) -> int {
+      if (v.is_number_integer()) return v.get<int>();
+      if (v.is_string()) {
+        try {
+          return std::stoi(v.get<std::string>());
+        } catch (...) {
+          return -1;
+        }
+      }
+      return -1;
+    };
+
+    for (auto it = data_["capabilities"].begin(); it != data_["capabilities"].end(); ++it) {
+      const auto &cap_name = it.key();
+      const auto &cap_data = it.value();
+      if (!cap_data.is_object()) continue;
+
+      std::string ip = cap_data.contains("ip") && cap_data["ip"].is_string() ? cap_data["ip"].get<std::string>() : "";
+      std::string g_ip = cap_data.contains("grpc_ip") && cap_data["grpc_ip"].is_string() ? cap_data["grpc_ip"].get<std::string>() : ip;
+
+      // Explicit TCP port
+      if (!ip.empty() && cap_data.contains("port")) {
+        int p = parse_port(cap_data["port"]);
+        if (p > 0) check_and_add(ip, p, cap_name + " (TCP)");
+      }
+
+      // Explicit gRPC port
+      if (!g_ip.empty() && cap_data.contains("grpc_port")) {
+        int gp = parse_port(cap_data["grpc_port"]);
+        if (gp > 0) check_and_add(g_ip, gp, cap_name + " (gRPC)");
+      }
+
+      // Explicit REST port
+      if (!ip.empty() && cap_data.contains("rest_port")) {
+        int rp = parse_port(cap_data["rest_port"]);
+        if (rp > 0) check_and_add(ip, rp, cap_name + " (REST)");
+      }
+    }
+  }
+
 private:
   std::string profile_;
   std::shared_ptr<Logger> logger_;
@@ -218,8 +330,12 @@ private:
                                            "config/" + profile_ + ".yaml"};
 
     for (const auto &path : candidates) {
+      std::ifstream infile(path);
+      if (!infile.good()) continue;
+      infile.close();
+
       std::string local_json = config_->ApplyFileOverride(path);
-      if (local_json != "{}") {
+      if (!local_json.empty() && local_json != "{}") {
         try {
           auto parsed = nlohmann::json::parse(local_json);
           // Standard Deep Merge for local config parity
@@ -230,9 +346,9 @@ private:
         } catch (...) {
           logger_->Warning("Failed to parse expanded local config from bridge");
         }
-        SyncFromBridge(); // Refresh mirror for common/capabilities
-        return;
       }
+      SyncFromBridge(); // Refresh mirror for common/capabilities
+      return;
     }
   }
 

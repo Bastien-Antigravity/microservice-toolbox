@@ -1,3 +1,15 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Manages application lifecycle, OS signal traps (SIGINT, SIGTERM), and orderly LIFO cleanups.
+//
+// DATA FLOW:
+// OS Signals / Context Cancel -> Manager.Wait() -> LIFO Cleanup Execution -> Process Exit
+//
+// KEY PARAMETERS:
+// - cleanups: Slice of registered cleanupHook instances (executed LIFO).
+// - Logger: Universal Logger instance for audit logging.
+// -----------------------------------------------------------------------------
+
 package lifecycle
 
 import (

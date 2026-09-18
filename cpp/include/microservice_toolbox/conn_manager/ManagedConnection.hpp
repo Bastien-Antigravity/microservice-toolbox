@@ -1,3 +1,14 @@
+// -----------------------------------------------------------------------------
+// ESSENTIAL PROCESS:
+// Core microservice-toolbox module: ManagedConnection.hpp.
+//
+// DATA FLOW:
+// Callers -> ManagedConnection.hpp -> Processed Output
+//
+// KEY PARAMETERS:
+// - Standard module parameters.
+// -----------------------------------------------------------------------------
+
 #ifndef MICROSERVICE_TOOLBOX_CONN_MANAGER_MANAGED_CONNECTION_HPP
 #define MICROSERVICE_TOOLBOX_CONN_MANAGER_MANAGED_CONNECTION_HPP
 
