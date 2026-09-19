@@ -58,6 +58,38 @@ let sig = Signal {
 };
 ```
 
+### 4. TeleRemote Client (`teleremote`)
+Dynamic interactive Telegram bot UI schema registration and bidirectional gRPC telemetry streaming with automatic reconnects.
+
+```rust
+use microservice_toolbox::teleremote::{Action, TeleClient};
+
+let client = TeleClient::new("MyService", "127.0.0.1", 1863, None);
+
+// Register command action
+client.add_action(Action::new("Ping").with_callback(|_input| {
+    Box::pin(async move {
+        println!("Ping received from Telegram!");
+        Ok(())
+    })
+})).await;
+
+// Connect and begin background sync
+client.start();
+
+// Send telemetry text alert
+client.send_telemetry("Worker initialized successfully").await?;
+```
+
+### 5. Lifecycle Manager (`lifecycle`)
+LIFO graceful shutdown manager trapping OS termination signals (`SIGINT`, `SIGTERM`).
+
+### 6. Network Connectivity (`connectivity`)
+Docker Guard suppression, IPv4/IPv6 loopback detection, and dynamic port bind resolver.
+
+### 7. Serializers (`serializers`)
+High-performance JSON and MsgPack binary serializers.
+
 ## Architecture & FFI Safety
 The Rust SDK interacts with the Go reference implementation via a high-performance C-linkage bridge. To ensure safety and performance:
 - **In-Memory Mirroring**: Full config state is synced at startup, allowing lock-free reads.

@@ -18,21 +18,29 @@
 #include "../include/microservice_toolbox/lifecycle/LifecycleManager.hpp"
 #include "../include/microservice_toolbox/business/Models.hpp"
 #include "../include/microservice_toolbox/serializers/JsonSerializer.hpp"
+#include "../include/microservice_toolbox/serializers/BinSerializer.hpp"
+#include "../include/microservice_toolbox/logger/Logger.hpp"
 
 using namespace microservice_toolbox;
 
 void test_connectivity_resolver() {
     std::cout << "Testing Connectivity Resolver..." << std::endl;
-    connectivity::Resolver r;
+    
+    // Native mode
+    connectivity::Resolver r_native(false);
+    assert(r_native.resolve_bind_addr("127.0.0.1") == "127.0.0.1");
+    assert(r_native.resolve_bind_addr("\"127.0.0.1\"") == "127.0.0.1");
+    assert(r_native.resolve_full_bind_addr("127.0.0.1:8080") == "127.0.0.1:8080");
+    assert(r_native.is_loopback("127.0.0.1"));
+    assert(r_native.is_loopback("localhost"));
 
-    // In native mode (no DOCKER_ENV), it returns the input IP
-    std::string addr = r.resolve_bind_addr("127.0.0.1");
-    assert(addr == "127.0.0.1");
+    // Docker Guard mode (forced)
+    connectivity::Resolver r_docker(true);
+    assert(r_docker.resolve_bind_addr("127.0.0.1") == "0.0.0.0");
+    assert(r_docker.resolve_bind_addr("\"127.0.0.2\"") == "0.0.0.0");
+    assert(r_docker.resolve_full_bind_addr("127.0.0.1:5000") == "0.0.0.0:5000");
 
-    std::string addr2 = r.resolve_bind_addr("0.0.0.0");
-    assert(addr2 == "0.0.0.0");
-
-    std::cout << "  Passed." << std::endl;
+    std::cout << "  Passed (Docker Guard suppression & address translation verified)." << std::endl;
 }
 
 void test_lifecycle_manager_lifo() {
@@ -51,8 +59,6 @@ void test_lifecycle_manager_lifo() {
         executed.push_back("third");
     });
 
-    // Directly invoke private execution via Wait simulation or method
-    // Since ExecuteCleanups is private and called upon signal, we can test Register and behavior
     std::cout << "  Passed (Hooks registered)." << std::endl;
 }
 
@@ -97,12 +103,38 @@ void test_json_serializer() {
     std::cout << "  Passed." << std::endl;
 }
 
+void test_bin_serializer() {
+    std::cout << "Testing BinSerializer (MsgPack)..." << std::endl;
+    serializers::BinSerializer s;
+
+    nlohmann::json data = {{"key", "binary_value"}, {"count", 100}};
+    std::vector<uint8_t> bytes = s.Marshal(data);
+    assert(!bytes.empty());
+
+    nlohmann::json deserialized = s.Unmarshal(bytes);
+    assert(deserialized["key"] == "binary_value");
+    assert(deserialized["count"] == 100);
+
+    std::cout << "  Passed." << std::endl;
+}
+
+void test_logger_interface() {
+    std::cout << "Testing Logger interface..." << std::endl;
+    auto l = logger::EnsureSafeLogger(nullptr);
+    assert(l != nullptr);
+    l->Info("Test log message via EnsureSafeLogger");
+
+    std::cout << "  Passed." << std::endl;
+}
+
 int main() {
     try {
         test_connectivity_resolver();
         test_lifecycle_manager_lifo();
         test_business_models();
         test_json_serializer();
+        test_bin_serializer();
+        test_logger_interface();
 
         std::cout << "\n=======================================" << std::endl;
         std::cout << "  All C++ Modules Tests Passed!" << std::endl;

@@ -9,6 +9,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_yml = "0.0.12"
 tokio = { version = "1.51.1", features = ["full"] }
 tonic = "0.14.5"
+tonic-prost = "0.14.5"
 prost = "0.14.3"
 tonic-reflection = "0.14.5"
 chrono = { version = "0.4", features = ["serde"] }
@@ -20,10 +21,19 @@ unilog-rs = { git = "https://github.com/Bastien-Antigravity/universal-logger", b
 libloading = "0.8"
 regex = "1.10"
 async-nats = "0.38"
+tokio-stream = { version = "0.1", features = ["sync"] }
+
 
 [features]
 default = []
 unilog = ["dep:unilog-rs"]
+
+[build-dependencies]
+tonic-prost-build = "0.14.6"
+
+
+
+
 
 
 [[bin]]

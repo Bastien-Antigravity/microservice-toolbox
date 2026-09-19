@@ -58,8 +58,10 @@ event = MarketEvent(
     payload=b"..."
 )
 
+from microservice_toolbox.business.helpers import serialize
+
 # Ready for cross-language exchange
-json_data = event.to_json()
+json_bytes = serialize(event)
 ```
 
 ## Architecture: The FFI Bridge

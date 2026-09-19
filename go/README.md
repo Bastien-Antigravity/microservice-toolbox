@@ -1,13 +1,15 @@
 ---
-microservice: obsidian-brain
-type: note
+microservice: microservice-toolbox
+type: documentation
 status: active
 tags:
-- '#service/obsidian-brain'
-- '#type/note'
+- '#service/microservice-toolbox'
+- '#type/documentation'
 - '#state/active'
 - '#zone/3-fleet'
----# Microservice Toolbox - Go Module (Reference Implementation)
+---
+
+# Microservice Toolbox - Go Module (Reference Implementation)
 
 The Go implementation of the `microservice-toolbox` is the foundational library and core engine for the entire Bastien-Antigravity ecosystem. It provides the reference logic for configuration resolution, RSA decryption, and resilient networking.
 
@@ -20,13 +22,16 @@ go get github.com/Bastien-Antigravity/microservice-toolbox/go
 ## Core Pillars
 
 ### 1. Configuration (`pkg/config`)
-Implements the "Hierarchy of Truth" and the autoritative Go-bridge for non-Go SDKs.
+Implements the "Hierarchy of Truth" and the authoritative Go-bridge for non-Go SDKs.
 
 ```go
 import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/config"
 
 // Loads standalone.yaml and applies layered priority
-cfg := config.LoadConfig("standalone")
+cfg, err := config.LoadConfig("standalone")
+if err != nil {
+    log.Fatalf("failed to load config: %v", err)
+}
 
 // Decrypt secrets using the centralized RSA engine
 secret, _ := cfg.DecryptSecret("ENC(...)")
@@ -52,7 +57,7 @@ import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/business"
 
 sig := business.Signal{
     Symbol: "BTC/USDT",
-    Type: business.SignalBuy,
+    Type:   business.SignalBuy,
 }
 ```
 
@@ -61,8 +66,9 @@ Unified NATS configuration models and connector factories.
 
 ```go
 import (
+    "time"
+    "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
     "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/messaging"
-    "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/utils"
 )
 
 // Configure connection parameters
@@ -73,7 +79,7 @@ cfg := &messaging.NatsConfig{
 }
 
 // Establish a connection pre-wired with standard retry and logging behavior
-nc, err := messaging.Connect(cfg, &utils.FmtLogger{})
+nc, err := messaging.Connect(cfg, &logger.FmtLogger{})
 ```
 
 ## Architecture: The Reference Engine
@@ -82,5 +88,6 @@ The Go module serves as the **Core Execution Engine**. All non-Go implementation
 ## Testing
 Run the comprehensive Go test suite:
 ```bash
-cd go && go test -v ./pkg/...
+go test -v ./go/...
 ```
+

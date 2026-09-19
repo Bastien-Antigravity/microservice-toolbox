@@ -2,6 +2,9 @@
 set -e
 
 # Configuration
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
+cd "$ROOT_DIR"
+
 TEMP_FILE="integration_data.bin"
 FORMATS=("json" "msgpack")
 LANGS=("go" "python" "rust")

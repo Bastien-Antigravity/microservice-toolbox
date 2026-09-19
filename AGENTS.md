@@ -14,6 +14,9 @@
   - `go/pkg/serializers`: Unified JSON and MsgPack binary serialization
   - `go/pkg/business`: Canonical market domain models (MarketEvent, OHLCV, Signal)
   - `go/pkg/teleremote`: Telegram bot client facade and menu tree builder
+  - `go/pkg/logger`: Unified ILogger abstraction compatible with universal-logger
+  - `go/pkg/messaging`: Resilient NATS Core and JetStream connection manager
+  - `go/pkg/utils`: Terminal UI helpers, environment and formatting utilities
 - **Configuration Link**: `standalone.yaml -> ../docker-deployment/modes/local/config/native.yaml`
 
 ## Key Build & Test Commands

@@ -61,7 +61,7 @@ nlohmann::json j = sig.to_json();
 ```
 
 ## Build Requirements
-- **C++14** compatible compiler (Clang/GCC).
+- **C++17** compatible compiler (Clang/GCC).
 - **libdistconf**: The Go-based CGO bridge library.
 - **nlohmann/json**: Header-only JSON library (included).
 

@@ -18,3 +18,9 @@ pub mod network;
 pub mod serializers;
 pub mod utils;
 pub mod messaging;
+pub mod teleremote;
+
+// Re-export logger at crate root for 100% parity with Go and Python
+pub use utils::logger;
+
+
