@@ -130,6 +130,59 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
     except Exception:
         pass
 
+    # 5. On-demand compilation fallback for fresh local clones
+    autobuilt = _try_autobuild_library(lib_name)
+    if autobuilt:
+        return autobuilt
+
+    return None
+
+
+def _try_autobuild_library(lib_name: str) -> Optional[str]:
+    """
+    Auto-compiles missing CGO shared libraries on-the-fly during fresh local installs
+    if the Go compiler and repository source trees are present.
+    """
+    import shutil
+    import subprocess
+
+    if not shutil.which("go"):
+        return None
+
+    ext = get_platform_extension()
+    filename = f"{lib_name}{ext}"
+    current_dir = Path(__file__).resolve().parent
+    toolbox_root = current_dir.parent.parent.parent
+    workspace_root = toolbox_root.parent
+
+    target_file = None
+    src_dir = None
+
+    if lib_name == "libunilog":
+        src_dir = workspace_root / "universal-logger" / "src" / "cgo_bridge"
+        target_dir = workspace_root / "universal-logger" / "libunilog"
+        target_file = target_dir / filename
+    elif lib_name == "libdistconf":
+        src_dir = workspace_root / "distributed-config" / "cmd" / "libdistconf"
+        target_dir = workspace_root / "distributed-config" / "distconf" / "libdistconf"
+        target_file = target_dir / filename
+
+    if src_dir and src_dir.exists():
+        try:
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            print(f"[lib_loader] On-demand compiling {lib_name} ({filename}) for fresh install...", file=sys.stderr)
+            cmd = ["go", "build", "-buildmode=c-shared", "-o", str(target_file), "."]
+            res = subprocess.run(cmd, cwd=str(src_dir), capture_output=True, text=True, timeout=45)
+            if res.returncode == 0 and target_file.exists():
+                if sys.platform == "darwin" and shutil.which("install_name_tool"):
+                    subprocess.run(["install_name_tool", "-id", f"@rpath/{filename}", str(target_file)], capture_output=True)
+                print(f"[lib_loader] Successfully compiled {filename} at {target_file}", file=sys.stderr)
+                return str(target_file.resolve())
+            else:
+                print(f"[lib_loader] Compilation of {lib_name} failed: {res.stderr}", file=sys.stderr)
+        except Exception as e:
+            print(f"[lib_loader] Auto-build exception for {lib_name}: {e}", file=sys.stderr)
+
     return None
 
 
