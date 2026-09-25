@@ -77,6 +77,55 @@ impl Logger for UniLogger {
 
 
 /// Ensures a valid logger is returned, falling back to `Arc<DefaultLogger>` if None.
+/// In strict mode (STRICT_LOGGER=true), panics to prevent microservices from running dark.
 pub fn ensure_safe_logger(logger: Option<Arc<dyn Logger>>) -> Arc<dyn Logger> {
-    logger.unwrap_or_else(|| Arc::new(DefaultLogger))
+    match logger {
+        Some(l) => l,
+        None => {
+            if std::env::var("STRICT_LOGGER").as_deref() == Ok("true") {
+                panic!("CRITICAL ARCHITECTURAL VIOLATION: Nil logger passed to ensure_safe_logger in strict mode. Microservices must inject a valid logger via bootstrap.");
+            }
+            Arc::new(DefaultLogger)
+        }
+    }
 }
+
+// -----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ensure_safe_logger_fallback() {
+        unsafe { std::env::remove_var("STRICT_LOGGER"); }
+        let log = ensure_safe_logger(None);
+        log.info("test info");
+        log.debug("test debug");
+        log.warning("test warning");
+        log.error("test error");
+        log.critical("test critical");
+    }
+
+    #[test]
+    #[should_panic(expected = "CRITICAL ARCHITECTURAL VIOLATION")]
+    fn test_ensure_safe_logger_strict_mode() {
+        unsafe { std::env::set_var("STRICT_LOGGER", "true"); }
+        let _res = std::panic::catch_unwind(|| {
+            let _ = ensure_safe_logger(None);
+        });
+        unsafe { std::env::remove_var("STRICT_LOGGER"); }
+        if let Err(err) = _res {
+            std::panic::resume_unwind(err);
+        }
+    }
+
+    #[test]
+    fn test_ensure_safe_logger_passthrough() {
+        unsafe { std::env::remove_var("STRICT_LOGGER"); }
+        let custom: Arc<dyn Logger> = Arc::new(DefaultLogger);
+        let log = ensure_safe_logger(Some(custom.clone()));
+        assert!(Arc::ptr_eq(&custom, &log));
+    }
+}
+

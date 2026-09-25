@@ -15,6 +15,8 @@
 #include <string>
 #include <iostream>
 #include <memory>
+#include <stdexcept>
+#include <cstdlib>
 
 namespace microservice_toolbox {
 namespace utils {
@@ -82,6 +84,10 @@ public:
 
 inline std::shared_ptr<Logger> EnsureSafeLogger(std::shared_ptr<Logger> logger) {
     if (logger) return logger;
+    const char* strict = std::getenv("STRICT_LOGGER");
+    if (strict && std::string(strict) == "true") {
+        throw std::runtime_error("CRITICAL ARCHITECTURAL VIOLATION: Nil logger passed to EnsureSafeLogger in strict mode. Microservices must inject a valid logger via bootstrap.");
+    }
     return std::make_shared<NoOpLogger>();
 }
 

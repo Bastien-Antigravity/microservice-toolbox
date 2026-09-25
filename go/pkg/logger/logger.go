@@ -37,10 +37,15 @@ type Logger interface {
 	AddMetadata(key string, value string)
 }
 
-// EnsureSafeLogger returns a no-op logger if the provided one is nil.
-// This is used internally by toolbox components to avoid nil pointer panics.
+// EnsureSafeLogger returns a no-op logger if the provided one is nil,
+// preventing nil-pointer panics in reusable library components and unit tests.
+// In strict mode (STRICT_LOGGER=true), it panics immediately to prevent
+// production microservices from silently running dark without operational logs.
 func EnsureSafeLogger(l Logger) Logger {
 	if l == nil {
+		if os.Getenv("STRICT_LOGGER") == "true" {
+			panic("CRITICAL ARCHITECTURAL VIOLATION: Nil logger passed to EnsureSafeLogger in strict mode. Microservices must inject a valid logger via BootstrapService.")
+		}
 		return &noOpLogger{}
 	}
 	return l

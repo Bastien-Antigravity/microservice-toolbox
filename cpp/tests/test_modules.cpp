@@ -120,9 +120,21 @@ void test_bin_serializer() {
 
 void test_logger_interface() {
     std::cout << "Testing Logger interface..." << std::endl;
+    unsetenv("STRICT_LOGGER");
     auto l = logger::EnsureSafeLogger(nullptr);
     assert(l != nullptr);
     l->Info("Test log message via EnsureSafeLogger");
+
+    // Test strict mode
+    setenv("STRICT_LOGGER", "true", 1);
+    bool caught = false;
+    try {
+        logger::EnsureSafeLogger(nullptr);
+    } catch (const std::runtime_error& e) {
+        caught = true;
+    }
+    unsetenv("STRICT_LOGGER");
+    assert(caught && "Expected EnsureSafeLogger to throw in strict mode");
 
     std::cout << "  Passed." << std::endl;
 }

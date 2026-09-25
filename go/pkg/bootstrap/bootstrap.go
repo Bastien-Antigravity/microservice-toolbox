@@ -57,6 +57,9 @@ func BootstrapServiceSafe(serviceName string, specificFlags ...string) (*toolbox
 		UseLocalNotifier: true,
 		ExistingConfig:   &unilog_config.DistConfig{Config: appConfig.Config},
 	})
+	if appLogger == nil {
+		return nil, nil, fmt.Errorf("logger initialization failed for service %s: cannot bootstrap without a valid logger", serviceName)
+	}
 
 	appConfig.Logger = appLogger
 	return appConfig, appLogger, nil
