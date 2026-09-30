@@ -105,6 +105,98 @@ class ProcessLock:
                     pass
 
 
+# -----------------------------------------------------------------------------
+def is_pid_alive(pid: int) -> bool:
+    """
+    Cross-platform check to determine if a process with the given PID is running.
+    Works natively on Windows, macOS, and Linux without external dependencies.
+    """
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+
+    if os.name == "nt":
+        import ctypes
+        # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        ERROR_ACCESS_DENIED = 5
+        return kernel32.GetLastError() == ERROR_ACCESS_DENIED
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except PermissionError:
+            # Process exists, but current user lacks permission to send signals to it
+            return True
+        except (ProcessLookupError, OSError):
+            return False
+
+
+# -----------------------------------------------------------------------------
+def is_process_running(service_name: str) -> Optional[dict]:
+    """
+    Non-destructively inspects whether a service is currently running.
+    Returns None if not running.
+    If running, returns a dictionary with metadata:
+      {'pid': int|None, 'alive': bool, 'lock_path': str}
+    """
+    lock_path = os.path.join(tempfile.gettempdir(), f"antigravity_{service_name}.lock")
+    if not os.path.exists(lock_path):
+        return None
+
+    pid = None
+    try:
+        with open(lock_path, "r") as f:
+            content = f.read().strip()
+            if content.isdigit():
+                pid = int(content)
+    except Exception:
+        pass
+
+    # Non-destructive lock acquisition test (does not truncate or unlink)
+    lock_held = False
+    try:
+        fd = os.open(lock_path, os.O_RDWR)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        except (OSError, IOError, BlockingIOError):
+            lock_held = True
+        finally:
+            os.close(fd)
+    except Exception:
+        lock_held = True
+
+    if not lock_held:
+        # File existed on disk but flock was free -> stale lock file!
+        if pid:
+            if not is_pid_alive(pid):
+                try:
+                    os.unlink(lock_path)
+                except Exception:
+                    pass
+        return None
+
+    # Lock is genuinely held by a running process
+    is_alive = is_pid_alive(pid) if pid else False
+
+    return {
+        "pid": pid,
+        "alive": is_alive,
+        "lock_path": lock_path,
+    }
+
+
+# -----------------------------------------------------------------------------
 def prevent_double_start(service_name: str, logger: Optional[Any] = None) -> ProcessLock:
     """
     Ensures that only a single instance of the service is running.
@@ -112,7 +204,9 @@ def prevent_double_start(service_name: str, logger: Optional[Any] = None) -> Pro
     """
     lock = ProcessLock(service_name)
     if not lock.acquire():
-        msg = f"Process already running: {service_name} (lock file: {lock.lock_path})"
+        info = is_process_running(service_name)
+        pid_info = f" (PID: {info['pid']})" if info and info.get("pid") else ""
+        msg = f"Process already running: {service_name}{pid_info} (lock file: {lock.lock_path})"
         if logger:
             logger.critical(msg)
         else:

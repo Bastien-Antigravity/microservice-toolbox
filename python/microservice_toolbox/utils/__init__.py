@@ -10,6 +10,8 @@ from .bootstrap import (
 )
 from .process_lock import (
     prevent_double_start as prevent_double_start,
+    is_process_running as is_process_running,
+    is_pid_alive as is_pid_alive,
     ProcessLock as ProcessLock
 )
 from .lib_loader import (
