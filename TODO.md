@@ -27,3 +27,4 @@ tags:
 - [x] Resilience Standard: Added randomized jitter and backoff to Reconnect loops (Go, Python, Rust, and C++ policy).
 - [x] C++ Parity: Implemented ManagedConnection and orchestration methods (ConnectBlocking, etc).
 - [x] Networking Hardening: Implemented "Docker Guard" suppression to prevent broken network binds in containers.
+- [x] Direct Notification Client Standard: Go, Python, Rust, C++, and VBA parity pushing direct alerts to notif-server (gRPC port 1027) via libnotif CGO bridge.

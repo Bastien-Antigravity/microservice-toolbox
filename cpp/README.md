@@ -60,6 +60,27 @@ sig.type = SignalType::Buy;
 nlohmann::json j = sig.to_json();
 ```
 
+### 4. Direct Notification Client (`NotificationClient`)
+Header-only RAII client enabling C++ L2/L3 services to dispatch direct alerts to `notif-server` (gRPC port 1027) via the dynamic `libnotif` C ABI bridge with zero-silent-fallback guarantees.
+
+```cpp
+#include "microservice_toolbox/notification/NotificationClient.hpp"
+
+using namespace microservice_toolbox::notification;
+
+// 1. Initialize fail-fast from AppConfig (resolves capabilities.notif_server.grpc_port)
+auto notif = NotificationClient::FromConfig(*ac, logger);
+
+// 2. Dispatch 1-line general alert
+notif.Send("Risk engine warmed up and executing", {"telegram"});
+
+// 3. Dispatch categorized alert with severity level
+notif.SendAlert("TRADE", "Filled limit order: BUY 1.5 BTC @ 64500", {"telegram", "discord"});
+
+// 4. Dispatch full alert with attachment
+notif.SendWithAttachment("REPORT", "Daily risk report generated", "risk.pdf", {"reports"});
+```
+
 ## Build Requirements
 - **C++17** compatible compiler (Clang/GCC).
 - **libdistconf**: The Go-based CGO bridge library.

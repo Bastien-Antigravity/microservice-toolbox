@@ -38,6 +38,11 @@ def __getattr__(name):
             globals()["JetStreamConfig"] = None
             globals()["connect"] = None
         return globals()[name]
+    if name in ["NotificationClient", "new_notification_client"]:
+        from .notification import NotificationClient, new_client
+        globals()["NotificationClient"] = NotificationClient
+        globals()["new_notification_client"] = new_client
+        return globals()[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -54,5 +59,6 @@ __all__ = [
     "Logger",
     "ensure_safe_logger",
     "init_microservice",
+    "NotificationClient",
 ]
 

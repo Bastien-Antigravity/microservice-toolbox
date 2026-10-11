@@ -57,7 +57,34 @@ pub fn load_config_with_logger(profile: &str, logger: Option<Arc<dyn Logger>>) -
     AppConfig::load_config(profile, logger)
 }
 
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            profile: "default".to_string(),
+            data: Value::Mapping(serde_yml::Mapping::new()),
+            cli_args: ToolboxArgs::default(),
+            logger: ensure_safe_logger(None),
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
+        }
+    }
+}
+
 impl AppConfig {
+    /// Creates an AppConfig wrapping explicit yaml value data.
+    pub fn from_value(data: Value) -> Self {
+        Self {
+            profile: "default".to_string(),
+            data,
+            cli_args: ToolboxArgs::default(),
+            logger: ensure_safe_logger(None),
+            _handle: None,
+            _live_cb: None,
+            _reg_cb: None,
+        }
+    }
+
     /// Loads and merges configuration data based on the provided profile.
     pub fn load_config(profile: &str, logger: Option<Arc<dyn Logger>>) -> Result<Self, Box<dyn std::error::Error>> {
         let cli_args = ToolboxArgs::parse_cli_args();

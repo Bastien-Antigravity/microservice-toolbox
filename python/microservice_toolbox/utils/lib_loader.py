@@ -93,17 +93,27 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
             workspace_root / "distributed-config" / "bin" / filename,
             toolbox_root / "python" / "microservice_toolbox" / "config" / filename,
         ])
+    elif lib_name == "libnotif":
+        candidate_paths.extend([
+            workspace_root / "notif-server" / "notif" / "libnotif" / filename,
+            workspace_root / "notif-server" / "notif" / "python" / "notif" / filename,
+            workspace_root / "notif-server" / "bin" / filename,
+            toolbox_root / "python" / "microservice_toolbox" / "notification" / filename,
+        ])
 
     # Sibling directory check (if current working directory is another microservice)
     cwd = Path.cwd().resolve()
     for parent in [cwd] + list(cwd.parents):
-        if (parent / "universal-logger").is_dir():
+        if (parent / "universal-logger").is_dir() or (parent / "notif-server").is_dir():
             if lib_name == "libunilog":
                 candidate_paths.append(parent / "universal-logger" / "unilog" / "libunilog" / filename)
                 candidate_paths.append(parent / "universal-logger" / "unilog" / "python" / "unilog" / filename)
             elif lib_name == "libdistconf":
                 candidate_paths.append(parent / "distributed-config" / "distconf" / "libdistconf" / filename)
                 candidate_paths.append(parent / "distributed-config" / "distconf" / "python" / "distconf" / filename)
+            elif lib_name == "libnotif":
+                candidate_paths.append(parent / "notif-server" / "notif" / "libnotif" / filename)
+                candidate_paths.append(parent / "notif-server" / "notif" / "python" / "notif" / filename)
             break
 
     # Virtualenv site-packages check (active venv or nearest venv)
@@ -113,6 +123,7 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
             candidate_paths.extend([
                 venv_sp / "unilog" / filename,
                 venv_sp / "distconf" / filename,
+                venv_sp / "notif" / filename,
                 venv_sp / filename,
             ])
 
@@ -165,6 +176,10 @@ def _try_autobuild_library(lib_name: str) -> Optional[str]:
     elif lib_name == "libdistconf":
         src_dir = workspace_root / "distributed-config" / "cmd" / "libdistconf"
         target_dir = workspace_root / "distributed-config" / "distconf" / "libdistconf"
+        target_file = target_dir / filename
+    elif lib_name == "libnotif":
+        src_dir = workspace_root / "notif-server" / "cmd" / "libnotif"
+        target_dir = workspace_root / "notif-server" / "notif" / "libnotif"
         target_file = target_dir / filename
 
     if src_dir and src_dir.exists():
@@ -354,3 +369,49 @@ def load_libdistconf() -> Optional[ctypes.CDLL]:
     except Exception as e:
         print(f"Failed to load libdistconf ({lib_path}): {e}", file=sys.stderr)
         return None
+
+
+# -----------------------------------------------------------------------------------------------
+# Notif Shared Library Loader & FFI Signatures
+# -----------------------------------------------------------------------------------------------
+
+_notif_handle: Optional[ctypes.CDLL] = None
+
+
+def load_libnotif() -> Optional[ctypes.CDLL]:
+    """
+    Locates and loads the libnotif shared library from notif-server.
+    Defines full C ABI function signatures and returns a ctypes.CDLL handle.
+    """
+    global _notif_handle
+    if _notif_handle is not None:
+        return _notif_handle
+
+    lib_path = resolve_library_path("libnotif", "LIBNOTIF_PATH")
+    if not lib_path:
+        return None
+
+    try:
+        handle = ctypes.CDLL(lib_path)
+
+        handle.Notif_Send.argtypes = [c_char_p, c_char_p, c_char_p, c_char_p, c_char_p]
+        handle.Notif_Send.restype = c_int
+
+        handle.Notif_SendWithTimeout.argtypes = [c_char_p, c_char_p, c_char_p, c_char_p, c_char_p, ctypes.c_double]
+        handle.Notif_SendWithTimeout.restype = c_int
+
+        handle.Notif_GetLastError.argtypes = []
+        handle.Notif_GetLastError.restype = c_void_p
+
+        handle.Notif_FreeString.argtypes = [c_void_p]
+        handle.Notif_FreeString.restype = None
+
+        handle.Notif_Close.argtypes = []
+        handle.Notif_Close.restype = None
+
+        _notif_handle = handle
+        return _notif_handle
+    except Exception as e:
+        print(f"Failed to load libnotif ({lib_path}): {e}", file=sys.stderr)
+        return None
+

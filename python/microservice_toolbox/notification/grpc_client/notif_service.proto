@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package notifservice;
+
+option go_package = "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/notification/grpc_client";
+
+service NotifService {
+  rpc SendNotification (NotifRequest) returns (NotifResponse);
+}
+
+message NotifRequest {
+  string message = 1;
+  repeated string tags = 2;
+  string attachment = 3;
+  string level = 4;
+}
+
+message NotifResponse {
+  bool success = 1;
+}
