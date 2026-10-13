@@ -31,6 +31,19 @@ type NatsConfig struct {
 
 	// JetStream Configuration
 	JetStream *JetStreamConfig `yaml:"jetstream" json:"jetstream"`
+
+	// TLS Configuration (wire encryption for external / remote nodes)
+	TLS *TLSConfig `yaml:"tls" json:"tls"`
+}
+
+// TLSConfig holds settings for encrypted wire transport (TLS / mTLS).
+type TLSConfig struct {
+	Enabled            bool   `yaml:"enabled" json:"enabled"`
+	CertFile           string `yaml:"cert_file" json:"cert_file"`
+	KeyFile            string `yaml:"key_file" json:"key_file"`
+	CAFile             string `yaml:"ca_file" json:"ca_file"`
+	VerifyClient       bool   `yaml:"verify_client" json:"verify_client"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify" json:"insecure_skip_verify"`
 }
 
 // JetStreamConfig holds specific settings for stream creation and publishing.

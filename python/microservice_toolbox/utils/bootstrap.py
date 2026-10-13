@@ -22,10 +22,10 @@ from pathlib import Path
 
 def find_vault_root(start_dir: str) -> Path:
     """Walk up from the start directory until the vault root (obsidian-brain) is found.
-    Identifies the vault by the presence of '08-Base-Scripts' or '00-AI-Orchestration' subdirectories."""
+    Identifies the vault by the presence of '08-Squad-Agent' or '00-AI-Orchestration' subdirectories."""
     current = Path(start_dir).resolve()
     for parent in [current] + list(current.parents):
-        if (parent / "08-Base-Scripts").is_dir() and (parent / "00-AI-Orchestration").is_dir():
+        if (parent / "08-Squad-Agent").is_dir() and (parent / "00-AI-Orchestration").is_dir():
             return parent
     # Fallback: walk up until a .venv is found (legacy behavior)
     current = Path(start_dir).resolve()

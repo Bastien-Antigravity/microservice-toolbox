@@ -61,3 +61,20 @@ class NatsConfig:
     flush_timeout: float = 10.0  # seconds
     subject_prefix: str = ""
     jetstream: Optional[JetStreamConfig] = None
+    tls: Optional["TLSConfig"] = None
+
+# -----------------------------------------------------------------------------------------------
+# ### TLS CONFIGURATION ###
+# -----------------------------------------------------------------------------------------------
+
+@dataclass
+class TLSConfig:
+    """
+    Configuration parameters for NATS TLS wire encryption and mutual authentication.
+    """
+    enabled: bool = False
+    cert_file: str = ""
+    key_file: str = ""
+    ca_file: str = ""
+    verify_client: bool = False
+    insecure_skip_verify: bool = False

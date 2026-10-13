@@ -36,7 +36,7 @@ pub async fn connect(
     let reconnect_wait_secs = cfg.reconnect_wait_secs;
 
     // Configure connection options with standard callbacks and properties
-    let client = async_nats::ConnectOptions::new()
+    let mut connect_opts = async_nats::ConnectOptions::new()
         .name(&cfg.client_id)
         .connection_timeout(Duration::from_secs(cfg.connect_timeout_secs))
         .reconnect_delay_callback(move |attempts| {
@@ -54,9 +54,31 @@ pub async fn connect(
                     log_reconnect.info(&format!("[{}] NATS successfully reconnected", client_id_reconnect));
                 }
             }
-        })
-        .connect(&cfg.servers[0])
-        .await?;
+        });
+
+    // Configure TLS options if present or if tls:// scheme is requested
+    if let Some(tls) = &cfg.tls {
+        if tls.enabled {
+            connect_opts = connect_opts.require_tls(true);
+        }
+        if let Some(ca) = &tls.ca_file {
+            if !ca.is_empty() {
+                connect_opts = connect_opts.add_root_certificates(std::path::PathBuf::from(ca));
+            }
+        }
+        if let (Some(cert), Some(key)) = (&tls.cert_file, &tls.key_file) {
+            if !cert.is_empty() && !key.is_empty() {
+                connect_opts = connect_opts.add_client_certificate(
+                    std::path::PathBuf::from(cert),
+                    std::path::PathBuf::from(key),
+                );
+            }
+        }
+    } else if cfg.servers[0].starts_with("tls://") {
+        connect_opts = connect_opts.require_tls(true);
+    }
+
+    let client = connect_opts.connect(&cfg.servers[0]).await?;
 
     log.info(&format!("[{}] Successfully connected to NATS at {}", cfg.client_id, cfg.servers[0]));
     Ok(client)

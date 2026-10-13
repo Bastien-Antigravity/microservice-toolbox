@@ -53,16 +53,34 @@ async def connect(cfg: NatsConfig, logger: Optional[Logger] = None) -> nats.NATS
     async def closed_cb():
         log.error(f"[{cfg.client_id}] NATS connection closed unexpectedly")
 
-    nc = await nats.connect(
-        servers=cfg.servers,
-        name=cfg.client_id,
-        connect_timeout=cfg.connect_timeout,
-        reconnect_time_wait=cfg.reconnect_wait,
-        max_reconnect_attempts=cfg.max_reconnects,
-        disconnected_cb=disconnected_cb,
-        reconnected_cb=reconnected_cb,
-        closed_cb=closed_cb,
-    )
+    tls_ctx = None
+    has_tls_scheme = any(s.lower().startswith("tls://") for s in cfg.servers)
+    if (cfg.tls and cfg.tls.enabled) or has_tls_scheme:
+        import ssl
+        tls_ctx = ssl.create_default_context(
+            purpose=ssl.Purpose.SERVER_AUTH,
+            cafile=cfg.tls.ca_file if (cfg.tls and cfg.tls.ca_file) else None
+        )
+        if cfg.tls and cfg.tls.insecure_skip_verify:
+            tls_ctx.check_hostname = False
+            tls_ctx.verify_mode = ssl.CERT_NONE
+        if cfg.tls and cfg.tls.cert_file and cfg.tls.key_file:
+            tls_ctx.load_cert_chain(certfile=cfg.tls.cert_file, keyfile=cfg.tls.key_file)
+
+    connect_kwargs = {
+        "servers": cfg.servers,
+        "name": cfg.client_id,
+        "connect_timeout": cfg.connect_timeout,
+        "reconnect_time_wait": cfg.reconnect_wait,
+        "max_reconnect_attempts": cfg.max_reconnects,
+        "disconnected_cb": disconnected_cb,
+        "reconnected_cb": reconnected_cb,
+        "closed_cb": closed_cb,
+    }
+    if tls_ctx is not None:
+        connect_kwargs["tls"] = tls_ctx
+
+    nc = await nats.connect(**connect_kwargs)
 
     log.info(f"[{cfg.client_id}] Successfully connected to NATS at {nc.connected_url}")
     return nc

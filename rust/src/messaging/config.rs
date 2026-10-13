@@ -40,4 +40,14 @@ pub struct NatsConfig {
     pub flush_timeout_secs: u64,
     pub subject_prefix: String,
     pub jetstream: Option<JetStreamConfig>,
+    pub tls: Option<TlsConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TlsConfig {
+    pub enabled: bool,
+    pub cert_file: Option<String>,
+    pub key_file: Option<String>,
+    pub ca_file: Option<String>,
+    pub insecure_skip_verify: bool,
 }

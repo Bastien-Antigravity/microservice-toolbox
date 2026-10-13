@@ -12,7 +12,9 @@
 package messaging
 
 import (
+	"crypto/tls"
 	"fmt"
+	"strings"
 
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
 	"github.com/nats-io/nats.go"
@@ -45,6 +47,33 @@ func Connect(cfg *NatsConfig, l logger.Logger) (*nats.Conn, error) {
 		nats.ReconnectHandler(func(nc *nats.Conn) {
 			log.Info("[%s] NATS successfully reconnected to %s", cfg.ClientID, nc.ConnectedUrl())
 		}),
+	}
+
+	// Wire Encryption / TLS configuration (for remote nodes or when explicitly configured)
+	hasTLSScheme := false
+	for _, s := range cfg.Servers {
+		if strings.HasPrefix(strings.ToLower(s), "tls://") {
+			hasTLSScheme = true
+			break
+		}
+	}
+
+	if (cfg.TLS != nil && cfg.TLS.Enabled) || hasTLSScheme {
+		if cfg.TLS != nil {
+			if cfg.TLS.CAFile != "" {
+				opts = append(opts, nats.RootCAs(cfg.TLS.CAFile))
+			}
+			if cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {
+				opts = append(opts, nats.ClientCert(cfg.TLS.CertFile, cfg.TLS.KeyFile))
+			}
+			if cfg.TLS.InsecureSkipVerify {
+				opts = append(opts, nats.Secure(&tls.Config{InsecureSkipVerify: true}))
+			} else if cfg.TLS.CAFile == "" && (cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "") {
+				opts = append(opts, nats.Secure(nil))
+			}
+		} else {
+			opts = append(opts, nats.Secure(nil))
+		}
 	}
 
 	conn, err := nats.Connect(cfg.Servers[0], opts...)
