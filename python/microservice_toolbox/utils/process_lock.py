@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding:utf-8
+
 """
 ESSENTIAL PROCESS:
 Provides cross-platform process locking using file locking to prevent multiple
@@ -15,12 +16,37 @@ KEY PARAMETERS:
 - fail_fast: If True, raises RuntimeError immediately instead of waiting for lock.
 """
 
-import os
-import sys
-import tempfile
-from typing import Optional, Any
+from os import (
+    O_RDWR as osO_RDWR,
+    close as osClose,
+    getpid as osGetpid,
+    kill as osKill,
+    name as osName,
+    open as osOpen,
+    unlink as osUnlink,
+)
+from os.path import exists as osPathExists, join as osPathJoin
+from sys import exit as sysExit, stderr as sysStderr
+from tempfile import gettempdir as tempfileGetTempDir
+from typing import Any, Optional
+
+if osName == "nt":
+    from ctypes import windll as ctypesWindll
+    from msvcrt import (
+        LK_NBLCK as msvcrtLK_NBLCK,
+        LK_UNLCK as msvcrtLK_UNLCK,
+        locking as msvcrtLocking,
+    )
+else:
+    from fcntl import (
+        LOCK_EX as fcntlLOCK_EX,
+        LOCK_NB as fcntlLOCK_NB,
+        LOCK_UN as fcntlLOCK_UN,
+        flock as fcntlFlock,
+    )
 
 _active_locks = {}
+
 
 class ProcessLock:
     """
@@ -28,7 +54,7 @@ class ProcessLock:
     """
     def __init__(self, service_name: str) -> None:
         self.service_name = service_name
-        self.lock_path = os.path.join(tempfile.gettempdir(), f"antigravity_{service_name}.lock")
+        self.lock_path = osPathJoin(tempfileGetTempDir(), f"antigravity_{service_name}.lock")
         self.lock_file: Optional[Any] = None
 
     def acquire(self) -> bool:
@@ -39,22 +65,20 @@ class ProcessLock:
             # Open the file in 'a+' mode so we don't truncate it before locking,
             # which prevents overwriting the running instance's PID file.
             self.lock_file = open(self.lock_path, "a+")
-            
-            if os.name == "nt":
-                import msvcrt
+
+            if osName == "nt":
                 try:
                     # Windows requires seeking to 0 and locking a specific range
                     self.lock_file.seek(0)
-                    msvcrt.locking(self.lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    msvcrtLocking(self.lock_file.fileno(), msvcrtLK_NBLCK, 1)
                 except (OSError, IOError):
                     self.lock_file.close()
                     self.lock_file = None
                     return False
             else:
-                import fcntl
                 try:
                     # Unix flock with non-blocking exclusive lock
-                    fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntlFlock(self.lock_file, fcntlLOCK_EX | fcntlLOCK_NB)
                 except (OSError, IOError, BlockingIOError):
                     self.lock_file.close()
                     self.lock_file = None
@@ -64,7 +88,7 @@ class ProcessLock:
             try:
                 self.lock_file.seek(0)
                 self.lock_file.truncate(0)
-                self.lock_file.write(str(os.getpid()))
+                self.lock_file.write(str(osGetpid()))
                 self.lock_file.flush()
             except Exception:
                 # Failing to write the PID is not fatal, but we keep the lock
@@ -87,25 +111,33 @@ class ProcessLock:
         """
         if self.lock_file:
             try:
-                if os.name == "nt":
-                    import msvcrt
+                if osName == "nt":
                     self.lock_file.seek(0)
-                    msvcrt.locking(self.lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                    msvcrtLocking(self.lock_file.fileno(), msvcrtLK_UNLCK, 1)
                 else:
-                    import fcntl
-                    fcntl.flock(self.lock_file, fcntl.LOCK_UN)
+                    fcntlFlock(self.lock_file, fcntlLOCK_UN)
                 self.lock_file.close()
             except Exception:
                 pass
             finally:
                 self.lock_file = None
                 try:
-                    os.unlink(self.lock_path)
+                    osUnlink(self.lock_path)
                 except Exception:
                     pass
 
+    def __enter__(self) -> "ProcessLock":
+        if not self.acquire():
+            raise RuntimeError(f"Could not acquire process lock for '{self.service_name}'. Another instance is running.")
+        return self
 
-# -----------------------------------------------------------------------------
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.release()
+
+
+# -----------------------------------------------------------------------------------------------
+
+
 def is_pid_alive(pid: int) -> bool:
     """
     Cross-platform check to determine if a process with the given PID is running.
@@ -114,10 +146,9 @@ def is_pid_alive(pid: int) -> bool:
     if not isinstance(pid, int) or pid <= 0:
         return False
 
-    if os.name == "nt":
-        import ctypes
+    if osName == "nt":
         # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = ctypesWindll.kernel32
         handle = kernel32.OpenProcess(0x1000, False, pid)
         if handle:
             kernel32.CloseHandle(handle)
@@ -126,7 +157,7 @@ def is_pid_alive(pid: int) -> bool:
         return kernel32.GetLastError() == ERROR_ACCESS_DENIED
     else:
         try:
-            os.kill(pid, 0)
+            osKill(pid, 0)
             return True
         except PermissionError:
             # Process exists, but current user lacks permission to send signals to it
@@ -135,7 +166,9 @@ def is_pid_alive(pid: int) -> bool:
             return False
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
+
 def is_process_running(service_name: str) -> Optional[dict]:
     """
     Non-destructively inspects whether a service is currently running.
@@ -143,8 +176,8 @@ def is_process_running(service_name: str) -> Optional[dict]:
     If running, returns a dictionary with metadata:
       {'pid': int|None, 'alive': bool, 'lock_path': str}
     """
-    lock_path = os.path.join(tempfile.gettempdir(), f"antigravity_{service_name}.lock")
-    if not os.path.exists(lock_path):
+    lock_path = osPathJoin(tempfileGetTempDir(), f"antigravity_{service_name}.lock")
+    if not osPathExists(lock_path):
         return None
 
     pid = None
@@ -159,20 +192,18 @@ def is_process_running(service_name: str) -> Optional[dict]:
     # Non-destructive lock acquisition test (does not truncate or unlink)
     lock_held = False
     try:
-        fd = os.open(lock_path, os.O_RDWR)
+        fd = osOpen(lock_path, osO_RDWR)
         try:
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            if osName == "nt":
+                msvcrtLocking(fd, msvcrtLK_NBLCK, 1)
+                msvcrtLocking(fd, msvcrtLK_UNLCK, 1)
             else:
-                import fcntl
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                fcntl.flock(fd, fcntl.LOCK_UN)
+                fcntlFlock(fd, fcntlLOCK_EX | fcntlLOCK_NB)
+                fcntlFlock(fd, fcntlLOCK_UN)
         except (OSError, IOError, BlockingIOError):
             lock_held = True
         finally:
-            os.close(fd)
+            osClose(fd)
     except Exception:
         lock_held = True
 
@@ -181,7 +212,7 @@ def is_process_running(service_name: str) -> Optional[dict]:
         if pid:
             if not is_pid_alive(pid):
                 try:
-                    os.unlink(lock_path)
+                    osUnlink(lock_path)
                 except Exception:
                     pass
         return None
@@ -196,7 +227,9 @@ def is_process_running(service_name: str) -> Optional[dict]:
     }
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
+
 def prevent_double_start(service_name: str, logger: Optional[Any] = None) -> ProcessLock:
     """
     Ensures that only a single instance of the service is running.
@@ -210,9 +243,9 @@ def prevent_double_start(service_name: str, logger: Optional[Any] = None) -> Pro
         if logger:
             logger.critical(msg)
         else:
-            sys.stderr.write(f"CRITICAL: {msg}\n")
-        sys.exit(1)
-        
+            sysStderr.write(f"CRITICAL: {msg}\n")
+        sysExit(1)
+
     # Store globally to prevent garbage collection of the file object/lock
     _active_locks[service_name] = lock
     return lock

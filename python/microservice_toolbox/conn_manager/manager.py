@@ -20,6 +20,7 @@ KEY PARAMETERS:
 from enum import IntEnum
 from math import pow as mathPow
 from random import uniform as randomUniform
+from threading import Thread as threadingThread
 from time import sleep as timeSleep
 from typing import Any, Callable, Optional
 
@@ -172,8 +173,6 @@ class NetworkManager:
         """
         Immediately returns a ManagedConnection and attempts to connect in the background.
         """
-        import threading
-
         mc = ManagedConnection(ip, port, public_ip, profile, self)
 
         def run_reconnect():
@@ -183,7 +182,7 @@ class NetworkManager:
                 if self.on_error:
                     self.on_error(1, e, self.Name, f"Failed to connect to {ip}:{port} in background")
 
-        thread = threading.Thread(target=run_reconnect, daemon=True)
+        thread = threadingThread(target=run_reconnect, daemon=True)
         thread.start()
 
         return mc

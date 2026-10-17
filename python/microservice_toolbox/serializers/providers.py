@@ -2,7 +2,7 @@
 # coding:utf-8
 """
 ESSENTIAL PROCESS:
-Provides concrete implementations of ISerializer for JSON and Binary (MessagePack) formats.
+Provides concrete implementations of Serializer for JSON and Binary (MessagePack) formats.
 Ensures cross-language compatibility by using standard encoding protocols.
 
 DATA FLOW:
@@ -14,20 +14,17 @@ KEY PARAMETERS:
 - cls: The target type for deserialization.
 """
 
-from json import JSONDecodeError as jsonJSONDecodeError
-from json import dumps as jsonDumps
-from json import loads as jsonLoads
+from json import JSONDecodeError as jsonJSONDecodeError, dumps as jsonDumps, loads as jsonLoads
 from typing import Any, Type
 
-from msgpack import packb as msgpackPackb
-from msgpack import unpackb as msgpackUnpackb
+from msgpack import packb as msgpackPackb, unpackb as msgpackUnpackb
 
-from .serializer import ISerializer, T
+from .serializer import Serializer, T
 
 # -----------------------------------------------------------------------------------------------
 
 
-class JSONSerializer(ISerializer):
+class JSONSerializer(Serializer):
     """
     JSONSerializer implements Serializer natively over JSON.
     """
@@ -54,7 +51,7 @@ class JSONSerializer(ISerializer):
 # -----------------------------------------------------------------------------------------------
 
 
-class BinSerializer(ISerializer):
+class BinSerializer(Serializer):
     """
     BinSerializer implements Serializer using Python's msgpack encoding.
     Note: matched with Go's 'BinSerializer' using msgpack.
@@ -82,7 +79,7 @@ class BinSerializer(ISerializer):
 # -----------------------------------------------------------------------------------------------
 
 
-def new_json_serializer() -> ISerializer:
+def new_json_serializer() -> Serializer:
     """Factory method for JSON serializer."""
     return JSONSerializer()
 
@@ -90,6 +87,6 @@ def new_json_serializer() -> ISerializer:
 # -----------------------------------------------------------------------------------------------
 
 
-def new_bin_serializer() -> ISerializer:
+def new_bin_serializer() -> Serializer:
     """Factory method for MessagePack serializer."""
     return BinSerializer()

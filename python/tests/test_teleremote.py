@@ -6,6 +6,7 @@ import json
 from unittest.mock import Mock
 
 import grpc
+
 from microservice_toolbox.teleremote.client import Action, TeleClient
 from microservice_toolbox.teleremote.grpc_client import teleremote_pb2, teleremote_pb2_grpc
 
@@ -61,7 +62,7 @@ def test_action_and_menu_generation():
 
 def test_teleclient_integration():
     """End-to-end integration test with a mock gRPC server using asyncio.run."""
-    
+
     class MockTeleRemoteService(teleremote_pb2_grpc.TeleRemoteServiceServicer):
         def __init__(self):
             self.registrations = []
@@ -83,7 +84,7 @@ def test_teleclient_integration():
                     self.done.set()
 
             task = asyncio.create_task(read_requests())
-            
+
             try:
                 while not self.done.is_set():
                     try:
@@ -133,7 +134,7 @@ def test_teleclient_integration():
 
         # Start client
         await client.start()
-        
+
         # Wait for registration to reach the server
         for _ in range(30):
             if len(service.registrations) > 0:

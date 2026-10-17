@@ -18,8 +18,17 @@ KEY PARAMETERS:
 - mcp_url: SSE endpoint URL for obsidian_rag migration.
 """
 
+from json import dump as jsonDump, loads as jsonLoads
+from os.path import (
+    basename as osPathBasename,
+    dirname as osPathDirname,
+    exists as osPathExists,
+    isdir as osPathIsDir,
+)
+from re import compile as reCompile, search as reSearch, sub as reSub
 
 # -----------------------------------------------------------------------------------------------
+
 
 def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
     """
@@ -28,14 +37,10 @@ def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
     to avoid wiping custom user preferences (like files.exclude).
     Also migrates any obsidian_rag stdio command configuration to SSE URL.
     """
-    import os
-    import re
-    import json
-
-    if not os.path.exists(filepath):
+    if not osPathExists(filepath):
         if mcp_url:
-            parent_dir = os.path.dirname(filepath)
-            if parent_dir and os.path.isdir(parent_dir):
+            parent_dir = osPathDirname(filepath)
+            if parent_dir and osPathIsDir(parent_dir):
                 initial_data = {
                     "mcpServers": {
                         "obsidian_rag": {
@@ -45,8 +50,8 @@ def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
                     }
                 }
                 try:
-                    with open(filepath, 'w', encoding='utf-8') as f:
-                        json.dump(initial_data, f, indent=2, ensure_ascii=False)
+                    with open(filepath, "w", encoding="utf-8") as f:
+                        jsonDump(initial_data, f, indent=2, ensure_ascii=False)
                     print(f"✅ Initialized new MCP configuration at {label}")
                     return initial_data
                 except Exception:
@@ -54,7 +59,7 @@ def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
         return {}
 
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             content = f.read()
     except Exception as e:
         print(f"⚠️ Error reading {label}: {e}")
@@ -65,7 +70,7 @@ def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
 
     # 1. Try strict JSON parse first
     try:
-        data = json.loads(content)
+        data = jsonLoads(content)
     except Exception:
         pass
 
@@ -76,22 +81,22 @@ def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
         # 2. Save raw corrupted file as backup for user troubleshooting
         try:
             bak_err_path = filepath + ".err"
-            with open(bak_err_path, 'w', encoding='utf-8') as f:
+            with open(bak_err_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            print(f"📦 Saved raw corrupted file to {os.path.basename(bak_err_path)}")
+            print(f"📦 Saved raw corrupted file to {osPathBasename(bak_err_path)}")
         except Exception:
             pass
 
         # 3. Clean up the known source of corruption: the mcpServers key.
         cleaned = content
         try:
-            pattern = re.compile(r'"mcpServers"\s*:\s*')
+            pattern = reCompile(r'"mcpServers"\s*:\s*')
             match = pattern.search(cleaned)
             if match:
                 start_idx = match.end()
                 # Find first non-whitespace character after match.end()
-                first_char_match = re.search(r'\S', cleaned[start_idx:])
-                if first_char_match and first_char_match.group(0) == '{':
+                first_char_match = reSearch(r"\S", cleaned[start_idx:])
+                if first_char_match and first_char_match.group(0) == "{":
                     brace_start = start_idx + first_char_match.start()
                     brace_count = 0
                     in_string = False
@@ -101,32 +106,32 @@ def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
                         if escape:
                             escape = False
                             continue
-                        if char == '\\':
+                        if char == "\\":
                             escape = True
                             continue
                         if char == '"':
                             in_string = not in_string
                             continue
                         if not in_string:
-                            if char == '{':
+                            if char == "{":
                                 brace_count += 1
-                            elif char == '}':
+                            elif char == "}":
                                 brace_count -= 1
                                 if brace_count == 0:
-                                    cleaned = cleaned[:match.start()] + '"mcpServers": {}' + cleaned[i+1:]
+                                    cleaned = cleaned[:match.start()] + '"mcpServers": {}' + cleaned[i + 1:]
                                     break
                 else:
                     # Fallback to replacing standard non-brace patterns
-                    cleaned = re.sub(r'"mcpServers"\s*:\s*[a-zA-Z0-9_{}]+', '"mcpServers": {}', cleaned)
+                    cleaned = reSub(r'"mcpServers"\s*:\s*[a-zA-Z0-9_{}]+', '"mcpServers": {}', cleaned)
         except Exception:
             pass
 
         # 4. Clean up trailing commas
-        cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
+        cleaned = reSub(r',\s*([}\]])', r'\1', cleaned)
 
         # 5. Try parsing the cleaned content
         try:
-            data = json.loads(cleaned)
+            data = jsonLoads(cleaned)
             print(f"✅ Successfully repaired {label} non-destructively.")
         except Exception as e_repair:
             print(f"❌ Non-destructive repair failed for {label}: {e_repair}")
@@ -134,11 +139,11 @@ def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
         # 6. Fallback: try to extract and preserve files.exclude if present
         if data is None:
             try:
-                match = re.search(r'"files\.exclude"\s*:\s*(\{[^{}]*\})', content)
+                match = reSearch(r'"files\.exclude"\s*:\s*(\{[^{}]*\})', content)
                 if match:
                     exclude_str = match.group(1)
-                    exclude_str = re.sub(r',\s*([}\]])', r'\1', exclude_str)
-                    exclude_dict = json.loads(exclude_str)
+                    exclude_str = reSub(r',\s*([}\]])', r'\1', exclude_str)
+                    exclude_dict = jsonLoads(exclude_str)
                     print(f"🛡️ Recovered files.exclude from corrupted {label}.")
                     data = {
                         "files.exclude": exclude_dict,
@@ -158,16 +163,16 @@ def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
         if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
             data["mcpServers"] = {}
             dirty = True
-        
+
         mcp_servers = data["mcpServers"]
         obsidian_rag = mcp_servers.get("obsidian_rag", {})
         if not isinstance(obsidian_rag, dict):
             obsidian_rag = {}
-        
+
         # Check if we need to update
-        if (obsidian_rag.get("url") != mcp_url or 
-            obsidian_rag.get("serverURL") != mcp_url or 
-            "command" in obsidian_rag or 
+        if (obsidian_rag.get("url") != mcp_url or
+            obsidian_rag.get("serverURL") != mcp_url or
+            "command" in obsidian_rag or
             "args" in obsidian_rag or
             "env" in obsidian_rag):
             obsidian_rag.pop("command", None)
@@ -181,10 +186,10 @@ def safe_load_and_repair_json(filepath: str, label: str, mcp_url=None) -> dict:
     # 8. Write back if repaired or migrated
     if dirty:
         try:
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
+            with open(filepath, "w", encoding="utf-8") as f:
+                jsonDump(data, f, indent=2, ensure_ascii=False)
             print(f"💾 Wrote updated and repaired configuration to {label}")
-        except Exception as e:
+        except Exception:
             # Catch permissions/IO errors for protected files silently
             pass
 

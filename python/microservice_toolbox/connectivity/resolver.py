@@ -16,11 +16,13 @@ KEY PARAMETERS:
 
 from os import getenv as osGetenv
 from os.path import exists as osPathExists
-from socket import AF_INET as socketAF_INET
-from socket import SOCK_DGRAM as socketSOCK_DGRAM
-from socket import gethostbyname as socketGetHostByName
-from socket import gethostname as socketGetHostName
-from socket import socket as socketSocket
+from socket import (
+    AF_INET as socketAF_INET,
+    SOCK_DGRAM as socketSOCK_DGRAM,
+    gethostbyname as socketGetHostByName,
+    gethostname as socketGetHostName,
+    socket as socketSocket,
+)
 
 # -----------------------------------------------------------------------------------------------
 

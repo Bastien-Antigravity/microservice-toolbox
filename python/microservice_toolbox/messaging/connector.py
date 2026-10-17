@@ -15,17 +15,25 @@ KEY PARAMETERS:
 - logger: Optional Logger instance for logging lifecycle connection events.
 """
 
-import nats
+from ssl import (
+    CERT_NONE as sslCERT_NONE,
+    Purpose as sslPurpose,
+    SSLContext as sslSSLContext,
+    create_default_context as sslCreateDefaultContext,
+)
 from typing import Optional
-from microservice_toolbox.logger import Logger, ensure_safe_logger
-from .config import NatsConfig
 
+from nats import NATS as natsNATS, connect as natsConnect
+
+from ..logger import Logger, ensure_safe_logger
+from .config import NatsConfig
 
 # -----------------------------------------------------------------------------------------------
 # ### NATS CONNECTOR ###
 # -----------------------------------------------------------------------------------------------
 
-async def connect(cfg: NatsConfig, logger: Optional[Logger] = None) -> nats.NATS:
+
+async def connect(cfg: NatsConfig, logger: Optional[Logger] = None) -> natsNATS:
     """
     Establishes an asynchronous connection to the NATS server and configures event logging.
 
@@ -34,7 +42,7 @@ async def connect(cfg: NatsConfig, logger: Optional[Logger] = None) -> nats.NATS
         logger: Optional logger for connection state events.
 
     Returns:
-        nats.NATS: An active, connected NATS client.
+        natsNATS: An active, connected NATS client.
 
     Raises:
         ValueError: If no NATS servers are configured.
@@ -53,17 +61,16 @@ async def connect(cfg: NatsConfig, logger: Optional[Logger] = None) -> nats.NATS
     async def closed_cb():
         log.error(f"[{cfg.client_id}] NATS connection closed unexpectedly")
 
-    tls_ctx = None
+    tls_ctx: Optional[sslSSLContext] = None
     has_tls_scheme = any(s.lower().startswith("tls://") for s in cfg.servers)
     if (cfg.tls and cfg.tls.enabled) or has_tls_scheme:
-        import ssl
-        tls_ctx = ssl.create_default_context(
-            purpose=ssl.Purpose.SERVER_AUTH,
+        tls_ctx = sslCreateDefaultContext(
+            purpose=sslPurpose.SERVER_AUTH,
             cafile=cfg.tls.ca_file if (cfg.tls and cfg.tls.ca_file) else None
         )
         if cfg.tls and cfg.tls.insecure_skip_verify:
             tls_ctx.check_hostname = False
-            tls_ctx.verify_mode = ssl.CERT_NONE
+            tls_ctx.verify_mode = sslCERT_NONE
         if cfg.tls and cfg.tls.cert_file and cfg.tls.key_file:
             tls_ctx.load_cert_chain(certfile=cfg.tls.cert_file, keyfile=cfg.tls.key_file)
 
@@ -80,7 +87,7 @@ async def connect(cfg: NatsConfig, logger: Optional[Logger] = None) -> nats.NATS
     if tls_ctx is not None:
         connect_kwargs["tls"] = tls_ctx
 
-    nc = await nats.connect(**connect_kwargs)
+    nc = await natsConnect(**connect_kwargs)
 
     log.info(f"[{cfg.client_id}] Successfully connected to NATS at {nc.connected_url}")
     return nc

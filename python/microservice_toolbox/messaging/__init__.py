@@ -5,7 +5,7 @@
 NATS messaging connector and config utilities.
 """
 
-from .config import NatsConfig, JetStreamConfig
+from .config import JetStreamConfig, NatsConfig
 from .connector import connect
 
 __all__ = [

@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // ESSENTIAL PROCESS:
-// Standardized logging abstraction implementing the unified ILogger interface.
+// Standardized logging abstraction implementing the unified Logger interface.
 //
 // DATA FLOW:
 // Log Calls (Debug, Info, Warning, Error, Critical) -> Sink Dispatcher

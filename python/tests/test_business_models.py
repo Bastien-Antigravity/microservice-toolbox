@@ -2,10 +2,10 @@
 import unittest
 
 from microservice_toolbox.business import (
+    OHLCV,
     Aggressor,
     MarketEvent,
     MarketEventType,
-    OHLCV,
     Signal,
     SignalType,
     Trade,
@@ -13,7 +13,6 @@ from microservice_toolbox.business import (
     serialize,
     wrap_market_event,
 )
-
 
 
 class TestBusinessModels(unittest.TestCase):

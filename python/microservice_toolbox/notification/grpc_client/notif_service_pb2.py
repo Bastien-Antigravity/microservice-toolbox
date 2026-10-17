@@ -4,11 +4,14 @@
 # source: notif_service.proto
 # Protobuf Python Version: 7.34.1
 """Generated protocol buffer code."""
-from google.protobuf import descriptor as _descriptor
-from google.protobuf import descriptor_pool as _descriptor_pool
-from google.protobuf import runtime_version as _runtime_version
-from google.protobuf import symbol_database as _symbol_database
+from google.protobuf import (
+    descriptor as _descriptor,
+    descriptor_pool as _descriptor_pool,
+    runtime_version as _runtime_version,
+    symbol_database as _symbol_database,
+)
 from google.protobuf.internal import builder as _builder
+
 try:
     _runtime_version.ValidateProtobufRuntimeVersion(
         _runtime_version.Domain.PUBLIC,

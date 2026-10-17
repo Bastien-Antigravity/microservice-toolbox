@@ -18,16 +18,15 @@ KEY PARAMETERS:
 
 import os
 import sys
-import pytest
 
 from microservice_toolbox.utils.lib_loader import (
-    resolve_library_path,
-    load_libunilog,
-    load_libdistconf,
     get_platform_extension,
-    CONFIG_CALLBACK_TYPE,
-    LOGGER_CALLBACK_TYPE,
+    load_libdistconf,
+    load_libunilog,
+    resolve_library_path,
 )
+
+
 def test_platform_extension():
     ext = get_platform_extension()
     if sys.platform == "darwin":
@@ -75,9 +74,9 @@ def test_direct_module_integrations():
 
 def test_utils_exports():
     from microservice_toolbox.utils import (
-        resolve_library_path as rlp,
-        load_libunilog as llu,
         load_libdistconf as lld,
+        load_libunilog as llu,
+        resolve_library_path as rlp,
     )
     assert rlp is resolve_library_path
     assert llu is load_libunilog

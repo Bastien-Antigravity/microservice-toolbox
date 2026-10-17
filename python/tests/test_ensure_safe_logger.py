@@ -13,8 +13,10 @@ KEY PARAMETERS:
 """
 
 import os
+
 import pytest
-from microservice_toolbox.logger.logger import ensure_safe_logger, PythonLogger
+
+from microservice_toolbox.logger.logger import PythonLogger, ensure_safe_logger
 
 
 def test_ensure_safe_logger_fallback():

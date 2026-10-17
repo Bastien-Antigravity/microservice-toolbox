@@ -15,8 +15,13 @@ KEY PARAMETERS:
 - ShutdownFunc: A callable that returns None, used for cleanup operations.
 """
 
-import signal
-import threading
+from signal import (
+    SIGINT as sigSIGINT,
+    SIGTERM as sigSIGTERM,
+    Signals as sigSignals,
+    signal as sigSignal,
+)
+from threading import Event as threadingEvent
 from typing import Callable, List, Optional
 
 from ..logger import Logger, ensure_safe_logger
@@ -41,7 +46,7 @@ class LifecycleManager:
     def __init__(self, logger: Optional[Logger] = None):
         self._cleanups: List[tuple[str, ShutdownFunc]] = []
         self.logger = ensure_safe_logger(logger)
-        self._shutdown_event = threading.Event()
+        self._shutdown_event = threadingEvent()
 
     # -----------------------------------------------------------------------------------------------
 
@@ -55,12 +60,12 @@ class LifecycleManager:
         """Blocks until a SIGINT or SIGTERM is received, then executes cleanups."""
 
         def signal_handler(sig, frame):
-            sig_name = signal.Signals(sig).name
+            sig_name = sigSignals(sig).name
             self.logger.info("{0} : Received signal {1}. Initiating graceful shutdown...".format(self.Name, sig_name))
             self._shutdown_event.set()
 
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
+        sigSignal(sigSIGINT, signal_handler)
+        sigSignal(sigSIGTERM, signal_handler)
 
         # Block until event is set
         try:

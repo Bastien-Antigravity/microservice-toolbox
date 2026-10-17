@@ -15,9 +15,26 @@ KEY PARAMETERS:
 - start_dir: Base directory path to begin walking up toward the vault root.
 """
 
-import os
-import sys
+from os import (
+    chdir as osChdir,
+    environ as osEnviron,
+    execl as osExecl,
+    name as osName,
+    pathsep as osPathsep,
+)
+from os.path import exists as osPathExists, samefile as osPathSamefile
 from pathlib import Path
+from sys import (
+    argv as sysArgv,
+    executable as sysExecutable,
+    path as sysPath,
+    platform as sysPlatform,
+    prefix as sysPrefix,
+)
+
+from microservice_toolbox.utils.lib_loader import resolve_library_path
+
+# -----------------------------------------------------------------------------------------------
 
 
 def find_vault_root(start_dir: str) -> Path:
@@ -35,6 +52,9 @@ def find_vault_root(start_dir: str) -> Path:
     return current
 
 
+# -----------------------------------------------------------------------------------------------
+
+
 def _find_nearest_venv(start_dir: str) -> Path:
     """Walk up from the start directory until a directory containing .venv is found."""
     current = Path(start_dir).resolve()
@@ -44,11 +64,17 @@ def _find_nearest_venv(start_dir: str) -> Path:
     return Path(start_dir).resolve()
 
 
+# -----------------------------------------------------------------------------------------------
+
+
 def get_venv_python(vault_root: Path) -> str:
     """Return the expected virtualenv python executable path for the current OS."""
-    if os.name == "nt":
+    if osName == "nt":
         return str(vault_root / ".venv" / "Scripts" / "python.exe")
     return str(vault_root / ".venv" / "bin" / "python3")
+
+
+# -----------------------------------------------------------------------------------------------
 
 
 def ensure_virtualenv(start_dir: str) -> Path:
@@ -56,41 +82,53 @@ def ensure_virtualenv(start_dir: str) -> Path:
     Returns the vault root (obsidian-brain), not necessarily the .venv parent."""
     venv_dir = _find_nearest_venv(start_dir)
     venv_python = get_venv_python(venv_dir)
-    if os.path.exists(venv_python):
+    if osPathExists(venv_python):
         try:
-            if not os.path.samefile(sys.executable, venv_python):
+            if not osPathSamefile(sysExecutable, venv_python):
                 # Prevent parent process environment (like PYTHONPATH) from polluting virtualenv isolation
-                os.environ.pop("PYTHONPATH", None)
-                os.execl(venv_python, venv_python, *sys.argv)
+                osEnviron.pop("PYTHONPATH", None)
+                osExecl(venv_python, venv_python, *sysArgv)
         except OSError:
             pass
     return find_vault_root(start_dir)
 
 
+# -----------------------------------------------------------------------------------------------
+
+
 def prepend_venv_bin(vault_root: Path) -> None:
     """Ensure the vault virtualenv bin/Scripts directory is on PATH."""
-    if os.name == "nt":
+    if osName == "nt":
         venv_bin = vault_root / ".venv" / "Scripts"
     else:
         venv_bin = vault_root / ".venv" / "bin"
     if venv_bin.exists():
-        os.environ["PATH"] = str(venv_bin) + os.pathsep + os.environ.get("PATH", "")
+        osEnviron["PATH"] = str(venv_bin) + osPathsep + osEnviron.get("PATH", "")
+
+
+# -----------------------------------------------------------------------------------------------
 
 
 def ensure_import_paths(script_dir: Path, vault_root: Path) -> None:
     """Ensure the script directory and vault root are available on sys.path."""
     for path in (script_dir, vault_root):
         path_str = str(path)
-        if path_str not in sys.path:
-            sys.path.append(path_str)
+        if path_str not in sysPath:
+            sysPath.append(path_str)
+
+
+# -----------------------------------------------------------------------------------------------
 
 
 def redirect_working_directory(target_dir: Path) -> Path:
     """Redirects the current working directory to the target directory reliably."""
     target = Path(target_dir).resolve()
     if target.exists() and target.is_dir():
-        os.chdir(target)
+        osChdir(target)
     return target
+
+
+# -----------------------------------------------------------------------------------------------
 
 
 def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
@@ -102,13 +140,9 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
     4. Checks if running under the root's local virtualenv; if not, force relaunches via os.execl.
     5. Appends virtualenv site-packages and standard 'src/' folder to sys.path.
     """
-    import os
-    import sys
-    from pathlib import Path
-
     # Resolve sys.argv[0] to an absolute path before changing the directory
-    if sys.argv and sys.argv[0]:
-        sys.argv[0] = str(Path(sys.argv[0]).resolve())
+    if sysArgv and sysArgv[0]:
+        sysArgv[0] = str(Path(sysArgv[0]).resolve())
 
     # Resolve the directory of the calling file
     script_dir = Path(file_path).resolve().parent
@@ -122,7 +156,7 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
 
     # Redirect working directory to repo root
     if repo_root.exists() and repo_root.is_dir():
-        os.chdir(repo_root)
+        osChdir(repo_root)
 
     # Find workspace root (walk up until we find a parent containing universal-logger, microservice-toolbox, or code-workspace)
     workspace_root = repo_root.parent
@@ -132,42 +166,41 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
             break
 
     # 1. Align dynamic library paths using the single source of truth in utils.lib_loader
-    os.environ["GODEBUG"] = "cgocheck=0"
-    from microservice_toolbox.utils.lib_loader import resolve_library_path
+    osEnviron["GODEBUG"] = "cgocheck=0"
 
     unilog_path = resolve_library_path("libunilog", "LIBUNILOG_PATH")
     if unilog_path:
-        os.environ["LIBUNILOG_PATH"] = unilog_path
-        if sys.platform == "darwin":
+        osEnviron["LIBUNILOG_PATH"] = unilog_path
+        if sysPlatform == "darwin":
             # On macOS, prevent double Go runtime initialization by sharing the consolidated library
-            os.environ["LIBDISTCONF_PATH"] = unilog_path
+            osEnviron["LIBDISTCONF_PATH"] = unilog_path
 
-    if not os.environ.get("LIBDISTCONF_PATH"):
+    if not osEnviron.get("LIBDISTCONF_PATH"):
         distconf_path = resolve_library_path("libdistconf", "LIBDISTCONF_PATH")
         if distconf_path:
-            os.environ["LIBDISTCONF_PATH"] = distconf_path
+            osEnviron["LIBDISTCONF_PATH"] = distconf_path
 
     # 2. Virtual Environment Redirect
     _venv_dir = repo_root / ".venv"
-    _venv_python = _venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python3")
+    _venv_python = _venv_dir / ("Scripts/python.exe" if osName == "nt" else "bin/python3")
 
-    if _venv_python.exists() and sys.prefix != str(_venv_dir):
-        os.environ.pop("PYTHONPATH", None)
-        os.execl(str(_venv_python), str(_venv_python), *sys.argv)
+    if _venv_python.exists() and sysPrefix != str(_venv_dir):
+        osEnviron.pop("PYTHONPATH", None)
+        osExecl(str(_venv_python), str(_venv_python), *sysArgv)
 
     # Prepend virtualenv bin to PATH
-    if os.name == "nt":
+    if osName == "nt":
         venv_bin = _venv_dir / "Scripts"
     else:
         venv_bin = _venv_dir / "bin"
     if venv_bin.exists():
-        os.environ["PATH"] = str(venv_bin) + os.pathsep + os.environ.get("PATH", "")
+        osEnviron["PATH"] = str(venv_bin) + osPathsep + osEnviron.get("PATH", "")
 
     # Inject standard import paths
     for path in (repo_root, repo_root / "src", workspace_root / "microservice-toolbox" / "python"):
         path_str = str(path.resolve())
-        if path.exists() and path_str not in sys.path:
-            sys.path.insert(0, path_str)
+        if path.exists() and path_str not in sysPath:
+            sysPath.insert(0, path_str)
 
     # Locate virtualenv lib site-packages
     _venv_lib_dir = _venv_dir / "lib"
@@ -176,9 +209,10 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
             _sp = _py_dir / "site-packages"
             if _sp.exists():
                 site_pkg_str = str(_sp.resolve())
-                if site_pkg_str not in sys.path:
-                    sys.path.insert(0, site_pkg_str)
+                if site_pkg_str not in sysPath:
+                    sysPath.insert(0, site_pkg_str)
                 break
+
 
 
 

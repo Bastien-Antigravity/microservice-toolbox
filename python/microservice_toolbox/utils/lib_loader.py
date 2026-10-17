@@ -3,25 +3,45 @@
 
 """
 ESSENTIAL PROCESS:
-Unified single source of truth for dynamic CGO shared library discovery and loading
-(libunilog and libdistconf) into Python processes across the Bastien-Antigravity ecosystem.
+Dynamic shared library loader and CGO bridge initializer for microservice-toolbox.
+Resolves cross-platform binary paths (.dylib, .so, .dll) across repository layouts,
+virtualenv site-packages, and fallback search paths with strict ABI typing.
 
 DATA FLOW:
-1. Input: Environment variables (LIBUNILOG_PATH, LIBDISTCONF_PATH) or workspace filesystem layout.
-2. Logic: Systematically resolves candidate paths (local, workspace roots, virtualenvs, system).
-          On macOS, shares the consolidated libunilog handle to prevent dual Go runtime collisions.
-3. Output: Fully typed ctypes.CDLL handles with standardized C ABI function signatures.
+1. Input: Library identifier string ("libunilog", "libdistconf", "libnotif").
+2. Logic: Priority search across explicit environment overrides -> active workspace
+   roots -> venv site-packages -> OS dynamic loader fallbacks.
+3. Output: Fully typed ctypesCDLL handles with standardized C ABI function signatures.
 
 KEY PARAMETERS:
 - LIBUNILOG_PATH: Environment variable overriding the libunilog binary search path.
 - LIBDISTCONF_PATH: Environment variable overriding the libdistconf binary search path.
 """
 
-import ctypes
-from ctypes import CDLL, CFUNCTYPE, c_bool, c_char_p, c_int, c_longlong, c_size_t, c_void_p
-import os
+from ctypes import (
+    CDLL as ctypesCDLL,
+    CFUNCTYPE,
+    c_bool,
+    c_char_p,
+    c_double as ctypesC_double,
+    c_int,
+    c_longlong,
+    c_size_t,
+    c_void_p,
+)
+from ctypes.util import find_library as ctypesFindLibrary
+from os import getenv as osGetenv
+from os.path import exists as osPathExists
 from pathlib import Path
-import sys
+from shutil import which as shutilWhich
+from subprocess import run as subprocessRun
+from sys import (
+    base_prefix as sysBasePrefix,
+    platform as sysPlatform,
+    prefix as sysPrefix,
+    stderr as sysStderr,
+    version_info as sysVersionInfo,
+)
 from typing import List, Optional
 
 # -----------------------------------------------------------------------------------------------
@@ -44,9 +64,9 @@ CALLBACK_TYPE = CONFIG_CALLBACK_TYPE
 
 def get_platform_extension() -> str:
     """Returns the OS-specific dynamic library file extension."""
-    if sys.platform == "darwin":
+    if sysPlatform == "darwin":
         return ".dylib"
-    elif sys.platform == "win32":
+    elif sysPlatform == "win32":
         return ".dll"
     return ".so"
 
@@ -59,8 +79,8 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
     """
     # 1. Explicit environment variable override
     if env_var:
-        env_val = os.getenv(env_var)
-        if env_val and os.path.exists(env_val):
+        env_val = osGetenv(env_var)
+        if env_val and osPathExists(env_val):
             return str(Path(env_val).resolve())
 
     ext = get_platform_extension()
@@ -69,43 +89,38 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
     # 2. Discover workspace root and repository root relative to this file
     # Path: microservice-toolbox/python/microservice_toolbox/utils/lib_loader.py
     current_dir = Path(__file__).resolve().parent
-    toolbox_root = current_dir.parent.parent.parent  # microservice-toolbox
-    workspace_root = toolbox_root.parent             # Bastien-Antigravity
+    toolbox_root = current_dir.parent.parent.parent
+    workspace_root = toolbox_root.parent
 
     candidate_paths: List[Path] = [
-        # Relative to current working directory
-        Path(f"./{filename}"),
-        Path(f"/usr/local/lib/{filename}"),
+        # Explicit package-internal vendor directories
+        current_dir / filename,
+        current_dir.parent / filename,
+        current_dir.parent / "lib" / filename,
+
+        # Microservice Toolbox root and subdirectories
+        toolbox_root / filename,
+        toolbox_root / "lib" / filename,
+        toolbox_root / "bin" / filename,
+
+        # Standard multi-repo sibling workspaces
+        workspace_root / "universal-logger" / "libunilog" / filename,
+        workspace_root / "universal-logger" / "unilog" / "libunilog" / filename,
+        workspace_root / "universal-logger" / "unilog" / "python" / "unilog" / filename,
+        workspace_root / "universal-logger" / "bin" / filename,
+        workspace_root / "distributed-config" / "distconf" / "libdistconf" / filename,
+        workspace_root / "distributed-config" / "distconf" / "python" / "distconf" / filename,
+        workspace_root / "distributed-config" / "bin" / filename,
+        workspace_root / "notif-server" / "notif" / "libnotif" / filename,
+        workspace_root / "notif-server" / "notif" / "python" / "notif" / filename,
+        workspace_root / "notif-server" / "bin" / filename,
     ]
 
-    # Workspace-specific locations based on library
-    if lib_name == "libunilog":
-        candidate_paths.extend([
-            workspace_root / "universal-logger" / "unilog" / "libunilog" / filename,
-            workspace_root / "universal-logger" / "unilog" / "python" / "unilog" / filename,
-            workspace_root / "universal-logger" / "libunilog" / filename,
-            toolbox_root / "python" / "microservice_toolbox" / "logger" / filename,
-        ])
-    elif lib_name == "libdistconf":
-        candidate_paths.extend([
-            workspace_root / "distributed-config" / "distconf" / "libdistconf" / filename,
-            workspace_root / "distributed-config" / "distconf" / "python" / "distconf" / filename,
-            workspace_root / "distributed-config" / "bin" / filename,
-            toolbox_root / "python" / "microservice_toolbox" / "config" / filename,
-        ])
-    elif lib_name == "libnotif":
-        candidate_paths.extend([
-            workspace_root / "notif-server" / "notif" / "libnotif" / filename,
-            workspace_root / "notif-server" / "notif" / "python" / "notif" / filename,
-            workspace_root / "notif-server" / "bin" / filename,
-            toolbox_root / "python" / "microservice_toolbox" / "notification" / filename,
-        ])
-
-    # Sibling directory check (if current working directory is another microservice)
-    cwd = Path.cwd().resolve()
-    for parent in [cwd] + list(cwd.parents):
-        if (parent / "universal-logger").is_dir() or (parent / "notif-server").is_dir():
+    # Check parent directories for monolithic or umbrella checkouts
+    for parent in [current_dir] + list(current_dir.parents):
+        if (parent / ".git").exists() or (parent / "docker-compose.yaml").exists():
             if lib_name == "libunilog":
+                candidate_paths.append(parent / "universal-logger" / "libunilog" / filename)
                 candidate_paths.append(parent / "universal-logger" / "unilog" / "libunilog" / filename)
                 candidate_paths.append(parent / "universal-logger" / "unilog" / "python" / "unilog" / filename)
             elif lib_name == "libdistconf":
@@ -117,8 +132,8 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
             break
 
     # Virtualenv site-packages check (active venv or nearest venv)
-    if hasattr(sys, "prefix") and sys.prefix != sys.base_prefix:
-        venv_sp = Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
+    if hasattr(sysPrefix, "lower") and sysPrefix != sysBasePrefix:
+        venv_sp = Path(sysPrefix) / "lib" / f"python{sysVersionInfo.major}.{sysVersionInfo.minor}" / "site-packages"
         if venv_sp.exists():
             candidate_paths.extend([
                 venv_sp / "unilog" / filename,
@@ -132,11 +147,10 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
         if candidate.exists():
             return str(candidate.resolve())
 
-    # 4. Fallback to OS library lookup via ctypes.util.find_library
+    # 4. Fallback to OS library lookup via ctypesFindLibrary
     try:
-        from ctypes.util import find_library
-        os_lib = find_library(lib_name)
-        if os_lib and os.path.exists(os_lib):
+        os_lib = ctypesFindLibrary(lib_name)
+        if os_lib and osPathExists(os_lib):
             return str(Path(os_lib).resolve())
     except Exception:
         pass
@@ -154,10 +168,7 @@ def _try_autobuild_library(lib_name: str) -> Optional[str]:
     Auto-compiles missing CGO shared libraries on-the-fly during fresh local installs
     if the Go compiler and repository source trees are present.
     """
-    import shutil
-    import subprocess
-
-    if not shutil.which("go"):
+    if not shutilWhich("go"):
         return None
 
     ext = get_platform_extension()
@@ -185,18 +196,18 @@ def _try_autobuild_library(lib_name: str) -> Optional[str]:
     if src_dir and src_dir.exists():
         try:
             target_file.parent.mkdir(parents=True, exist_ok=True)
-            print(f"[lib_loader] On-demand compiling {lib_name} ({filename}) for fresh install...", file=sys.stderr)
+            print(f"[lib_loader] On-demand compiling {lib_name} ({filename}) for fresh install...", file=sysStderr)
             cmd = ["go", "build", "-buildmode=c-shared", "-o", str(target_file), "."]
-            res = subprocess.run(cmd, cwd=str(src_dir), capture_output=True, text=True, timeout=45)
+            res = subprocessRun(cmd, cwd=str(src_dir), capture_output=True, text=True, timeout=45)
             if res.returncode == 0 and target_file.exists():
-                if sys.platform == "darwin" and shutil.which("install_name_tool"):
-                    subprocess.run(["install_name_tool", "-id", f"@rpath/{filename}", str(target_file)], capture_output=True)
-                print(f"[lib_loader] Successfully compiled {filename} at {target_file}", file=sys.stderr)
+                if sysPlatform == "darwin" and shutilWhich("install_name_tool"):
+                    subprocessRun(["install_name_tool", "-id", f"@rpath/{filename}", str(target_file)], capture_output=True)
+                print(f"[lib_loader] Successfully compiled {filename} at {target_file}", file=sysStderr)
                 return str(target_file.resolve())
             else:
-                print(f"[lib_loader] Compilation of {lib_name} failed: {res.stderr}", file=sys.stderr)
+                print(f"[lib_loader] Compilation of {lib_name} failed: {res.stderr}", file=sysStderr)
         except Exception as e:
-            print(f"[lib_loader] Auto-build exception for {lib_name}: {e}", file=sys.stderr)
+            print(f"[lib_loader] Auto-build exception for {lib_name}: {e}", file=sysStderr)
 
     return None
 
@@ -205,13 +216,13 @@ def _try_autobuild_library(lib_name: str) -> Optional[str]:
 # UniLog Shared Library Loader & FFI Signatures
 # -----------------------------------------------------------------------------------------------
 
-_unilog_handle: Optional[ctypes.CDLL] = None
+_unilog_handle: Optional[ctypesCDLL] = None
 
 
-def load_libunilog() -> Optional[ctypes.CDLL]:
+def load_libunilog() -> Optional[ctypesCDLL]:
     """
     Locates and loads the libunilog shared library.
-    Defines full C ABI function signatures and returns a ctypes.CDLL handle.
+    Defines full C ABI function signatures and returns a ctypesCDLL handle.
     """
     global _unilog_handle
     if _unilog_handle is not None:
@@ -222,7 +233,7 @@ def load_libunilog() -> Optional[ctypes.CDLL]:
         return None
 
     try:
-        handle = ctypes.CDLL(lib_path)
+        handle = ctypesCDLL(lib_path)
 
         # Core UniLog signatures
         handle.UniLog_Init.argtypes = [c_char_p, c_char_p, c_char_p, c_int, c_int, c_size_t]
@@ -267,7 +278,7 @@ def load_libunilog() -> Optional[ctypes.CDLL]:
         _unilog_handle = handle
         return _unilog_handle
     except Exception as e:
-        print(f"Failed to load libunilog library ({lib_path}): {e}", file=sys.stderr)
+        print(f"Failed to load libunilog library ({lib_path}): {e}", file=sysStderr)
         return None
 
 
@@ -275,11 +286,11 @@ def load_libunilog() -> Optional[ctypes.CDLL]:
 # DistConf Shared Library Loader & FFI Signatures
 # -----------------------------------------------------------------------------------------------
 
-_distconf_handle: Optional[ctypes.CDLL] = None
+_distconf_handle: Optional[ctypesCDLL] = None
 
 
-def _bind_distconf_signatures(handle: ctypes.CDLL) -> None:
-    """Binds standard DistConf function signatures to a ctypes.CDLL handle safely."""
+def _bind_distconf_signatures(handle: ctypesCDLL) -> None:
+    """Binds standard DistConf function signatures to a ctypesCDLL handle safely."""
     try:
         handle.DistConf_New.argtypes = [c_char_p]
         handle.DistConf_New.restype = c_void_p
@@ -336,18 +347,18 @@ def _bind_distconf_signatures(handle: ctypes.CDLL) -> None:
         pass
 
 
-def load_libdistconf() -> Optional[ctypes.CDLL]:
+def load_libdistconf() -> Optional[ctypesCDLL]:
     """
     Locates and loads the libdistconf shared library.
     On macOS, if libunilog is available, reuses its handle to avoid dual Go CGO runtime collisions.
-    Defines full C ABI function signatures and returns a ctypes.CDLL handle.
+    Defines full C ABI function signatures and returns a ctypesCDLL handle.
     """
     global _distconf_handle
     if _distconf_handle is not None:
         return _distconf_handle
 
     # On macOS, reuse the consolidated libunilog handle if it already exports DistConf
-    if sys.platform == "darwin":
+    if sysPlatform == "darwin":
         unilog = load_libunilog()
         if unilog and hasattr(unilog, "DistConf_GetRESTAddress"):
             _distconf_handle = unilog
@@ -355,19 +366,19 @@ def load_libdistconf() -> Optional[ctypes.CDLL]:
 
     # Otherwise resolve dedicated libdistconf or explicit LIBDISTCONF_PATH
     lib_path = resolve_library_path("libdistconf", "LIBDISTCONF_PATH")
-    if not lib_path and sys.platform == "darwin":
+    if not lib_path and sysPlatform == "darwin":
         lib_path = resolve_library_path("libunilog", "LIBUNILOG_PATH")
 
     if not lib_path:
         return None
 
     try:
-        handle = ctypes.CDLL(lib_path)
+        handle = ctypesCDLL(lib_path)
         _bind_distconf_signatures(handle)
         _distconf_handle = handle
         return _distconf_handle
     except Exception as e:
-        print(f"Failed to load libdistconf ({lib_path}): {e}", file=sys.stderr)
+        print(f"Failed to load libdistconf ({lib_path}): {e}", file=sysStderr)
         return None
 
 
@@ -375,13 +386,13 @@ def load_libdistconf() -> Optional[ctypes.CDLL]:
 # Notif Shared Library Loader & FFI Signatures
 # -----------------------------------------------------------------------------------------------
 
-_notif_handle: Optional[ctypes.CDLL] = None
+_notif_handle: Optional[ctypesCDLL] = None
 
 
-def load_libnotif() -> Optional[ctypes.CDLL]:
+def load_libnotif() -> Optional[ctypesCDLL]:
     """
     Locates and loads the libnotif shared library from notif-server.
-    Defines full C ABI function signatures and returns a ctypes.CDLL handle.
+    Defines full C ABI function signatures and returns a ctypesCDLL handle.
     """
     global _notif_handle
     if _notif_handle is not None:
@@ -392,12 +403,12 @@ def load_libnotif() -> Optional[ctypes.CDLL]:
         return None
 
     try:
-        handle = ctypes.CDLL(lib_path)
+        handle = ctypesCDLL(lib_path)
 
         handle.Notif_Send.argtypes = [c_char_p, c_char_p, c_char_p, c_char_p, c_char_p]
         handle.Notif_Send.restype = c_int
 
-        handle.Notif_SendWithTimeout.argtypes = [c_char_p, c_char_p, c_char_p, c_char_p, c_char_p, ctypes.c_double]
+        handle.Notif_SendWithTimeout.argtypes = [c_char_p, c_char_p, c_char_p, c_char_p, c_char_p, ctypesC_double]
         handle.Notif_SendWithTimeout.restype = c_int
 
         handle.Notif_GetLastError.argtypes = []
@@ -412,6 +423,5 @@ def load_libnotif() -> Optional[ctypes.CDLL]:
         _notif_handle = handle
         return _notif_handle
     except Exception as e:
-        print(f"Failed to load libnotif ({lib_path}): {e}", file=sys.stderr)
+        print(f"Failed to load libnotif ({lib_path}): {e}", file=sysStderr)
         return None
-

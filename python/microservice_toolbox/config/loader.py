@@ -16,10 +16,10 @@ KEY PARAMETERS:
 - specific_flags: Optional list of CLI flags to parse.
 """
 
-from json import dumps as jsonDumps
-from json import loads as jsonLoads
+from json import dumps as jsonDumps, loads as jsonLoads
 from os import getenv as osGetenv
 from os.path import exists as osPathExists, join as osPathJoin
+from re import sub as reSub
 from typing import Any, Callable, Dict, List, Optional
 
 from yaml import safe_load as yamlSafeLoad
@@ -105,7 +105,7 @@ class AppConfig:
                     self.logger.info("{0} : Unified Shared Engine initialized (handle: {1})".format(self.Name, self._handle))
                     # Sync local data with bridge state
                     self._sync_from_bridge()
-                    
+
                     # If bridge is empty (unknown profile or no data), force native fallback
                     if not self.data or (not self.data.get("capabilities") and not self.data.get("local")):
                         self.logger.warning("{0} : Bridge returned empty state. Activating Native Fallback for profile: {1}".format(self.Name, profile))
@@ -120,10 +120,10 @@ class AppConfig:
                 if osPathExists(path):
                     found_path = path
                     break
-            
+
             if not found_path:
                 raise FileNotFoundError(f"{self.Name} : Config file not found for profile '{profile}'")
-            
+
             self._load_from_file(found_path)
             # Sync back to bridge if needed (Optional, depending on bridge state)
             if self._handle:
@@ -131,14 +131,14 @@ class AppConfig:
 
         # ### PHASE 2: Apply context-aware overrides ###
         self.logger.info("{0} : Applying Local File as Hard Override (Ecosystem Parity).".format(self.Name))
-        
+
         # Determine which file to use for override
         override_file = None
         for path in candidates:
             if osPathExists(path):
                 override_file = path
                 break
-        
+
         if override_file:
             self._apply_file_override(override_file)
         else:
@@ -262,7 +262,7 @@ class AppConfig:
                     self.data["local"] = self.data.get("local") or {}
                     self.deep_merge(self.data["local"], local_data)
                     self.logger.info(f"{self.Name} : Standardized Local overrides merged via bridge: {filename}")
-                
+
                 # Always sync bridge state back to mirror to capture 'capabilities' and 'common' updates
                 self._sync_from_bridge()
         except Exception as e:
@@ -281,8 +281,6 @@ class AppConfig:
                 raw_content = f.read()
 
             # Expand Environment Variables: ${VAR} or ${VAR:default}
-            import re
-
             def env_expander(match):
                 token = match.group(1)
                 parts = token.split(":", 1)
@@ -290,7 +288,7 @@ class AppConfig:
                 default_val = parts[1] if len(parts) > 1 else ""
                 return osGetenv(var_name, default_val)
 
-            expanded_content = re.sub(r"\${([^}]+)}", env_expander, raw_content)
+            expanded_content = reSub(r"\${([^}]+)}", env_expander, raw_content)
             return yamlSafeLoad(expanded_content) or {}
         except Exception as e:
             self.logger.warning(f"{self.Name} : Failed to load {filename}: {e}")
@@ -470,10 +468,8 @@ class AppConfig:
         if not local_data:
             raise ValueError(f"{self.Name} : No local configuration found")
 
-        import json
-
-        raw_json = json.dumps(local_data)
-        data = json.loads(raw_json)
+        raw_json = jsonDumps(local_data)
+        data = jsonLoads(raw_json)
 
         if isinstance(target, type):
             # If target is a class (e.g. a dataclass), instantiate it

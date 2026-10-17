@@ -16,10 +16,10 @@ KEY PARAMETERS:
 - logger: Optional logger for reporting status.
 """
 
-from concurrent import futures
-from typing import Any, Optional
+from concurrent.futures import ThreadPoolExecutor as concurrentThreadPoolExecutor
+from typing import Optional
 
-import grpc
+from grpc import server as grpcServer
 
 from ..connectivity.resolver import new_resolver
 from ..logger import Logger, ensure_safe_logger
@@ -48,7 +48,7 @@ class GRPCServer:
             )
 
         self.addr = resolved_addr
-        self.server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
+        self.server = grpcServer(concurrentThreadPoolExecutor(max_workers=max_workers))
         self._stopped = False
 
     # -----------------------------------------------------------------------------------------------

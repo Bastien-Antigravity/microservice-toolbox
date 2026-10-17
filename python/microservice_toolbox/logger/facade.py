@@ -18,22 +18,21 @@ KEY PARAMETERS:
 - config_handle: Pointer handle to the active CGO AppConfig instance.
 """
 
-from os.path import basename as osPathBasename
-from ctypes import c_int as ctypeC_int
-from sys import _getframe as sysGetFrame
-from json import loads as jsonLoads
 from asyncio import (
-    get_running_loop as asyncioGetRunningLoop,
-    get_event_loop as asyncioGetEventLoop,
+    CancelledError as asyncioCancelledError,
     Queue as asyncioQueue,
-    CancelledError as asyncioCancelledError
+    get_event_loop as asyncioGetEventLoop,
+    get_running_loop as asyncioGetRunningLoop,
 )
-import json
-from typing import Union, Dict, List, Callable, Optional, Set, Any, Tuple
+from ctypes import c_int as ctypeC_int
+from json import dumps as jsonDumps, loads as jsonLoads
+from os.path import basename as osPathBasename
+from sys import _getframe as sysGetFrame
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-from .models import LogLevel
-from .logger import Logger
 from ..utils.lib_loader import CALLBACK_TYPE, load_libunilog
+from .logger import Logger
+from .models import LogLevel
 
 lib = load_libunilog()
 
@@ -47,13 +46,13 @@ class ConfigUpdateListener:
     def __init__(self, parent: 'UniLog') -> None:
         self._parent: 'UniLog' = parent
         self._queue: asyncioQueue[Dict[str, Any]] = asyncioQueue()
-        
+
         # Capture the active event loop to ensure thread-safe dispatching
         try:
             self._loop = asyncioGetRunningLoop()
         except RuntimeError:
             self._loop = asyncioGetEventLoop()
-        
+
     def _put(self, data: Dict[str, Any]) -> None:
         self._loop.call_soon_threadsafe(self._queue.put_nowait, data)
 
@@ -79,19 +78,19 @@ class UniLog(Logger):
     directly to the Go unilog subsystem via high-performance ctypes FFI.
     """
 
-    def __init__(self, app_name: str = "python-app", config_profile: str = "standalone", 
-                 logger_profile: str = "standard", log_level: Union[str, int, LogLevel] = "info", 
+    def __init__(self, app_name: str = "python-app", config_profile: str = "standalone",
+                 logger_profile: str = "standard", log_level: Union[str, int, LogLevel] = "info",
                  use_local_notifier: bool = False, config_handle: int = 0) -> None:
         if not lib:
             raise RuntimeError("libunilog shared library not found. Please ensure it is built.")
-        
+
         # Convert string log level to int for Go
         level_val = LogLevel.from_str(log_level) if isinstance(log_level, str) else int(log_level)
 
         self._handle: int = lib.UniLog_Init(
-            app_name.encode('utf-8'), 
-            config_profile.encode('utf-8'), 
-            logger_profile.encode('utf-8'), 
+            app_name.encode('utf-8'),
+            config_profile.encode('utf-8'),
+            logger_profile.encode('utf-8'),
             ctypeC_int(level_val),
             ctypeC_int(1 if use_local_notifier else 0),
             config_handle
@@ -103,7 +102,7 @@ class UniLog(Logger):
 
     ##########################################################################
     # Logging Methods
-    
+
     def debug(self, msg: str) -> None: self._log(LogLevel.DEBUG, msg)
     def info(self, msg: str) -> None: self._log(LogLevel.INFO, msg)
     def warning(self, msg: str) -> None: self._log(LogLevel.WARNING, msg)
@@ -139,26 +138,26 @@ class UniLog(Logger):
         if isinstance(level, str):
             level = LogLevel.from_str(level)
         lib.UniLog_SetLevel(self._handle, int(level))
-        
+
     def get_level(self) -> LogLevel:
         """Retrieve the current log level from the Go core."""
         return LogLevel(lib.UniLog_GetLevel(self._handle))
 
     ##########################################################################
     # Metadata Methods
-    
+
     def add_metadata(self, key: str, value: str) -> None:
         """Add a single key-value pair to all future logs."""
         lib.UniLog_AddMetadata(self._handle, key.encode('utf-8'), value.encode('utf-8'))
 
     def set_metadata(self, metadata: Dict[str, Any]) -> None:
         """Replace all existing metadata with the provided dictionary."""
-        json_data = json.dumps(metadata)
+        json_data = jsonDumps(metadata)
         lib.UniLog_SetMetadata(self._handle, json_data.encode('utf-8'))
 
     ##########################################################################
     # Config Methods
-    
+
     def get_config(self, section: str, key: str, default: Optional[str] = None) -> Optional[str]:
         """Retrieve a configuration value from the distributed config service (Zero-Leak FFI)."""
         res_ptr = lib.UniLog_Config_Get(self._handle, section.encode('utf-8'), key.encode('utf-8'))
@@ -180,14 +179,14 @@ class UniLog(Logger):
         try:
             raw_val = json_data.decode('utf-8')
             data = jsonLoads(raw_val)
-            
+
             # 1. Dispatch to synchronous subscribers
             for cb in self._sync_subscribers:
                 try:
                     cb(data)
                 except Exception as e:
                     print(f"!!! Sync subscriber error: {e}")
-            
+
             # 2. Dispatch to asynchronous listeners (thread-safe)
             for listener in list(self._async_listeners):
                 listener._put(data)
@@ -206,7 +205,7 @@ class UniLog(Logger):
         if callback is not None:
             self._sync_subscribers.append(callback)
             return None
-        
+
         return ConfigUpdateListener(self)
 
     def on_notification(self, callback: Callable[[Dict[str, Any]], None]) -> None:
@@ -225,21 +224,21 @@ class UniLog(Logger):
 
     ##########################################################################
     # Internal sync Logging Method
-    
+
     def _log(self, level: Union[int, LogLevel], msg: str) -> None:
         caller_info = self._get_caller_info(3)
         self._dispatch_log_to_cgo(level, msg, *caller_info)
 
     ##########################################################################
     # Internal async Logging Method
-    
+
     async def _async_log(self, level: Union[int, LogLevel], msg: str) -> None:
         caller_info = self._get_caller_info(3)
         await asyncioGetRunningLoop().run_in_executor(
-            None, 
-            self._dispatch_log_to_cgo, 
-            int(level), 
-            str(msg), 
+            None,
+            self._dispatch_log_to_cgo,
+            int(level),
+            str(msg),
             *caller_info
         )
 
@@ -256,12 +255,12 @@ class UniLog(Logger):
 
     def _dispatch_log_to_cgo(self, level: Union[int, LogLevel], msg: str, filename: str, lineno: str, function: str, module: str) -> None:
         lib.UniLog_LogWithMetadata(
-            self._handle, 
-            int(level), 
-            str(msg).encode('utf-8'), 
-            filename.encode('utf-8'), 
-            lineno.encode('utf-8'), 
-            function.encode('utf-8'), 
+            self._handle,
+            int(level),
+            str(msg).encode('utf-8'),
+            filename.encode('utf-8'),
+            lineno.encode('utf-8'),
+            function.encode('utf-8'),
             module.encode('utf-8')
         )
 
@@ -273,7 +272,7 @@ class UniLog(Logger):
 
     def __del__(self) -> None:
         self.close()
-    
+
     def __enter__(self) -> 'UniLog':
         return self
 

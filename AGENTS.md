@@ -14,7 +14,7 @@
   - `go/pkg/serializers`: Unified JSON and MsgPack binary serialization
   - `go/pkg/business`: Canonical market domain models (MarketEvent, OHLCV, Signal)
   - `go/pkg/teleremote`: Telegram bot client facade and menu tree builder
-  - `go/pkg/logger`: Unified ILogger abstraction compatible with universal-logger
+  - `go/pkg/logger`: Unified Logger abstraction compatible with universal-logger
   - `go/pkg/messaging`: Resilient NATS Core and JetStream connection manager
   - `go/pkg/notification`: Direct multi-channel notification client facade for L2/L3 services (gRPC port 1027 to notif-server)
   - `go/pkg/utils`: Terminal UI helpers, environment and formatting utilities
@@ -40,7 +40,7 @@ cd rust && cargo test
 5. **Section Dividers**: Use appropriate section dividers (`// ----...` for Go/Rust/C++, `# ----...` for Python).
 6. **Two-Tier Logging & EnsureSafeLogger Standard**:
    - **Tier 1 (Libraries & Reusable SDKs)**: Reusable components and constructors across Go, Python, Rust, and C++ (`safe-socket`, `distributed-config`, `conn_manager`, `teleremote`, etc.) wrap injected loggers using `EnsureSafeLogger(l)` / `ensure_safe_logger(l)` to prevent nil pointer panics and eliminate repetitive `if logger != nil` branches.
-   - **Tier 2 (Microservices)**: Production microservice entry points must initialize via `BootstrapService`, which guarantees a non-nil `ILogger`. Calling `EnsureSafeLogger` or using no-op fallbacks in non-test microservice source code is strictly prohibited (`PRODUCTION_MOCK_POLLUTION`).
+   - **Tier 2 (Microservices)**: Production microservice entry points must initialize via `BootstrapService`, which guarantees a non-nil `Logger`. Calling `EnsureSafeLogger` or using no-op fallbacks in non-test microservice source code is strictly prohibited (`PRODUCTION_MOCK_POLLUTION`).
    - **Strict Mode Enforcement**: When `STRICT_LOGGER=true`, `EnsureSafeLogger` panics / raises `RuntimeError` immediately upon receiving `nil`, ensuring uninitialized dependencies fail-fast on boot rather than running dark.
 7. **L1 Resilience, Connectivity & Self-Healing Contract**:
    - All inter-service connections must leverage `conn_manager`, `teleremote`, or `messaging` with infinite retries (`MaxRetries: -1` in `NewCriticalStrategy`) and exponential backoff with randomized jitter (`GetNextDelay`). Infinite retry is a design requirement for autonomous recovery.

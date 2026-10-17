@@ -14,7 +14,10 @@ None
 """
 
 from functools import lru_cache as functoolsLruCache
+from os import getcwd as osGetcwd
+from os.path import abspath as osPathAbspath, dirname as osPathDirname, isfile as osPathIsfile
 from socket import gethostname as socketGetHostName
+from sys import argv as sysArgv
 
 # -----------------------------------------------------------------------------------------------
 
@@ -27,20 +30,20 @@ def get_hostname() -> str:
     except Exception:
         return "localhost"
 
+
 # -----------------------------------------------------------------------------------------------
+
 
 def get_base_dir() -> str:
     """
     Returns the absolute path to the directory containing the main script.
     Provides a stable anchor for logs and config files, similar to the Go implementation.
     """
-    import sys
-    import os
     try:
-        # Try sys.argv[0] first (standard script execution)
-        main_path = os.path.abspath(sys.argv[0])
-        if os.path.isfile(main_path):
-            return os.path.dirname(main_path)
-        return os.getcwd()
+        # Try sysArgv[0] first (standard script execution)
+        main_path = osPathAbspath(sysArgv[0])
+        if osPathIsfile(main_path):
+            return osPathDirname(main_path)
+        return osGetcwd()
     except Exception:
-        return os.getcwd()
+        return osGetcwd()

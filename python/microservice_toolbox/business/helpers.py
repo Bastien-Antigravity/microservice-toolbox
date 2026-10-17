@@ -16,12 +16,11 @@ KEY PARAMETERS:
 - BusinessEncoder: Custom JSON encoder for ecosystem-standard types.
 """
 
-import base64
-import json
-import time
-from dataclasses import asdict as dcAsdict
-from dataclasses import is_dataclass as dcIs_dataclass
+from base64 import b64decode as base64B64Decode, b64encode as base64B64Encode
+from dataclasses import asdict as dcAsdict, is_dataclass as dcIs_dataclass
 from enum import Enum
+from json import JSONEncoder as jsonJSONEncoder, dumps as jsonDumps, loads as jsonLoads
+from time import time as timeTime
 from typing import Any
 
 from .models import MarketEvent, MarketEventType
@@ -29,7 +28,7 @@ from .models import MarketEvent, MarketEventType
 # -----------------------------------------------------------------------------------------------
 
 
-class BusinessEncoder(json.JSONEncoder):
+class BusinessEncoder(jsonJSONEncoder):
     """JSON encoder that handles dataclasses, enums, and byte arrays."""
 
     Name = "BusinessEncoder"
@@ -42,7 +41,7 @@ class BusinessEncoder(json.JSONEncoder):
         if isinstance(obj, Enum):
             return obj.value
         if isinstance(obj, bytes):
-            return base64.b64encode(obj).decode("utf-8")
+            return base64B64Encode(obj).decode("utf-8")
         return super().default(obj)
 
 
@@ -51,7 +50,7 @@ class BusinessEncoder(json.JSONEncoder):
 
 def serialize(obj: Any) -> bytes:
     """Converts a business object into a JSON byte array."""
-    return json.dumps(obj, cls=BusinessEncoder).encode("utf-8")
+    return jsonDumps(obj, cls=BusinessEncoder).encode("utf-8")
 
 
 # -----------------------------------------------------------------------------------------------
@@ -59,11 +58,11 @@ def serialize(obj: Any) -> bytes:
 
 def deserialize(data: bytes, target_class: Any) -> Any:
     """Converts a JSON byte array back into a business object or dataclass."""
-    raw = json.loads(data.decode("utf-8"))
+    raw = jsonLoads(data.decode("utf-8"))
 
     # Handle base64 bytes for MarketEvent payload
     if target_class == MarketEvent and "payload" in raw:
-        raw["payload"] = base64.b64decode(raw["payload"])
+        raw["payload"] = base64B64Decode(raw["payload"])
         # Handle enum conversion
         if "type" in raw:
             raw["type"] = MarketEventType(raw["type"])
@@ -94,4 +93,4 @@ def wrap_market_event(symbol: str, exchange: str, event_type: MarketEventType, p
 
 def system_timestamp() -> int:
     """Returns the current unix timestamp in milliseconds."""
-    return int(time.time() * 1000)
+    return int(timeTime() * 1000)

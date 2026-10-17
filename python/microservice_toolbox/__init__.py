@@ -17,7 +17,7 @@ def __getattr__(name):
         globals()["new_manager_with_logger"] = new_manager_with_logger
         return globals()[name]
     if name in ["UniLog", "LogLevel", "Logger", "ensure_safe_logger"]:
-        from .logger import UniLog, LogLevel, Logger, ensure_safe_logger
+        from .logger import Logger, LogLevel, UniLog, ensure_safe_logger
         globals()["UniLog"] = UniLog
         globals()["LogLevel"] = LogLevel
         globals()["Logger"] = Logger
@@ -29,7 +29,7 @@ def __getattr__(name):
         return init_microservice
     if name in ["NatsConfig", "JetStreamConfig", "connect"]:
         try:
-            from .messaging import NatsConfig, JetStreamConfig, connect
+            from .messaging import JetStreamConfig, NatsConfig, connect
             globals()["NatsConfig"] = NatsConfig
             globals()["JetStreamConfig"] = JetStreamConfig
             globals()["connect"] = connect
@@ -60,5 +60,6 @@ __all__ = [
     "ensure_safe_logger",
     "init_microservice",
     "NotificationClient",
+    "new_notification_client",
 ]
 

@@ -4,7 +4,7 @@
 """
 ESSENTIAL PROCESS:
 Defines the abstract interface for serialization providers within the ecosystem.
-ISerializer manages transforming generic objects to bytes and vice-versa.
+Serializer manages transforming generic objects to bytes and vice-versa.
 
 DATA FLOW:
 1. Data structures are converted to bytes via marshal.
@@ -23,12 +23,12 @@ T = TypeVar("T")
 # -----------------------------------------------------------------------------------------------
 
 
-class ISerializer(ABC):
+class Serializer(ABC):
     """
-    ISerializer manages transforming generic objects to bytes and vice-versa.
+    Serializer manages transforming generic objects to bytes and vice-versa.
     """
 
-    Name = "ISerializer"
+    Name = "Serializer"
 
     # -----------------------------------------------------------------------------------------------
 
@@ -47,3 +47,4 @@ class ISerializer(ABC):
         Transforms a byte representation back into an object of type cls.
         """
         pass
+

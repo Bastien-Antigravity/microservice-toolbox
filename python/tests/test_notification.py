@@ -12,25 +12,21 @@
 """
 
 import asyncio
-import socket
+import concurrent.futures
 from typing import Optional
 
-import pytest
 import grpc
 import grpc.aio
+import pytest
 
 from microservice_toolbox.notification import (
     NotificationClient,
-    new_client,
-    new_client_with_target,
 )
 from microservice_toolbox.notification.grpc_client import (
     notif_service_pb2,
     notif_service_pb2_grpc,
 )
 
-
-import concurrent.futures
 
 class MockNotifService(notif_service_pb2_grpc.NotifServiceServicer):
     def __init__(self, success: bool = True):

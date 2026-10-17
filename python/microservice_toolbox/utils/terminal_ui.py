@@ -16,8 +16,7 @@ KEY PARAMETERS:
 - message: The log content.
 """
 
-from datetime import datetime as datetimeDateTime
-from datetime import UTC as datetimeUTC
+from datetime import UTC as datetimeUTC, datetime as datetimeDateTime
 from sys import stderr as sysStderr
 
 from .helpers import get_hostname

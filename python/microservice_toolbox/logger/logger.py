@@ -14,7 +14,9 @@ KEY PARAMETERS:
 - logger: Optional Logger instance passed to ensure_safe_logger.
 """
 
-from typing import Protocol, runtime_checkable, Optional
+from logging import getLogger as loggingGetLogger
+from os import environ as osEnviron
+from typing import Optional, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -43,10 +45,9 @@ class FallbackTestLogger:
     Strictly prohibited for production microservice execution.
     """
     def __init__(self, name: str = "python-app"):
-        import logging
-        self._log = logging.getLogger(name)
+        self._log = loggingGetLogger(name)
         self._metadata: dict[str, str] = {}
-        
+
     def debug(self, msg: str) -> None: self._log.debug(msg)
     def info(self, msg: str) -> None: self._log.info(msg)
     def warning(self, msg: str) -> None: self._log.warning(msg)
@@ -71,8 +72,7 @@ def ensure_safe_logger(logger: Optional[Logger]) -> Logger:
     In strict mode (STRICT_LOGGER=true), raises RuntimeError to prevent microservices from running dark.
     """
     if logger is None:
-        import os
-        if os.environ.get("STRICT_LOGGER") == "true":
+        if osEnviron.get("STRICT_LOGGER") == "true":
             raise RuntimeError(
                 "CRITICAL ARCHITECTURAL VIOLATION: Nil logger passed to ensure_safe_logger in strict mode. "
                 "Microservices must inject a valid logger via bootstrap."

@@ -19,7 +19,7 @@ from threading import Lock as threadingLock
 from time import sleep as timeSleep
 from typing import TYPE_CHECKING, Any
 
-from .errors import WriteFailedError, MaxRetriesReachedError
+from .errors import MaxRetriesReachedError, WriteFailedError
 
 if TYPE_CHECKING:
     from .manager import NetworkManager
@@ -53,37 +53,44 @@ class ManagedConnection:
         Writes data to the connection, attempting reconnection if it fails.
         """
         with self._lock:
-            # If no connection, try to reconnect immediately (blocking)
-            if self.current_conn is None:
-                self._lock.release()
-                try:
-                    self.reconnect()
-                finally:
-                    self._lock.acquire()
+            conn = self.current_conn
 
+        # If no connection, try to reconnect immediately (blocking)
+        if conn is None:
+            self.reconnect()
+            with self._lock:
+                conn = self.current_conn
+
+        if conn is None:
+            raise WriteFailedError(f"{self.Name} : connection is unavailable before write")
+
+        try:
+            # Assuming safesocket has a 'send' method
+            return conn.send(data)
+        except Exception as e:
+            if self.nm and getattr(self.nm, "logger", None):
+                self.nm.logger.warning("{0} : Write failed ({1}). Reconnecting...".format(self.Name, e))
+
+            with self._lock:
+                if self.current_conn is conn:
+                    try:
+                        self.current_conn.close()
+                    except Exception:
+                        pass
+                    self.current_conn = None
+
+            # Reconnect and retry once
             try:
-                # Assuming safesocket has a 'send' method
-                return self.current_conn.send(data)
-            except Exception as e:
-                print("{0} : Write failed ({1}). Reconnecting...".format(self.Name, e))
-                try:
-                    self.current_conn.close()
-                except Exception:
-                    pass
-                self.current_conn = None
+                self.reconnect()
+            except Exception as re_err:
+                raise WriteFailedError(f"base write error: {e}; reconnect error: {re_err}")
 
-                # Reconnect and retry once
-                self._lock.release()
-                try:
-                    self.reconnect()
-                except Exception as re_err:
-                    raise WriteFailedError(f"base write error: {e}; reconnect error: {re_err}")
-                finally:
-                    self._lock.acquire()
+            with self._lock:
+                conn = self.current_conn
 
-                if self.current_conn is None:
-                    raise WriteFailedError("reconnection succeeded but current_conn is still None")
-                return self.current_conn.send(data)
+            if conn is None:
+                raise WriteFailedError("reconnection succeeded but current_conn is still None")
+            return conn.send(data)
 
     # -----------------------------------------------------------------------------------------------
 
@@ -104,27 +111,22 @@ class ManagedConnection:
         """
         Indefinitely attempts to reconnect with exponential backoff.
         """
-        with self._lock:
-            if self._reconnecting:
-                # Wait for current reconnection
-                while True:
-                    self._lock.release()
-                    timeSleep(0.1)
-                    self._lock.acquire()
-                    if self.current_conn is not None:
-                        return
-                    if not self._reconnecting:
-                        self._reconnecting = True
-                        break
-            else:
-                self._reconnecting = True
+        while True:
+            with self._lock:
+                if not self._reconnecting:
+                    self._reconnecting = True
+                    break
+                if self.current_conn is not None:
+                    return
+            timeSleep(0.1)
 
         i = 0
 
         while True:
             try:
                 conn = self.nm.establish_connection(self.ip, self.port, self.public_ip, self.profile)
-                print("{0} : Reconnected to {1}:{2}".format(self.Name, self.ip, self.port))
+                if self.nm and getattr(self.nm, "logger", None):
+                    self.nm.logger.info("{0} : Reconnected to {1}:{2}".format(self.Name, self.ip, self.port))
                 with self._lock:
                     self.current_conn = conn
                     self._reconnecting = False

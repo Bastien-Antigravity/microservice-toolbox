@@ -2,7 +2,7 @@
 # coding:utf-8
 
 """
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
 # ESSENTIAL PROCESS:
 # High-level client facade enabling L2 and L3 Python microservices to send direct,
 # multi-channel notifications to notif-server via the libnotif CGO shared library bridge.
@@ -14,25 +14,26 @@
 # - app_config: Shared ecosystem AppConfig dynamically resolving notif_server gRPC capability.
 # - target_addr: Target gRPC address (host:port) of notif-server.
 # - logger: Unified ecosystem logger instance.
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
 """
 
-import asyncio
-import concurrent.futures
-import ctypes
-from typing import Optional, Sequence
+from asyncio import get_running_loop as asyncioGetRunningLoop
+from concurrent.futures import ThreadPoolExecutor as concurrentThreadPoolExecutor
+from ctypes import c_double as ctypesC_double, string_at as ctypesStringAt
+from typing import Optional
 
-from microservice_toolbox.logger import Logger, ensure_safe_logger
-from microservice_toolbox.utils.lib_loader import load_libnotif
+from ..logger import Logger, ensure_safe_logger
+from ..utils.lib_loader import load_libnotif
 
 DEFAULT_TIMEOUT = 5.0
 
 # Dedicated thread pool executor to safely execute CGO invocations across OS threads
-_notif_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+_notif_executor = concurrentThreadPoolExecutor(max_workers=4)
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
 # NotificationClient
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
 
 class NotificationClient:
     """
@@ -55,7 +56,7 @@ class NotificationClient:
         if not self._lib:
             raise RuntimeError("Could not load libnotif shared library from notif-server")
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     @classmethod
     def from_config(cls, app_config, logger: Optional[Logger] = None) -> "NotificationClient":
@@ -80,13 +81,13 @@ class NotificationClient:
         safe_logger.info(f"NotificationClient configured with target address: {addr}")
         return cls(target_addr=addr, logger=safe_logger)
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def set_timeout(self, timeout: float) -> None:
         """Sets default RPC dispatch timeout in seconds."""
         self.timeout = float(timeout)
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     async def send(self, message: str, *tags: str) -> None:
         """
@@ -95,7 +96,7 @@ class NotificationClient:
         """
         await self.send_with_attachment("", message, "", *tags)
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     async def send_alert(self, level: str, message: str, *tags: str) -> None:
         """
@@ -104,7 +105,7 @@ class NotificationClient:
         """
         await self.send_with_attachment(level, message, "", *tags)
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     async def send_with_attachment(self, level: str, message: str, attachment: str = "", *tags: str) -> None:
         """
@@ -114,26 +115,26 @@ class NotificationClient:
         if self._closed:
             raise RuntimeError("notification client is closed")
 
-        loop = asyncio.get_running_loop()
+        loop = asyncioGetRunningLoop()
         await loop.run_in_executor(
             _notif_executor,
             self._dispatch_c_call,
             level, message, attachment, *tags
         )
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def send_sync(self, message: str, *tags: str) -> None:
         """Synchronous helper dispatching an untyped notification."""
         self.send_with_attachment_sync("", message, "", *tags)
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def send_alert_sync(self, level: str, message: str, *tags: str) -> None:
         """Synchronous helper dispatching a categorized alert."""
         self.send_with_attachment_sync(level, message, "", *tags)
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def send_with_attachment_sync(self, level: str, message: str, attachment: str = "", *tags: str) -> None:
         """Synchronous helper dispatching a notification over blocking libnotif bridge."""
@@ -145,7 +146,7 @@ class NotificationClient:
         )
         future.result()
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def _dispatch_c_call(self, level: str, message: str, attachment: str = "", *tags: str) -> None:
         tags_csv = ",".join(tags)
@@ -161,14 +162,14 @@ class NotificationClient:
             msg_b,
             att_b,
             tags_b,
-            ctypes.c_double(self.timeout),
+            ctypesC_double(self.timeout),
         )
 
         if rc != 0:
             err_ptr = self._lib.Notif_GetLastError()
             err_str = ""
             if err_ptr:
-                err_str = ctypes.string_at(err_ptr).decode("utf-8", errors="replace")
+                err_str = ctypesStringAt(err_ptr).decode("utf-8", errors="replace")
                 self._lib.Notif_FreeString(err_ptr)
             self.logger.warning(
                 f"Notification dispatch to {self.target_addr} failed (rc={rc}): {err_str}"
@@ -179,26 +180,30 @@ class NotificationClient:
             f"Notification dispatched successfully to {self.target_addr} (level={level}, tags={tags})"
         )
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     async def close(self) -> None:
         """Closes active notification client."""
         self.close_sync()
 
-    # -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------
 
     def close_sync(self) -> None:
         """Closes notification client immediately."""
         self._closed = True
 
 
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
 # Functional Factory Aliases for Go Parity
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------
+
 
 def new_client(app_config, logger: Optional[Logger] = None) -> NotificationClient:
     """Initializes a NotificationClient dynamically from AppConfig (Go NewClient parity)."""
     return NotificationClient.from_config(app_config, logger)
+
+
+# -----------------------------------------------------------------------------------------------
 
 
 def new_client_with_target(target_addr: str, logger: Optional[Logger] = None) -> NotificationClient:
