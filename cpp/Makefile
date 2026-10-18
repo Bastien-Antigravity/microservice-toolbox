@@ -10,11 +10,13 @@ MODULES_SRC = tests/test_modules.cpp
 MODULES_BIN = bin/test_modules
 NOTIF_SRC = tests/test_notification.cpp
 NOTIF_BIN = bin/test_notification
+VERSION_SRC = tests/test_version.cpp
+VERSION_BIN = bin/test_version
 EXPANSION_BIN = bin/expansion_check
 
 .PHONY: all clean test
 
-all: $(TEST_BIN) $(MODULES_BIN) $(NOTIF_BIN) $(EXPANSION_BIN)
+all: $(TEST_BIN) $(MODULES_BIN) $(NOTIF_BIN) $(VERSION_BIN) $(EXPANSION_BIN)
 
 $(TEST_BIN): $(TEST_SRC)
 	mkdir -p bin
@@ -28,14 +30,19 @@ $(NOTIF_BIN): $(NOTIF_SRC)
 	mkdir -p bin
 	$(CXX) $(CXXFLAGS) $(NOTIF_SRC) -o $(NOTIF_BIN) $(LDFLAGS)
 
+$(VERSION_BIN): $(VERSION_SRC)
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) $(VERSION_SRC) -o $(VERSION_BIN)
+
 $(EXPANSION_BIN): ../integration/expansion_check.cpp
 	mkdir -p bin
 	$(CXX) $(CXXFLAGS) ../integration/expansion_check.cpp -o $(EXPANSION_BIN) $(LDFLAGS)
 
-test: $(TEST_BIN) $(MODULES_BIN) $(NOTIF_BIN)
+test: $(TEST_BIN) $(MODULES_BIN) $(NOTIF_BIN) $(VERSION_BIN)
 	DYLD_LIBRARY_PATH="$(DISTCONF_DIR):$$DYLD_LIBRARY_PATH" TEST_HOST=127.0.0.5 ./$(TEST_BIN)
 	./$(MODULES_BIN)
 	DYLD_LIBRARY_PATH="$(DISTCONF_DIR):$(NOTIF_DIR):$$DYLD_LIBRARY_PATH" ./$(NOTIF_BIN)
+	./$(VERSION_BIN)
 
 
 clean:

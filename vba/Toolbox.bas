@@ -133,3 +133,74 @@ Public Function NotifPtrToString(ByVal ptr As LongPtr) As String
     
     NotifPtrToString = res
 End Function
+
+' -----------------------------------------------------------------------------------------------
+' Dynamic Version Resolution Helper
+' -----------------------------------------------------------------------------------------------
+
+' GetVersion returns the dynamic semantic version resolved from VERSION.txt or environment overrides.
+Public Function GetVersion(Optional ByVal startPath As String = "") As String
+    ' 1. Check environment variable overrides
+    Dim envVer As String
+    envVer = Trim$(Environ$("APP_VERSION"))
+    If Len(envVer) > 0 Then
+        GetVersion = envVer
+        Exit Function
+    End If
+    
+    envVer = Trim$(Environ$("SERVICE_VERSION"))
+    If Len(envVer) > 0 Then
+        GetVersion = envVer
+        Exit Function
+    End If
+    
+    ' 2. Determine initial search folder
+    Dim currentFolder As String
+    currentFolder = startPath
+    If Len(currentFolder) = 0 Then
+        On Error Resume Next
+        currentFolder = Application.ActiveWorkbook.Path
+        On Error GoTo 0
+        If Len(currentFolder) = 0 Then
+            currentFolder = CurDir$()
+        End If
+    End If
+    
+    ' 3. Climb parent directories searching for VERSION.txt
+    Dim fso As Object
+    On Error Resume Next
+    Set fso = CreateObject("Scripting.FileSystemObject")
+    On Error GoTo 0
+    
+    If Not fso Is Nothing Then
+        Dim dirPath As String
+        dirPath = currentFolder
+        Do While Len(dirPath) > 0 And fso.FolderExists(dirPath)
+            Dim candidate As String
+            candidate = fso.BuildPath(dirPath, "VERSION.txt")
+            If fso.FileExists(candidate) Then
+                Dim ts As Object
+                Set ts = fso.OpenTextFile(candidate, 1) ' 1 = ForReading
+                If Not ts Is Nothing Then
+                    Dim lineStr As String
+                    lineStr = Trim$(ts.ReadLine)
+                    ts.Close
+                    Set ts = Nothing
+                    If Len(lineStr) > 0 Then
+                        GetVersion = lineStr
+                        Exit Function
+                    End If
+                End If
+            End If
+            Dim parentFolder As Object
+            Set parentFolder = fso.GetFolder(dirPath).ParentFolder
+            If parentFolder Is Nothing Then Exit Do
+            If parentFolder.Path = dirPath Then Exit Do
+            dirPath = parentFolder.Path
+        Loop
+    End If
+    
+    ' 4. Canonical ecosystem fallback
+    GetVersion = "0.0.1"
+End Function
+

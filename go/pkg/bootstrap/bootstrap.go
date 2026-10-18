@@ -62,6 +62,7 @@ func BootstrapServiceSafe(serviceName string, specificFlags ...string) (*toolbox
 	}
 
 	appConfig.Logger = appLogger
+	appLogger.Info(fmt.Sprintf("%s : Initialized via microservice-toolbox (version: %s)", serviceName, appConfig.GetVersion()))
 	return appConfig, appLogger, nil
 }
 

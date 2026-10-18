@@ -280,3 +280,11 @@ End Property
 Public Property Get handle() As LongPtr
     handle = m_handle
 End Property
+
+Public Property Get Version() As String
+    Version = Toolbox.GetVersion()
+End Property
+
+Public Function GetVersion() As String
+    GetVersion = Toolbox.GetVersion()
+End Function

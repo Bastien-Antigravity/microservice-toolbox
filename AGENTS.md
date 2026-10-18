@@ -18,6 +18,7 @@
   - `go/pkg/messaging`: Resilient NATS Core and JetStream connection manager
   - `go/pkg/notification`: Direct multi-channel notification client facade for L2/L3 services (gRPC port 1027 to notif-server)
   - `go/pkg/utils`: Terminal UI helpers, environment and formatting utilities
+  - `go/pkg/version`: Standardized dynamic semver resolution adhering to VERSION.txt
 - **Configuration Link**: `standalone.yaml -> ../docker-deployment/modes/local/config/native.yaml`
 
 ## Key Build & Test Commands
@@ -63,4 +64,13 @@ cd rust && cargo test
    - **Unified Connection Interface**: Broker connections must be initialized via `messaging.Connect` (Go), `connector.connect` (Python), or `connector::connect` (Rust), standardizing connection event logging, reconnect intervals, and heartbeat liveness options.
    - **Multi-Node Wire Security**: When `tls.enabled: true` or connecting outside `127.0.0.1` with certificate assets, connectors inject trusted root CAs and mTLS client certificates (`nats.RootCAs` / `nats.ClientCert` in Go, `ssl.SSLContext` in Python, `async_nats::ConnectOptions::require_tls` in Rust).
    - **Polyglot Scope Boundary**: C++ and VBA intentionally omit `messaging/` to avoid dead code and heavy external C runtime dependencies (`cnats`/`libuv`). C++ communicates via `SafeSocket` TCP (`conn_manager`) or direct gRPC alerts (`notification`), and VBA communicates via `NotificationClient`.
+10. **Standardized Dynamic Versioning Engine (`go/pkg/version`, `python/microservice_toolbox/version`, `rust/src/version`, `cpp/.../version/Version.hpp`, `vba/Toolbox.bas`)**:
+    - **Single Source of Truth**: Resolves dynamic semver strictly from `VERSION.txt` at the repository root via upward directory traversal, environment variable overrides (`APP_VERSION`, `SERVICE_VERSION`), and compile-time LDFLAGS injection (`BuildVersion` / macro `APP_VERSION`).
+    - **Canonical API Access**:
+      - Go: `appConfig.GetVersion()` or `version.Get()`
+      - Python: `app_config.get_version()` or `microservice_toolbox.get_version()`
+      - Rust: `app_config.get_version()` or `microservice_toolbox::version::get_version()`
+      - C++: `appConfig.GetVersion()` or `microservice_toolbox::version::GetVersion()`
+      - VBA: `cfg.GetVersion()` / `cfg.Version` or `Toolbox.GetVersion()`
+    - **Zero Ad-Hoc Scanning Loops**: Microservices MUST NOT write bespoke directory searching loops or relative path slices (e.g. `[]string{"VERSION.txt", "../VERSION.txt"}`). Hardcoding version numbers in code or status responses is strictly prohibited (`HARDCODED_VERSION_VIOLATION`).
 

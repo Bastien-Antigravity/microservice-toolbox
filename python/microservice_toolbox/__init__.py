@@ -43,6 +43,11 @@ def __getattr__(name):
         globals()["NotificationClient"] = NotificationClient
         globals()["new_notification_client"] = new_client
         return globals()[name]
+    if name in ["get_version", "resolve_version"]:
+        from .version import get_version, resolve_version
+        globals()["get_version"] = get_version
+        globals()["resolve_version"] = resolve_version
+        return globals()[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -61,5 +66,7 @@ __all__ = [
     "init_microservice",
     "NotificationClient",
     "new_notification_client",
+    "get_version",
+    "resolve_version",
 ]
 

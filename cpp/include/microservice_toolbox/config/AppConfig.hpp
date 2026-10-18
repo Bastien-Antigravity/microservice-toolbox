@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "../utils/Logger.hpp"
+#include "../version/Version.hpp"
 #include "CommandLine.hpp"
 #include "DistConf.hpp"
 #include "json.hpp"
@@ -78,6 +79,10 @@ public:
         return data_["common"]["name"].get<std::string>();
     }
     return "unknown-service";
+  }
+
+  std::string GetVersion() const {
+    return microservice_toolbox::version::GetVersion();
   }
 
   std::string DecryptSecret(const std::string &ciphertext) const {

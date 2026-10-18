@@ -21,6 +21,7 @@ import (
 
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/version"
 
 	distributed_config "github.com/Bastien-Antigravity/distributed-config"
 
@@ -35,6 +36,7 @@ type AppConfig struct {
 	Profile  string
 	Logger   logger.Logger
 	Args     *CLIArgs
+	Version  string
 }
 
 // GetServiceName returns the standardized program name.
@@ -43,6 +45,14 @@ func (ac *AppConfig) GetServiceName() string {
 		return ac.Common.Name
 	}
 	return "unknown-service"
+}
+
+// GetVersion returns the dynamic semantic version of the microservice.
+func (ac *AppConfig) GetVersion() string {
+	if ac != nil && ac.Version != "" {
+		return ac.Version
+	}
+	return version.Get()
 }
 
 // SetLogger updates the logger after instantiation.
@@ -91,6 +101,7 @@ func LoadConfigWithLogger(profile string, l logger.Logger, specificFlags []strin
 		Profile:  actualProfile,
 		Logger:   safeLogger,
 		Args:     cliArgs,
+		Version:  version.Get(),
 	}
 
 	// Phase 2: Local Overrides (Developer-Intent Parity)

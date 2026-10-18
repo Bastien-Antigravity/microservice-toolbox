@@ -196,6 +196,18 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
+    def get_version(self) -> str:
+        """Returns the dynamic semantic version of the microservice from VERSION.txt."""
+        from microservice_toolbox.version import get_version as resolve_ver
+        return resolve_ver()
+
+    @property
+    def version(self) -> str:
+        """Property alias for get_version()."""
+        return self.get_version()
+
+    # -----------------------------------------------------------------------------------------------
+
     def decrypt_secret(self, ciphertext: str) -> str:
         """
         Explicitly decrypts a single ENC(...) ciphertext string.

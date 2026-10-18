@@ -367,6 +367,10 @@ impl AppConfig {
         self.common().get("name").and_then(|v| v.as_str()).unwrap_or("unknown-service").to_string()
     }
 
+    pub fn get_version(&self) -> String {
+        crate::version::get_version()
+    }
+
     pub fn get_local(&self, key: &str) -> Option<&Value> {
         self.get_value(&format!("local.{}", key))
     }
