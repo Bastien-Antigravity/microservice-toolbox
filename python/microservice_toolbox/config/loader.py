@@ -385,7 +385,7 @@ class AppConfig:
     def get_rest_addr(self, capability: str) -> str:
         """
         Resolves the REST Management address for a capability.
-        Requires explicit ip and rest_port.
+        Requires explicit rest_port (falls back to ip if rest_ip is absent).
         """
         if self._handle and lib:
             try:
@@ -395,7 +395,7 @@ class AppConfig:
             except Exception as e:
                 self.logger.warning(f"{self.Name} : Bridge GetRESTAddress failed: {e}")
 
-        return self._get_addr(capability, "ip", "rest_port")
+        return self._get_addr(capability, "rest_ip", "rest_port")
 
     # -----------------------------------------------------------------------------------------------
 
@@ -406,8 +406,10 @@ class AppConfig:
             raise ValueError(f"{self.Name} : capability {capability} not found")
 
         host = cap.get(host_key)
+        if not host and host_key != "ip":
+            host = cap.get("ip")
         if not host:
-            raise ValueError(f"{self.Name} : host key {host_key} missing or empty in capability {capability}")
+            raise ValueError(f"{self.Name} : host key {host_key} (or 'ip') missing or empty in capability {capability}")
 
         port = cap.get(port_key)
         if not port:
@@ -601,24 +603,24 @@ class AppConfig:
                         )
             seen_endpoints[(nip, port)] = desc
 
-        for cap_name, cap_data in caps.items():
-            if not isinstance(cap_data, dict):
-                continue
+        for cap_name in caps.keys():
+            try:
+                addr = self.get_listen_addr(cap_name)
+                ip_val, port_val = addr.rsplit(":", 1)
+                _check_and_add(ip_val, port_val, f"{cap_name} (TCP)")
+            except Exception:
+                pass
 
-            ip = cap_data.get("ip")
-            g_ip = cap_data.get("grpc_ip") or ip
+            try:
+                addr = self.get_grpc_listen_addr(cap_name)
+                ip_val, port_val = addr.rsplit(":", 1)
+                _check_and_add(ip_val, port_val, f"{cap_name} (gRPC)")
+            except Exception:
+                pass
 
-            # Explicit TCP port
-            port_val = cap_data.get("port")
-            if ip and port_val is not None:
-                _check_and_add(ip, port_val, f"{cap_name} (TCP)")
-
-            # Explicit gRPC port
-            g_port_val = cap_data.get("grpc_port")
-            if g_ip and g_port_val is not None:
-                _check_and_add(g_ip, g_port_val, f"{cap_name} (gRPC)")
-
-            # Explicit REST port
-            r_port_val = cap_data.get("rest_port")
-            if ip and r_port_val is not None:
-                _check_and_add(ip, r_port_val, f"{cap_name} (REST)")
+            try:
+                addr = self.get_rest_addr(cap_name)
+                ip_val, port_val = addr.rsplit(":", 1)
+                _check_and_add(ip_val, port_val, f"{cap_name} (REST)")
+            except Exception:
+                pass

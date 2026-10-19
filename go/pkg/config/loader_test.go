@@ -49,8 +49,15 @@ capabilities:
   test-service:
     ip: 1.2.3.4
     port: "8080"
-    grpc_ip: 1.2.3.4
+    grpc_ip: 1.2.3.5
     grpc_port: "8081"
+    rest_ip: 1.2.3.6
+    rest_port: "8082"
+  fallback-service:
+    ip: 1.2.3.7
+    port: "9090"
+    grpc_port: "9091"
+    rest_port: "9092"
 `
 	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
 	assert.NoError(t, err)
@@ -68,7 +75,20 @@ capabilities:
 
 	grpcAddr, err := ac.GetGRPCListenAddr("test-service")
 	assert.NoError(t, err)
-	assert.Equal(t, "1.2.3.4:8081", grpcAddr)
+	assert.Equal(t, "1.2.3.5:8081", grpcAddr)
+
+	restAddr, err := ac.GetRESTAddr("test-service")
+	assert.NoError(t, err)
+	assert.Equal(t, "1.2.3.6:8082", restAddr)
+
+	// Fallback tests (when grpc_ip / rest_ip are omitted, fallback to ip)
+	grpcFallback, err := ac.GetGRPCListenAddr("fallback-service")
+	assert.NoError(t, err)
+	assert.Equal(t, "1.2.3.7:9091", grpcFallback)
+
+	restFallback, err := ac.GetRESTAddr("fallback-service")
+	assert.NoError(t, err)
+	assert.Equal(t, "1.2.3.7:9092", restFallback)
 }
 
 func TestAppConfig_MissingFileReturnsError(t *testing.T) {

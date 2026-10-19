@@ -82,6 +82,45 @@ def test_grpc_missing_raises(tmp_path):
         os.chdir(old_cwd)
 
 
+def test_address_resolution_and_fallback(tmp_path):
+    """Verify primary, gRPC, and REST address resolution with ip fallback."""
+    config_file = tmp_path / "standalone_addr.yaml"
+    data = {
+        "capabilities": {
+            "full_svc": {
+                "ip": "10.0.0.1",
+                "port": "8000",
+                "grpc_ip": "10.0.0.2",
+                "grpc_port": "8001",
+                "rest_ip": "10.0.0.3",
+                "rest_port": "8002",
+            },
+            "fallback_svc": {
+                "ip": "10.0.0.1",
+                "port": "9000",
+                "grpc_port": "9001",
+                "rest_port": "9002",
+            },
+        }
+    }
+    yaml.dump(data, open(config_file, "w"))
+
+    old_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        ac = load_config("standalone_addr", input_args=[])
+        assert ac.get_listen_addr("full_svc") == "10.0.0.1:8000"
+        assert ac.get_grpc_listen_addr("full_svc") == "10.0.0.2:8001"
+        assert ac.get_rest_addr("full_svc") == "10.0.0.3:8002"
+
+        # Fallback to ip
+        assert ac.get_listen_addr("fallback_svc") == "10.0.0.1:9000"
+        assert ac.get_grpc_listen_addr("fallback_svc") == "10.0.0.1:9001"
+        assert ac.get_rest_addr("fallback_svc") == "10.0.0.1:9002"
+    finally:
+        os.chdir(old_cwd)
+
+
 # ---- Decryption ----
 
 def test_decrypt_secret_plaintext_passthrough(tmp_path):

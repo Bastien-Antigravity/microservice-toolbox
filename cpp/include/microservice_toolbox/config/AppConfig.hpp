@@ -94,64 +94,28 @@ public:
   }
 
   std::string GetListenAddr(const std::string &capability) const {
-    try {
-      if (data_.contains("capabilities") &&
-          data_["capabilities"].contains(capability)) {
-        auto cap = data_["capabilities"][capability];
-        if (cap.contains("ip") && cap.contains("port")) {
-          return cap["ip"].get<std::string>() + ":" +
-                 cap["port"].get<std::string>();
-        }
-      }
-    } catch (...) {
-    }
-
-    // Fallback to direct FFI if mirror fails or is incomplete
     std::string addr = config_->GetAddress(capability);
     if (addr.empty()) {
-      throw std::runtime_error(
-          "Capability not found or address resolution failed: " + capability);
+      std::string err = config_->GetLastError();
+      throw std::runtime_error(err.empty() ? ("Capability not found or address resolution failed: " + capability) : err);
     }
     return addr;
   }
 
   std::string GetGRPCListenAddr(const std::string &capability) const {
-    try {
-      if (data_.contains("capabilities") &&
-          data_["capabilities"].contains(capability)) {
-        auto cap = data_["capabilities"][capability];
-        if (cap.contains("grpc_ip") && cap.contains("grpc_port")) {
-          return cap["grpc_ip"].get<std::string>() + ":" +
-                 cap["grpc_port"].get<std::string>();
-        }
-      }
-    } catch (...) {
-    }
-
-    // Fallback to direct FFI
     std::string addr = config_->GetGRPCAddress(capability);
     if (addr.empty()) {
-      throw std::runtime_error("gRPC capability not found: " + capability);
+      std::string err = config_->GetLastError();
+      throw std::runtime_error(err.empty() ? ("gRPC capability not found: " + capability) : err);
     }
     return addr;
   }
 
   std::string GetRESTAddr(const std::string &capability) const {
-    try {
-      if (data_.contains("capabilities") &&
-          data_["capabilities"].contains(capability)) {
-        auto cap = data_["capabilities"][capability];
-        if (cap.contains("ip") && cap.contains("rest_port")) {
-          return cap["ip"].get<std::string>() + ":" +
-                 cap["rest_port"].get<std::string>();
-        }
-      }
-    } catch (...) {
-    }
-
     std::string addr = config_->GetRESTAddress(capability);
     if (addr.empty()) {
-      throw std::runtime_error("REST capability not found: " + capability);
+      std::string err = config_->GetLastError();
+      throw std::runtime_error(err.empty() ? ("REST capability not found: " + capability) : err);
     }
     return addr;
   }
@@ -268,43 +232,22 @@ public:
       seen[{nip, port_val}] = desc;
     };
 
-    auto parse_port = [](const nlohmann::json &v) -> int {
-      if (v.is_number_integer()) return v.get<int>();
-      if (v.is_string()) {
-        try {
-          return std::stoi(v.get<std::string>());
-        } catch (...) {
-          return -1;
-        }
-      }
-      return -1;
+    auto check_addr = [&](const std::string &addr, const std::string &desc) {
+      if (addr.empty()) return;
+      auto colon = addr.rfind(':');
+      if (colon == std::string::npos) return;
+      std::string host = addr.substr(0, colon);
+      try {
+        int p = std::stoi(addr.substr(colon + 1));
+        if (p > 0) check_and_add(host, p, desc);
+      } catch (...) {}
     };
 
     for (auto it = data_["capabilities"].begin(); it != data_["capabilities"].end(); ++it) {
       const auto &cap_name = it.key();
-      const auto &cap_data = it.value();
-      if (!cap_data.is_object()) continue;
-
-      std::string ip = cap_data.contains("ip") && cap_data["ip"].is_string() ? cap_data["ip"].get<std::string>() : "";
-      std::string g_ip = cap_data.contains("grpc_ip") && cap_data["grpc_ip"].is_string() ? cap_data["grpc_ip"].get<std::string>() : ip;
-
-      // Explicit TCP port
-      if (!ip.empty() && cap_data.contains("port")) {
-        int p = parse_port(cap_data["port"]);
-        if (p > 0) check_and_add(ip, p, cap_name + " (TCP)");
-      }
-
-      // Explicit gRPC port
-      if (!g_ip.empty() && cap_data.contains("grpc_port")) {
-        int gp = parse_port(cap_data["grpc_port"]);
-        if (gp > 0) check_and_add(g_ip, gp, cap_name + " (gRPC)");
-      }
-
-      // Explicit REST port
-      if (!ip.empty() && cap_data.contains("rest_port")) {
-        int rp = parse_port(cap_data["rest_port"]);
-        if (rp > 0) check_and_add(ip, rp, cap_name + " (REST)");
-      }
+      try { check_addr(GetListenAddr(cap_name), cap_name + " (TCP)"); } catch (...) {}
+      try { check_addr(GetGRPCListenAddr(cap_name), cap_name + " (gRPC)"); } catch (...) {}
+      try { check_addr(GetRESTAddr(cap_name), cap_name + " (REST)"); } catch (...) {}
     }
   }
 

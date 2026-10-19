@@ -372,33 +372,6 @@ func normalizeIP(ip string) string {
 	return ip
 }
 
-func getPort(val interface{}) (int, bool) {
-	if val == nil {
-		return 0, false
-	}
-	switch v := val.(type) {
-	case int:
-		return v, true
-	case int64:
-		return int(v), true
-	case float64:
-		return int(v), true
-	case string:
-		p, err := strconv.Atoi(v)
-		if err == nil {
-			return p, true
-		}
-	}
-	return 0, false
-}
-
-func getIP(val interface{}) string {
-	if val == nil {
-		return ""
-	}
-	return fmt.Sprintf("%v", val)
-}
-
 func (ac *AppConfig) ValidateUniquePorts() error {
 	if ac.Config == nil || ac.Config.Capabilities == nil {
 		return nil
@@ -406,7 +379,20 @@ func (ac *AppConfig) ValidateUniquePorts() error {
 
 	seen := make(map[endpointKey]string)
 
-	checkAndAdd := func(ip string, port int, desc string) error {
+	checkAndAdd := func(addr, desc string) error {
+		if addr == "" {
+			return nil
+		}
+		idx := strings.LastIndex(addr, ":")
+		if idx == -1 {
+			return nil
+		}
+		ip := addr[:idx]
+		port, err := strconv.Atoi(addr[idx+1:])
+		if err != nil || port <= 0 {
+			return nil
+		}
+
 		nip := normalizeIP(ip)
 		for seenKey, seenDesc := range seen {
 			if seenKey.Port == port {
@@ -419,35 +405,19 @@ func (ac *AppConfig) ValidateUniquePorts() error {
 		return nil
 	}
 
-	for capName, capVal := range ac.Config.Capabilities {
-		capMap, ok := capVal.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		ip := getIP(capMap["ip"])
-		gIP := getIP(capMap["grpc_ip"])
-		if gIP == "" {
-			gIP = ip
-		}
-
-		// Explicit TCP port
-		if port, ok := getPort(capMap["port"]); ok && ip != "" {
-			if err := checkAndAdd(ip, port, fmt.Sprintf("%s (TCP)", capName)); err != nil {
+	for capName := range ac.Config.Capabilities {
+		if addr, err := ac.GetListenAddr(capName); err == nil {
+			if err := checkAndAdd(addr, fmt.Sprintf("%s (TCP)", capName)); err != nil {
 				return err
 			}
 		}
-
-		// Explicit gRPC port
-		if gp, ok := getPort(capMap["grpc_port"]); ok && gIP != "" {
-			if err := checkAndAdd(gIP, gp, fmt.Sprintf("%s (gRPC)", capName)); err != nil {
+		if addr, err := ac.GetGRPCListenAddr(capName); err == nil {
+			if err := checkAndAdd(addr, fmt.Sprintf("%s (gRPC)", capName)); err != nil {
 				return err
 			}
 		}
-
-		// Explicit REST port
-		if rp, ok := getPort(capMap["rest_port"]); ok && ip != "" {
-			if err := checkAndAdd(ip, rp, fmt.Sprintf("%s (REST)", capName)); err != nil {
+		if addr, err := ac.GetRESTAddr(capName); err == nil {
+			if err := checkAndAdd(addr, fmt.Sprintf("%s (REST)", capName)); err != nil {
 				return err
 			}
 		}

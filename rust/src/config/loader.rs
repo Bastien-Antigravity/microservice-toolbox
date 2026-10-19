@@ -383,14 +383,25 @@ impl AppConfig {
         serde_yml::from_value(priv_val.clone()).map_err(|e| e.to_string())
     }
 
+    fn get_bridge_error(lib: &crate::config::ffi::DistConfLib, default_msg: &str) -> String {
+        let err_ptr = unsafe { (lib.dist_conf_get_last_error)() };
+        if !err_ptr.is_null() {
+            let c_str = unsafe { CStr::from_ptr(err_ptr) };
+            let msg = c_str.to_string_lossy().into_owned();
+            if !msg.is_empty() {
+                return msg;
+            }
+        }
+        default_msg.to_string()
+    }
+
     pub fn get_listen_addr(&self, capability: &str) -> Result<String, String> {
         if let Some(handle) = self._handle
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let cap_c = CString::new(capability).map_err(|e| e.to_string())?;
                 let ptr = (lib.dist_conf_get_address)(handle, cap_c.as_ptr());
-                if let Some(addr) = unsafe { crate::config::ffi::to_rust_string(ptr) } {
-                    return Ok(addr);
-                }
+                return unsafe { crate::config::ffi::to_rust_string(ptr) }
+                    .ok_or_else(|| Self::get_bridge_error(lib, &format!("capability {} not found", capability)));
         }
         self.get_addr(capability, "ip", "port")
     }
@@ -400,13 +411,11 @@ impl AppConfig {
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let cap_c = CString::new(capability).map_err(|e| e.to_string())?;
                 let ptr = (lib.dist_conf_get_grpc_address)(handle, cap_c.as_ptr());
-                if let Some(addr) = unsafe { crate::config::ffi::to_rust_string(ptr) } {
-                    return Ok(addr);
-                }
+                return unsafe { crate::config::ffi::to_rust_string(ptr) }
+                    .ok_or_else(|| Self::get_bridge_error(lib, &format!("gRPC capability {} not found", capability)));
         }
         self.get_addr(capability, "grpc_ip", "grpc_port")
     }
-
 
     /// Resolves the REST Management address for a capability.
     pub fn get_rest_addr(&self, capability: &str) -> Result<String, String> {
@@ -414,17 +423,18 @@ impl AppConfig {
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let cap_c = CString::new(capability).map_err(|e| e.to_string())?;
                 let ptr = (lib.dist_conf_get_rest_address)(handle, cap_c.as_ptr());
-                if let Some(addr) = unsafe { crate::config::ffi::to_rust_string(ptr) } {
-                    return Ok(addr);
-                }
+                return unsafe { crate::config::ffi::to_rust_string(ptr) }
+                    .ok_or_else(|| Self::get_bridge_error(lib, &format!("REST capability {} not found", capability)));
         }
-        self.get_addr(capability, "ip", "rest_port")
+        self.get_addr(capability, "rest_ip", "rest_port")
     }
 
     fn get_addr(&self, capability: &str, host_key: &str, port_key: &str) -> Result<String, String> {
         let cap_path = format!("capabilities.{}", capability);
         let cap = self.get_value(&cap_path).ok_or_else(|| format!("capability {} not found", capability))?;
-        let host = cap.get(host_key).and_then(|v| v.as_str()).ok_or_else(|| format!("host key {} missing in capability {}", host_key, capability))?;
+        let host = cap.get(host_key).and_then(|v| v.as_str())
+            .or_else(|| if host_key != "ip" { cap.get("ip").and_then(|v| v.as_str()) } else { None })
+            .ok_or_else(|| format!("host key {} (or 'ip') missing in capability {}", host_key, capability))?;
         let port = match cap.get(port_key) {
             Some(Value::String(s)) => s.clone(),
             Some(Value::Number(n)) => n.to_string(),
@@ -581,46 +591,24 @@ impl AppConfig {
             Ok(())
         };
 
-        let parse_port = |val: Option<&Value>| -> Option<i64> {
-            val.and_then(|v| {
-                if let Some(i) = v.as_i64() {
-                    Some(i)
-                } else if let Some(s) = v.as_str() {
-                    s.parse::<i64>().ok()
-                } else {
-                    None
+        let mut check_addr = |addr: &str, desc: &str| -> Result<(), String> {
+            if let Some((host, port_str)) = addr.rsplit_once(':') {
+                if let Ok(p) = port_str.parse::<i64>() {
+                    return check_and_add(host, p, desc);
                 }
-            })
+            }
+            Ok(())
         };
 
-        for (cap_name_val, cap_data_val) in caps {
-            let cap_name = cap_name_val.as_str().unwrap_or("");
-            if cap_name.is_empty() {
-                continue;
+        for cap_name in caps.keys().filter_map(|k| k.as_str()) {
+            if let Ok(addr) = self.get_listen_addr(cap_name) {
+                check_addr(&addr, &format!("{} (TCP)", cap_name))?;
             }
-
-            let ip = cap_data_val.get("ip").and_then(|v| v.as_str()).unwrap_or("");
-            let g_ip = cap_data_val.get("grpc_ip").and_then(|v| v.as_str()).unwrap_or(ip);
-
-            // Explicit TCP port
-            if !ip.is_empty() {
-                if let Some(port) = parse_port(cap_data_val.get("port")) {
-                    check_and_add(ip, port, &format!("{} (TCP)", cap_name))?;
-                }
+            if let Ok(addr) = self.get_grpc_listen_addr(cap_name) {
+                check_addr(&addr, &format!("{} (gRPC)", cap_name))?;
             }
-
-            // Explicit gRPC port
-            if !g_ip.is_empty() {
-                if let Some(gp) = parse_port(cap_data_val.get("grpc_port")) {
-                    check_and_add(g_ip, gp, &format!("{} (gRPC)", cap_name))?;
-                }
-            }
-
-            // Explicit REST port
-            if !ip.is_empty() {
-                if let Some(rp) = parse_port(cap_data_val.get("rest_port")) {
-                    check_and_add(ip, rp, &format!("{} (REST)", cap_name))?;
-                }
+            if let Ok(addr) = self.get_rest_addr(cap_name) {
+                check_addr(&addr, &format!("{} (REST)", cap_name))?;
             }
         }
         Ok(())
@@ -754,7 +742,7 @@ mod tests {
 
     #[test]
     fn test_address_resolution() {
-        let yaml_str = "capabilities:\n  svc:\n    ip: 1.2.3.4\n    port: '8080'\n    grpc_ip: 1.2.3.4\n    grpc_port: '8081'";
+        let yaml_str = "capabilities:\n  svc:\n    ip: 1.2.3.4\n    port: '8080'\n    grpc_ip: 1.2.3.5\n    grpc_port: '8081'\n    rest_ip: 1.2.3.6\n    rest_port: '8082'\n  fallback:\n    ip: 1.2.3.7\n    port: '9090'\n    grpc_port: '9091'\n    rest_port: '9092'";
         let data = serde_yml::from_str::<Value>(yaml_str).unwrap();
 
         let ac = AppConfig {
@@ -768,7 +756,13 @@ mod tests {
         };
 
         assert_eq!(ac.get_listen_addr("svc").unwrap(), "1.2.3.4:8080");
-        assert_eq!(ac.get_grpc_listen_addr("svc").unwrap(), "1.2.3.4:8081");
+        assert_eq!(ac.get_grpc_listen_addr("svc").unwrap(), "1.2.3.5:8081");
+        assert_eq!(ac.get_rest_addr("svc").unwrap(), "1.2.3.6:8082");
+
+        // Fallback to ip
+        assert_eq!(ac.get_listen_addr("fallback").unwrap(), "1.2.3.7:9090");
+        assert_eq!(ac.get_grpc_listen_addr("fallback").unwrap(), "1.2.3.7:9091");
+        assert_eq!(ac.get_rest_addr("fallback").unwrap(), "1.2.3.7:9092");
     }
 
     #[test]
