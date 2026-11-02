@@ -237,17 +237,24 @@ public:
       auto colon = addr.rfind(':');
       if (colon == std::string::npos) return;
       std::string host = addr.substr(0, colon);
+      int p = 0;
       try {
-        int p = std::stoi(addr.substr(colon + 1));
-        if (p > 0) check_and_add(host, p, desc);
-      } catch (...) {}
+        p = std::stoi(addr.substr(colon + 1));
+      } catch (const std::exception &) {
+        return;
+      }
+      if (p > 0) check_and_add(host, p, desc);
     };
 
     for (auto it = data_["capabilities"].begin(); it != data_["capabilities"].end(); ++it) {
       const auto &cap_name = it.key();
-      try { check_addr(GetListenAddr(cap_name), cap_name + " (TCP)"); } catch (...) {}
-      try { check_addr(GetGRPCListenAddr(cap_name), cap_name + " (gRPC)"); } catch (...) {}
-      try { check_addr(GetRESTAddr(cap_name), cap_name + " (REST)"); } catch (...) {}
+      std::string lAddr, gAddr, rAddr;
+      try { lAddr = GetListenAddr(cap_name); } catch (...) {}
+      try { gAddr = GetGRPCListenAddr(cap_name); } catch (...) {}
+      try { rAddr = GetRESTAddr(cap_name); } catch (...) {}
+      check_addr(lAddr, cap_name + " (TCP)");
+      check_addr(gAddr, cap_name + " (gRPC)");
+      check_addr(rAddr, cap_name + " (REST)");
     }
   }
 

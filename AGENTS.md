@@ -19,6 +19,7 @@
   - `go/pkg/notification`: Direct multi-channel notification client facade for L2/L3 services (gRPC port 1027 to notif-server)
   - `go/pkg/utils`: Terminal UI helpers, environment and formatting utilities
   - `go/pkg/version`: Standardized dynamic semver resolution adhering to VERSION.txt
+  - `go/pkg/spec`: Canonical declarative service specification and dynamic OpenMFE registration
 - **Configuration Link**: `standalone.yaml -> ../docker-deployment/modes/local/config/native.yaml`
 
 ## Key Build & Test Commands
@@ -73,4 +74,13 @@ cd rust && cargo test
       - C++: `appConfig.GetVersion()` or `microservice_toolbox::version::GetVersion()`
       - VBA: `cfg.GetVersion()` / `cfg.Version` or `Toolbox.GetVersion()`
     - **Zero Ad-Hoc Scanning Loops**: Microservices MUST NOT write bespoke directory searching loops or relative path slices (e.g. `[]string{"VERSION.txt", "../VERSION.txt"}`). Hardcoding version numbers in code or status responses is strictly prohibited (`HARDCODED_VERSION_VIOLATION`).
+11. **Standardized Declarative Service Specification & OpenMFE Registration (`go/pkg/spec`, `python/microservice_toolbox/spec`, `rust/src/spec`, `cpp/.../spec.hpp`)**:
+    - **Canonical API Access Across Languages**:
+      - Go: `spec.PublishWithLifecycle(appConfig, logger, lm, capability, spec.ServiceSpec{...})`
+      - Python: `spec.publish_with_lifecycle(app_config, logger, lm, capability, spec=ServiceSpec(...))`
+      - Rust: `spec::publish_with_lifecycle(&app_config, logger, Some(&lm), capability, ServiceSpec{...})`
+      - C++: `SpecPublisher::PublishWithLifecycle(appConfig, logger, &lm, capability, ServiceSpec{...})`
+    - **Microservice Specification Ownership**: Microservices are the authoritative source of truth for their own metadata (`Name`, `Tag`, `URL`, `Layer`, `Category`, `Description`, `DocLink`, `Protocol`, and directly formatted `Framing`). Libraries must not perform heuristic `%s` string parsing or redundant config re-scraping.
+    - **Fail-Fast Synchronous Validation**: `PublishWithLifecycle` / `publish` strictly validates mandatory metadata synchronously on startup; missing metadata or unresolvable `web_interface` capability aborts boot immediately (fail-fast) before launching the background retry worker.
+    - **Infinite Retry Background Registration**: Spec publication to `web-interface` runs in a non-blocking background thread/goroutine with exponential backoff and randomized jitter, adhering to the L1 Resilience Contract so microservice boot never hangs on offline downstream UI dependencies.
 

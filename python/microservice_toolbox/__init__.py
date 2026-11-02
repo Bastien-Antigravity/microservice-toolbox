@@ -48,12 +48,61 @@ def __getattr__(name):
         globals()["get_version"] = get_version
         globals()["resolve_version"] = resolve_version
         return globals()[name]
+    if name in [
+        "publish",
+        "publish_with_lifecycle",
+        "publish_sync",
+        "build_spec_from_config",
+        "publish_service_spec",
+        "ServiceSpec",
+        "ProtocolSpec",
+        "Publish",
+        "PublishWithLifecycle",
+        "PublishSync",
+        "BuildSpecFromConfig",
+    ]:
+        from .spec import (
+            publish,
+            publish_with_lifecycle,
+            publish_sync,
+            build_spec_from_config,
+            publish_service_spec,
+            ServiceSpec,
+            ProtocolSpec,
+            Publish,
+            PublishWithLifecycle,
+            PublishSync,
+            BuildSpecFromConfig,
+        )
+        globals()["publish"] = publish
+        globals()["publish_with_lifecycle"] = publish_with_lifecycle
+        globals()["publish_sync"] = publish_sync
+        globals()["build_spec_from_config"] = build_spec_from_config
+        globals()["publish_service_spec"] = publish_service_spec
+        globals()["ServiceSpec"] = ServiceSpec
+        globals()["ProtocolSpec"] = ProtocolSpec
+        globals()["Publish"] = Publish
+        globals()["PublishWithLifecycle"] = PublishWithLifecycle
+        globals()["PublishSync"] = PublishSync
+        globals()["BuildSpecFromConfig"] = BuildSpecFromConfig
+        return globals()[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
     "load_config",
     "load_config_with_logger",
+    "ServiceSpec",
+    "ProtocolSpec",
+    "publish",
+    "publish_with_lifecycle",
+    "publish_sync",
+    "build_spec_from_config",
+    "Publish",
+    "PublishWithLifecycle",
+    "PublishSync",
+    "BuildSpecFromConfig",
+    "publish_service_spec",
     "new_manager",
     "new_manager_with_logger",
     "NatsConfig",
