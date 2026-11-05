@@ -14,6 +14,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	distconf "github.com/Bastien-Antigravity/distributed-config"
@@ -167,16 +168,19 @@ iADG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZAiADG
 	assert.NoError(t, err)
 	defer func() { _ = os.Remove("private.pem") }()
 
-	// We'll mock the encrypted value in a test yaml
+	// We'll mock the encrypted value in an isolated temporary test yaml
 	yamlContent := `
 capabilities:
   db:
     password: ENC(dummy)
 `
-	configPath := distconf.ResolveConfigPath("standalone")
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "decrypt_test.yaml")
 	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer func() { _ = os.Remove(configPath) }()
+
+	_ = os.Setenv("CONFIG_PATH", configPath)
+	defer func() { _ = os.Unsetenv("CONFIG_PATH") }()
 
 	// Set env to use our local key
 	_ = os.Setenv("BASTIEN_PRIVATE_KEY_PATH", "private.pem")
