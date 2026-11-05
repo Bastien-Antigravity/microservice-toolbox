@@ -6,7 +6,6 @@ Unit tests for microservice_toolbox.version dynamic resolution.
 """
 
 import os
-from pathlib import Path
 import pytest
 
 from microservice_toolbox.version import (
@@ -14,7 +13,6 @@ from microservice_toolbox.version import (
     resolve_version,
     set_version,
     reset_version,
-    DEFAULT_FALLBACK_VERSION,
 )
 from microservice_toolbox import load_config
 

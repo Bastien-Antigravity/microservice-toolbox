@@ -62,4 +62,19 @@ Status: Active / Ready
      - Removed hardcoded `parseMCPPort`, fake fallbacks (`127.0.0.1:5000`, `host == "" -> 127.0.0.1`), and static capability synthesis from `web-interface/src/router/dynamic.go`. Microservices now dynamically supply their own metadata via OpenMFE.
      - Test verification: `web-interface` tests passing 100% (`make test`).
 
+## Session Progress (2026-11-02)
+- **Roles**: architect, gospecialist, pythonspecialist, rustspecialist, cppspecialist
+- **Scope**: `go/pkg/spec/spec.go`, `python/microservice_toolbox/spec.py`, `rust/src/spec.rs`, `cpp/include/microservice_toolbox/spec/spec.hpp`
+- **Accomplishments**:
+  1. Polyglot Spec Dynamic Re-Registration & 30s Heartbeat Engine:
+     - **Go Specialist (`go/pkg/spec/spec.go`)**: Background retry loop maintains periodic 30-second re-registration heartbeats with `web-interface`, honoring context cancellation on service shutdown.
+     - **Python Specialist (`python/microservice_toolbox/spec.py`)**: Upgraded `_background_publisher` to build and validate the spec payload once, handle exponential backoff on connection retries, and heartbeat every 30s with non-blocking `stop_event` cancellation.
+     - **Rust Safety Specialist (`rust/src/spec.rs`)**: Updated `publish_service_spec` and `publish_with_lifecycle` to loop every 30s after HTTP 200/201, auto-recovering spec state upon `web-interface` restart.
+     - **C++ Low-Latency Specialist (`cpp/include/microservice_toolbox/spec/spec.hpp`)**: Implemented non-blocking detached `std::thread` worker in `Publish` and `PublishWithLifecycle` maintaining 30-second heartbeats with atomic stop flag integration.
+  2. Multi-Language Test Verification:
+     - Go unit tests: 100% pass (`go test -v ./go/pkg/spec/...`).
+     - Python unit tests: 61/61 tests passing (`pytest -v`).
+     - Rust unit tests: 48/48 cargo tests passing (`cargo test`).
+     - C++ unit tests: 5/5 test suites passing (`make test`).
+
 

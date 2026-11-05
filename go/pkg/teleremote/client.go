@@ -65,6 +65,7 @@ type TeleClient struct {
 	logger        logger.Logger
 
 	mu         sync.RWMutex
+	sendMu     sync.Mutex
 	conn       *grpc.ClientConn
 	stream     grpc_client.TeleRemoteService_ConnectClient
 	cancelFunc context.CancelFunc
@@ -190,6 +191,8 @@ func (tc *TeleClient) SendTelemetry(msg string) error {
 		},
 	}
 
+	tc.sendMu.Lock()
+	defer tc.sendMu.Unlock()
 	return stream.Send(payload)
 }
 
@@ -283,6 +286,8 @@ func (tc *TeleClient) sendRegistration(stream grpc_client.TeleRemoteService_Conn
 		},
 	}
 
+	tc.sendMu.Lock()
+	defer tc.sendMu.Unlock()
 	if err := stream.Send(regMsg); err != nil {
 		tc.logger.Error("TeleClient failed to send registration: %v", err)
 	}

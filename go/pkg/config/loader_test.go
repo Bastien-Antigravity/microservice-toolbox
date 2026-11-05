@@ -263,6 +263,12 @@ func TestAppConfig_GetLocal(t *testing.T) {
 		t.Errorf("expected nested_value, got %v", nestedKey)
 	}
 	assert.Nil(t, ac.GetLocal("nested.missing"))
+
+	// Test GetLocalString
+	assert.Equal(t, "value_xyz", ac.GetLocalString("local_setting"))
+	assert.Equal(t, "nested_value", ac.GetLocalString("nested.key"))
+	assert.Equal(t, "123", ac.GetLocalString("nested.val"))
+	assert.Equal(t, "", ac.GetLocalString("nested.missing"))
 }
 
 func TestAppConfig_UnmarshalLocal(t *testing.T) {

@@ -55,7 +55,9 @@ impl ManagedConnection {
             conn_lock = self.current_conn.lock().await;
         }
 
-        let stream = conn_lock.as_mut().unwrap();
+        let stream = conn_lock.as_mut().ok_or_else(|| {
+            Error::WriteFailed("ManagedConnection: stream is not connected".to_string())
+        })?;
         match stream.write_all(data).await {
             Ok(_) => Ok(data.len()),
             Err(e) => {
@@ -67,7 +69,9 @@ impl ManagedConnection {
                 self.reconnect().await?;
                 
                 let mut conn_lock = self.current_conn.lock().await;
-                let stream = conn_lock.as_mut().unwrap();
+                let stream = conn_lock.as_mut().ok_or_else(|| {
+                    Error::WriteFailed("ManagedConnection: stream is not connected after reconnect".to_string())
+                })?;
                 stream.write_all(data).await.map_err(|e| {
                     Error::WriteFailed(format!("Retry failed: {:?}", e))
                 })?;

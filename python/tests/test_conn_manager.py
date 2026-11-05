@@ -38,7 +38,7 @@ def test_network_manager_connect_non_blocking():
     # Mock establish_connection with a delay
     mock_conn = MagicMock()
 
-    def slow_connect(*args, **kwargs):
+    def slow_connect(*_args, **_kwargs):
         time.sleep(0.1)
         return mock_conn
 
@@ -78,7 +78,7 @@ def test_on_error_unified_hook():
     attempts = []
     errors = []
 
-    def on_error(attempt, err, source, msg):
+    def on_error(attempt, err, _source, _msg):
         attempts.append(attempt)
         errors.append(err)
 
@@ -132,7 +132,7 @@ def test_unified_connect():
     # Test INDEFINITE
     error_count = 0
 
-    def on_error(attempt, err, source, msg):
+    def on_error(attempt, err, _source, _msg):
         nonlocal error_count
         error_count += 1
 

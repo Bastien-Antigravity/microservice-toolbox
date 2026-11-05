@@ -254,6 +254,16 @@ pub fn publish_service_spec(
     capability: &str,
     base: ServiceSpec,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    publish_service_spec_internal(app_config, logger, capability, base, None)
+}
+
+fn publish_service_spec_internal(
+    app_config: &AppConfig,
+    logger: Option<Arc<dyn Logger>>,
+    capability: &str,
+    base: ServiceSpec,
+    stop_flag: Option<Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Validate fail-fast condition on web_interface immediately
     let web_addr = match app_config.get_listen_addr("web_interface") {
         Ok(addr) if !addr.trim().is_empty() => addr,
@@ -272,8 +282,15 @@ pub fn publish_service_spec(
 
         let mut delay = Duration::from_millis(500);
         let max_delay = Duration::from_secs(30);
+        let mut is_first = true;
 
         loop {
+            if let Some(ref flag) = stop_flag {
+                if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
+            }
+
             let request = format!(
                 "POST /api/v1/register HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 web_addr,
@@ -281,26 +298,78 @@ pub fn publish_service_spec(
                 payload
             );
 
+            let mut success = false;
             if let Ok(mut stream) = TcpStream::connect(&web_addr).await {
                 if stream.write_all(request.as_bytes()).await.is_ok() {
                     let mut resp = Vec::new();
                     let _ = stream.read_to_end(&mut resp).await;
                     let resp_str = String::from_utf8_lossy(&resp);
                     if resp_str.contains(" 200 ") || resp_str.contains(" 201 ") {
+                        success = true;
                         if let Some(l) = &logger {
-                            l.info(&format!("spec: Successfully published '{}' to {}", spec.name, web_addr));
+                            if is_first {
+                                l.info(&format!("spec: Successfully published '{}' to {}", spec.name, web_addr));
+                                is_first = false;
+                            } else {
+                                l.debug(&format!("spec: Heartbeat for '{}' accepted by {}", spec.name, web_addr));
+                            }
                         }
-                        return;
                     }
                 }
             }
 
-            tokio::time::sleep(delay).await;
-            delay = std::cmp::min(delay * 2, max_delay);
+            if success {
+                for _ in 0..30 {
+                    if let Some(ref flag) = stop_flag {
+                        if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                delay = Duration::from_millis(500);
+            } else {
+                tokio::time::sleep(delay).await;
+                delay = std::cmp::min(delay * 2, max_delay);
+            }
         }
     });
 
     Ok(())
+}
+
+//-----------------------------------------------------------------------------------------------
+/// Dynamic registration alias adhering to fleet standards.
+pub fn publish(
+    app_config: &AppConfig,
+    logger: Option<Arc<dyn Logger>>,
+    capability: &str,
+    base: ServiceSpec,
+) -> Result<(), Box<dyn std::error::Error>> {
+    publish_service_spec(app_config, logger, capability, base)
+}
+
+//-----------------------------------------------------------------------------------------------
+/// Dynamic registration with lifecycle integration alias adhering to fleet standards.
+pub fn publish_with_lifecycle(
+    app_config: &AppConfig,
+    logger: Option<Arc<dyn Logger>>,
+    lm: Option<&crate::lifecycle::manager::LifecycleManager>,
+    capability: &str,
+    base: ServiceSpec,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let stop_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if let Some(lifecycle) = lm {
+        let flag_clone = stop_flag.clone();
+        lifecycle.register_background(&format!("OpenMFEPublisher_{}", capability), move || {
+            let f = flag_clone.clone();
+            async move {
+                f.store(true, std::sync::atomic::Ordering::Relaxed);
+                Ok(())
+            }
+        });
+    }
+    publish_service_spec_internal(app_config, logger, capability, base, Some(stop_flag))
 }
 
 //-----------------------------------------------------------------------------------------------

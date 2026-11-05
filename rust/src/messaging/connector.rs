@@ -74,12 +74,12 @@ pub async fn connect(
                 );
             }
         }
-    } else if cfg.servers[0].starts_with("tls://") {
+    } else if cfg.servers.iter().any(|s| s.starts_with("tls://")) {
         connect_opts = connect_opts.require_tls(true);
     }
 
-    let client = connect_opts.connect(&cfg.servers[0]).await?;
+    let client = connect_opts.connect(&cfg.servers[..]).await?;
 
-    log.info(&format!("[{}] Successfully connected to NATS at {}", cfg.client_id, cfg.servers[0]));
+    log.info(&format!("[{}] Successfully connected to NATS at {:?}", cfg.client_id, cfg.servers));
     Ok(client)
 }

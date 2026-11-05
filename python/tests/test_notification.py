@@ -33,7 +33,7 @@ class MockNotifService(notif_service_pb2_grpc.NotifServiceServicer):
         self.success = success
         self.received_req: Optional[notif_service_pb2.NotifRequest] = None
 
-    def SendNotification(self, request, context):
+    def SendNotification(self, request, _context):
         self.received_req = request
         return notif_service_pb2.NotifResponse(success=self.success)
 

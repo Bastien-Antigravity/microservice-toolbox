@@ -12,12 +12,13 @@
 #ifndef MICROSERVICE_TOOLBOX_CONN_MANAGER_MANAGED_CONNECTION_HPP
 #define MICROSERVICE_TOOLBOX_CONN_MANAGER_MANAGED_CONNECTION_HPP
 
-#include <string>
-#include <vector>
-#include <memory>
-#include <thread>
-#include <mutex>
+#include <atomic>
 #include <iostream>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
 #include "NetworkManager.hpp"
 
 // We expect safesock to be available in the workspace or linked
@@ -44,48 +45,58 @@ public:
 
     // Send data, reconnecting if necessary
     void Send(const std::vector<uint8_t>& data) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (closed_) return;
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (closed_.load()) return;
 
-        EnsureConnected();
+        EnsureConnected(lock);
         try {
             socket_->send(data);
         } catch (const std::exception& e) {
             nm_->logger->Warning("ManagedConnection: Send failed, attempting reconnect: " + std::string(e.what()));
-            Reconnect();
-            socket_->send(data);
+            Reconnect(lock);
+            if (!closed_.load() && socket_) {
+                socket_->send(data);
+            }
         }
     }
 
     // Receive data
     std::vector<uint8_t> Receive(int max_length = 65535) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (closed_) return {};
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (closed_.load()) return {};
 
-        EnsureConnected();
+        EnsureConnected(lock);
         try {
             return socket_->receive(max_length);
         } catch (const std::exception& e) {
             nm_->logger->Warning("ManagedConnection: Receive failed, attempting reconnect: " + std::string(e.what()));
-            Reconnect();
-            return socket_->receive(max_length);
+            Reconnect(lock);
+            if (!closed_.load() && socket_) {
+                return socket_->receive(max_length);
+            }
+            return {};
         }
     }
 
     void Close() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!closed_) {
+        bool expected = false;
+        if (closed_.compare_exchange_strong(expected, true)) {
+            std::lock_guard<std::mutex> lock(mutex_);
             if (socket_) socket_->close();
-            closed_ = true;
         }
     }
 
     // Reconnect logic mirroring Go/Python/Rust
     void Reconnect() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        Reconnect(lock);
+    }
+
+    void Reconnect(std::unique_lock<std::mutex>& lock) {
         int attempt = 0;
         std::string address = ip_ + ":" + port_;
 
-        while (!closed_ && (nm_->max_retries == -1 || attempt < nm_->max_retries)) {
+        while (!closed_.load() && (nm_->max_retries == -1 || attempt < nm_->max_retries)) {
             try {
                 if (socket_) socket_->close();
                 socket_ = safesock::create(profile_, address, public_ip_, "client", true);
@@ -99,7 +110,10 @@ public:
                 auto delay = nm_->GetNextDelay(attempt);
                 nm_->logger->Warning("ManagedConnection: Reconnect to " + address + " failed: " + e.what() + ". Retrying in " + std::to_string(delay.count()) + "ms...");
                 
+                lock.unlock();
                 std::this_thread::sleep_for(delay);
+                lock.lock();
+                if (closed_.load()) return;
                 attempt++;
             }
         }
@@ -108,9 +122,9 @@ public:
     }
 
 private:
-    void EnsureConnected() {
+    void EnsureConnected(std::unique_lock<std::mutex>& lock) {
         if (!socket_) {
-            Reconnect();
+            Reconnect(lock);
         }
     }
 
@@ -121,7 +135,7 @@ private:
     std::shared_ptr<NetworkManager> nm_;
     std::unique_ptr<safesock::SafeSocket> socket_;
     std::mutex mutex_;
-    bool closed_;
+    std::atomic<bool> closed_{false};
 };
 
 // NetworkManager implementation of high-level API

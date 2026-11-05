@@ -175,7 +175,10 @@ impl AppConfig {
 
         // Phase 3: Override Layer (Ecosystem Parity)
         ac.logger.info("Applying Local File as Hard Override (Ecosystem Parity).");
-        if let Some(path) = found_path {
+        let conf_override = ac.cli_args.conf.clone();
+        if let Some(conf_path) = conf_override {
+            ac.apply_file_override(&conf_path);
+        } else if let Some(path) = found_path {
             ac.apply_file_override(&path);
         } else {
             // Final fallback to profile.yaml in CWD if nothing found
@@ -189,10 +192,10 @@ impl AppConfig {
             let _ = ac.set_value("common.name", Value::String(name.clone()));
         }
         
-        // If --key flag provided, set it as ENV override for the local Key (decryption engine)
+        // If --key flag provided, set it as ENV override for the Private Key (decryption engine)
         if let Some(key) = &ac.cli_args.key {
             unsafe {
-                std::env::set_var("BASTIEN_local_KEY_PATH", key);
+                std::env::set_var("BASTIEN_PRIVATE_KEY_PATH", key);
             }
         }
 
@@ -351,6 +354,31 @@ impl AppConfig {
             if let Some(gp) = self.cli_args.grpc_port {
                 let _ = self.set_value(&format!("capabilities.{}.grpc_port", target), Value::String(gp.to_string()));
             }
+        }
+
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                let sec_cap = format!("capabilities.{}", target);
+                if let Some(host) = &self.cli_args.host {
+                    if let (Ok(sec_c), Ok(k_c), Ok(v_c)) = (CString::new(sec_cap.as_str()), CString::new("ip"), CString::new(host.as_str())) {
+                        (lib.dist_conf_set)(handle, sec_c.as_ptr(), k_c.as_ptr(), v_c.as_ptr());
+                    }
+                }
+                if let Some(p) = self.cli_args.port {
+                    if let (Ok(sec_c), Ok(k_c), Ok(v_c)) = (CString::new(sec_cap.as_str()), CString::new("port"), CString::new(p.to_string())) {
+                        (lib.dist_conf_set)(handle, sec_c.as_ptr(), k_c.as_ptr(), v_c.as_ptr());
+                    }
+                }
+                if let Some(gh) = &self.cli_args.grpc_host {
+                    if let (Ok(sec_c), Ok(k_c), Ok(v_c)) = (CString::new(sec_cap.as_str()), CString::new("grpc_ip"), CString::new(gh.as_str())) {
+                        (lib.dist_conf_set)(handle, sec_c.as_ptr(), k_c.as_ptr(), v_c.as_ptr());
+                    }
+                }
+                if let Some(gp) = self.cli_args.grpc_port {
+                    if let (Ok(sec_c), Ok(k_c), Ok(v_c)) = (CString::new(sec_cap.as_str()), CString::new("grpc_port"), CString::new(gp.to_string())) {
+                        (lib.dist_conf_set)(handle, sec_c.as_ptr(), k_c.as_ptr(), v_c.as_ptr());
+                    }
+                }
         }
     }
 
@@ -516,11 +544,13 @@ impl AppConfig {
                 *get_live_cb().lock().unwrap() = Some(Box::new(cb));
                 
                 extern "C" fn internal_cb(_handle: usize, json_ptr: *const std::os::raw::c_char) {
-                    if let Some(json_str) = unsafe { crate::config::ffi::to_rust_string(json_ptr as *mut _) }
-                        && let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
-                        && let Ok(guard) = get_live_cb().lock()
-                        && let Some(cb) = guard.as_ref() {
-                            cb(val);
+                    if !json_ptr.is_null() {
+                        let json_str = unsafe { std::ffi::CStr::from_ptr(json_ptr).to_string_lossy() };
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
+                            && let Ok(guard) = get_live_cb().lock()
+                            && let Some(cb) = guard.as_ref() {
+                                cb(val);
+                        }
                     }
                 }
 
@@ -536,11 +566,13 @@ impl AppConfig {
                 *get_reg_cb().lock().unwrap() = Some(Box::new(cb));
                 
                 extern "C" fn internal_reg_cb(_handle: usize, json_ptr: *const std::os::raw::c_char) {
-                    if let Some(json_str) = unsafe { crate::config::ffi::to_rust_string(json_ptr as *mut _) }
-                        && let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
-                        && let Ok(guard) = get_reg_cb().lock()
-                        && let Some(cb) = guard.as_ref() {
-                            cb(val);
+                    if !json_ptr.is_null() {
+                        let json_str = unsafe { std::ffi::CStr::from_ptr(json_ptr).to_string_lossy() };
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
+                            && let Ok(guard) = get_reg_cb().lock()
+                            && let Some(cb) = guard.as_ref() {
+                                cb(val);
+                        }
                     }
                 }
 
@@ -552,7 +584,7 @@ impl AppConfig {
         if let Some(handle) = self._handle
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let json_data = CString::new(payload.to_string()).unwrap();
-                return (lib.dist_conf_share_config)(handle, json_data.as_ptr());
+                return (lib.dist_conf_share_config)(handle, json_data.as_ptr()) != 0;
         }
         false
     }

@@ -302,7 +302,7 @@ def _bind_distconf_signatures(handle: ctypesCDLL) -> None:
         handle.DistConf_Get.restype = c_char_p
 
         handle.DistConf_Set.argtypes = [c_void_p, c_char_p, c_char_p, c_char_p]
-        handle.DistConf_Set.restype = c_bool
+        handle.DistConf_Set.restype = c_int
 
         handle.DistConf_Sync.argtypes = [c_void_p]
         handle.DistConf_Sync.restype = c_int
@@ -338,7 +338,7 @@ def _bind_distconf_signatures(handle: ctypesCDLL) -> None:
         handle.DistConf_ApplyFileOverride.restype = c_char_p
 
         handle.DistConf_ShareConfig.argtypes = [c_void_p, c_char_p]
-        handle.DistConf_ShareConfig.restype = c_bool
+        handle.DistConf_ShareConfig.restype = c_int
 
         handle.DistConf_FreeString.argtypes = [c_char_p]
         handle.DistConf_FreeString.restype = None

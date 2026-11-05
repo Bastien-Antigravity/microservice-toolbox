@@ -49,6 +49,22 @@ impl LifecycleManager {
         });
     }
 
+    pub fn register_background<F, Fut>(&self, name: &str, f: F)
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = CleanupResult> + Send + 'static,
+    {
+        let cleanups = self.cleanups.clone();
+        let name_str = name.to_string();
+        tokio::spawn(async move {
+            let mut guard = cleanups.lock().await;
+            guard.push(CleanupEntry {
+                name: name_str,
+                func: Box::new(move || Box::pin(f())),
+            });
+        });
+    }
+
     pub async fn wait(&self) {
         let ctrl_c = tokio::signal::ctrl_c();
         

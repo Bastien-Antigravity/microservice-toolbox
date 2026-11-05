@@ -74,6 +74,10 @@ public:
     logger_->Info("Logger updated successfully");
   }
 
+  std::shared_ptr<Logger> GetLogger() const {
+    return logger_;
+  }
+
   std::string GetServiceName() const {
     if (data_.contains("common") && data_["common"].contains("name")) {
         return data_["common"]["name"].get<std::string>();
@@ -281,8 +285,12 @@ private:
   }
 
   void LoadLocalOverrides() {
-    std::vector<std::string> candidates = {profile_ + ".yaml",
-                                           "config/" + profile_ + ".yaml"};
+    std::vector<std::string> candidates;
+    if (!args_.conf.empty()) {
+      candidates.push_back(args_.conf);
+    }
+    candidates.push_back(profile_ + ".yaml");
+    candidates.push_back("config/" + profile_ + ".yaml");
 
     for (const auto &path : candidates) {
       std::ifstream infile(path);
@@ -320,16 +328,21 @@ private:
     if (target.empty())
       target = "config_server";
 
+    std::string sec_cap = "capabilities." + target;
     if (!args_.host.empty() || args_.port != 0) {
       if (!data_.contains("capabilities"))
         data_["capabilities"] = nlohmann::json::object();
       if (!data_["capabilities"].contains(target))
         data_["capabilities"][target] = nlohmann::json::object();
 
-      if (!args_.host.empty())
+      if (!args_.host.empty()) {
         data_["capabilities"][target]["ip"] = args_.host;
-      if (args_.port != 0)
+        config_->Set(sec_cap, "ip", args_.host);
+      }
+      if (args_.port != 0) {
         data_["capabilities"][target]["port"] = std::to_string(args_.port);
+        config_->Set(sec_cap, "port", std::to_string(args_.port));
+      }
     }
 
     if (!args_.grpc_host.empty() || args_.grpc_port != 0) {
@@ -338,10 +351,14 @@ private:
       if (!data_["capabilities"].contains(target))
         data_["capabilities"][target] = nlohmann::json::object();
 
-      if (!args_.grpc_host.empty())
+      if (!args_.grpc_host.empty()) {
         data_["capabilities"][target]["grpc_ip"] = args_.grpc_host;
-      if (args_.grpc_port != 0)
+        config_->Set(sec_cap, "grpc_ip", args_.grpc_host);
+      }
+      if (args_.grpc_port != 0) {
         data_["capabilities"][target]["grpc_port"] = std::to_string(args_.grpc_port);
+        config_->Set(sec_cap, "grpc_port", std::to_string(args_.grpc_port));
+      }
     }
 
     if (!args_.key.empty()) {

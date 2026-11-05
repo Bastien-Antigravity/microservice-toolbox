@@ -65,7 +65,7 @@ public:
         }
 
         if (jitter > 0) {
-            static std::mt19937 rng(std::random_device{}());
+            thread_local std::mt19937 rng(std::random_device{}());
             std::uniform_real_distribution<double> dist(0, jitter * delay);
             delay += dist(rng);
         }

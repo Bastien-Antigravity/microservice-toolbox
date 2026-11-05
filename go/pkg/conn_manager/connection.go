@@ -168,6 +168,14 @@ func (mc *ManagedConnection) reconnect() error {
 		conn, err := mc.nm.EstablishConnection(mc.ip, mc.port, mc.publicIP, mc.profile)
 		if err == nil {
 			mc.mu.Lock()
+			if mc.isClosing() {
+				if conn != nil {
+					_ = conn.Close()
+				}
+				mc.reconnecting = false
+				mc.mu.Unlock()
+				return fmt.Errorf("connection closed")
+			}
 			address := fmt.Sprintf("%s:%s", *mc.ip, *mc.port)
 			mc.nm.Logger.Info("ManagedConnection: Reconnected to %s", address)
 			mc.currentConn = conn

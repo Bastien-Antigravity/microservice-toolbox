@@ -21,7 +21,7 @@ pub struct DistConfLib {
     pub dist_conf_new: Symbol<'static, extern "C" fn(profile: *const c_char) -> usize>,
     pub dist_conf_close: Symbol<'static, extern "C" fn(handle: usize)>,
     pub dist_conf_get: Symbol<'static, extern "C" fn(handle: usize, section: *const c_char, key: *const c_char) -> *mut c_char>,
-    pub dist_conf_set: Symbol<'static, extern "C" fn(handle: usize, section: *const c_char, key: *const c_char, value: *const c_char) -> bool>,
+    pub dist_conf_set: Symbol<'static, extern "C" fn(handle: usize, section: *const c_char, key: *const c_char, value: *const c_char) -> c_int>,
     pub dist_conf_sync: Symbol<'static, extern "C" fn(handle: usize) -> c_int>,
     pub dist_conf_on_live_conf_update: Symbol<'static, extern "C" fn(handle: usize, cb: ConfigUpdateCb)>,
     pub dist_conf_on_registry_update: Symbol<'static, extern "C" fn(handle: usize, cb: ConfigUpdateCb)>,
@@ -33,7 +33,7 @@ pub struct DistConfLib {
     pub dist_conf_get_last_error: Symbol<'static, unsafe extern "C" fn() -> *const c_char>,
     pub dist_conf_decrypt: Symbol<'static, unsafe extern "C" fn(handle: usize, ciphertext: *const c_char) -> *const c_char>,
     pub dist_conf_apply_file_override: Symbol<'static, extern "C" fn(handle: usize, filename: *const c_char) -> *mut c_char>,
-    pub dist_conf_share_config: Symbol<'static, extern "C" fn(handle: usize, payload_json: *const c_char) -> bool>,
+    pub dist_conf_share_config: Symbol<'static, extern "C" fn(handle: usize, payload_json: *const c_char) -> c_int>,
     pub dist_conf_free_string: Symbol<'static, extern "C" fn(ptr: *mut c_char)>,
 }
 
@@ -63,7 +63,7 @@ pub fn get_lib() -> Option<&'static DistConfLib> {
                 dist_conf_new: std::mem::transmute::<Symbol<'_, extern "C" fn(*const c_char) -> usize>, Symbol<'static, extern "C" fn(*const c_char) -> usize>>(lib.get::<extern "C" fn(*const c_char) -> usize>(b"DistConf_New").ok()?),
                 dist_conf_close: std::mem::transmute::<Symbol<'_, extern "C" fn(usize)>, Symbol<'static, extern "C" fn(usize)>>(lib.get::<extern "C" fn(usize)>(b"DistConf_Close").ok()?),
                 dist_conf_get: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char, *const c_char) -> *mut c_char>(b"DistConf_Get").ok()?),
-                dist_conf_set: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char, *const c_char, *const c_char) -> bool>, Symbol<'static, extern "C" fn(usize, *const c_char, *const c_char, *const c_char) -> bool>>(lib.get::<extern "C" fn(usize, *const c_char, *const c_char, *const c_char) -> bool>(b"DistConf_Set").ok()?),
+                dist_conf_set: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char, *const c_char, *const c_char) -> c_int>, Symbol<'static, extern "C" fn(usize, *const c_char, *const c_char, *const c_char) -> c_int>>(lib.get::<extern "C" fn(usize, *const c_char, *const c_char, *const c_char) -> c_int>(b"DistConf_Set").ok()?),
                 dist_conf_sync: std::mem::transmute::<Symbol<'_, extern "C" fn(usize) -> c_int>, Symbol<'static, extern "C" fn(usize) -> c_int>>(lib.get::<extern "C" fn(usize) -> c_int>(b"DistConf_Sync").ok()?),
                 dist_conf_on_live_conf_update: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, ConfigUpdateCb)>, Symbol<'static, extern "C" fn(usize, ConfigUpdateCb)>>(lib.get::<extern "C" fn(usize, ConfigUpdateCb)>(b"DistConf_OnLiveConfUpdate").ok()?),
                 dist_conf_on_registry_update: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, ConfigUpdateCb)>, Symbol<'static, extern "C" fn(usize, ConfigUpdateCb)>>(lib.get::<extern "C" fn(usize, ConfigUpdateCb)>(b"DistConf_OnRegistryUpdate").ok()?),
@@ -75,7 +75,7 @@ pub fn get_lib() -> Option<&'static DistConfLib> {
                 dist_conf_get_last_error: std::mem::transmute::<Symbol<'_, unsafe extern "C" fn() -> *const c_char>, Symbol<'static, unsafe extern "C" fn() -> *const c_char>>(lib.get::<unsafe extern "C" fn() -> *const c_char>(b"DistConf_GetLastError").ok()?),
                 dist_conf_decrypt: std::mem::transmute::<Symbol<'_, unsafe extern "C" fn(usize, *const c_char) -> *const c_char>, Symbol<'static, unsafe extern "C" fn(usize, *const c_char) -> *const c_char>>(lib.get::<unsafe extern "C" fn(usize, *const c_char) -> *const c_char>(b"DistConf_Decrypt").ok()?),
                 dist_conf_apply_file_override: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> *mut c_char>, Symbol<'static, extern "C" fn(usize, *const c_char) -> *mut c_char>>(lib.get::<extern "C" fn(usize, *const c_char) -> *mut c_char>(b"DistConf_ApplyFileOverride").ok()?),
-                dist_conf_share_config: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> bool>, Symbol<'static, extern "C" fn(usize, *const c_char) -> bool>>(lib.get::<extern "C" fn(usize, *const c_char) -> bool>(b"DistConf_ShareConfig").ok()?),
+                dist_conf_share_config: std::mem::transmute::<Symbol<'_, extern "C" fn(usize, *const c_char) -> c_int>, Symbol<'static, extern "C" fn(usize, *const c_char) -> c_int>>(lib.get::<extern "C" fn(usize, *const c_char) -> c_int>(b"DistConf_ShareConfig").ok()?),
                 dist_conf_free_string: std::mem::transmute::<Symbol<'_, extern "C" fn(*mut c_char)>, Symbol<'static, extern "C" fn(*mut c_char)>>(lib.get::<extern "C" fn(*mut c_char)>(b"DistConf_FreeString").ok()?),
                 _lib: lib,
             })

@@ -70,7 +70,7 @@ def test_teleclient_integration():
             self.commands_to_send = asyncio.Queue()
             self.done = asyncio.Event()
 
-        async def Connect(self, request_iterator, context):
+        async def Connect(self, request_iterator, _context):
             async def read_requests():
                 try:
                     async for msg in request_iterator:

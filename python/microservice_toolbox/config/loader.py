@@ -552,7 +552,7 @@ class AppConfig:
         if not self._handle:
             return False
         try:
-            return lib.DistConf_ShareConfig(self._handle, jsonDumps(payload).encode('utf-8'))
+            return lib.DistConf_ShareConfig(self._handle, jsonDumps(payload).encode('utf-8')) != 0
         except Exception as e:
             self.logger.error(f"{self.Name} : ShareConfig failed: {e}")
             return False

@@ -240,7 +240,10 @@ func Publish(appConfig *toolbox_config.AppConfig, logger unilog_interfaces.Logge
 	}
 
 	go func() {
-		_ = PublishSync(context.Background(), appConfig, logger, capability, enriched)
+		for {
+			_ = PublishSync(context.Background(), appConfig, logger, capability, enriched)
+			time.Sleep(30 * time.Second)
+		}
 	}()
 	return nil
 }
@@ -281,7 +284,15 @@ func PublishWithLifecycle(appConfig *toolbox_config.AppConfig, logger unilog_int
 		})
 	}
 	go func() {
-		_ = PublishSync(ctx, appConfig, logger, capability, enriched)
+		defer cancel()
+		for {
+			_ = PublishSync(ctx, appConfig, logger, capability, enriched)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(30 * time.Second):
+			}
+		}
 	}()
 	return nil
 }

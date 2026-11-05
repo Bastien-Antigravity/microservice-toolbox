@@ -76,7 +76,8 @@ func Connect(cfg *NatsConfig, l logger.Logger) (*nats.Conn, error) {
 		}
 	}
 
-	conn, err := nats.Connect(cfg.Servers[0], opts...)
+	serverList := strings.Join(cfg.Servers, ",")
+	conn, err := nats.Connect(serverList, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("nats connection failed: %w", err)
 	}

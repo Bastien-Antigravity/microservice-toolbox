@@ -30,7 +30,7 @@ from os.path import basename as osPathBasename
 from sys import _getframe as sysGetFrame
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-from ..utils.lib_loader import CALLBACK_TYPE, load_libunilog
+from ..utils.lib_loader import LOGGER_CALLBACK_TYPE, load_libunilog
 from .logger import Logger
 from .models import LogLevel
 
@@ -198,7 +198,7 @@ class UniLog(Logger):
         Registers a mechanism for configuration updates.
         """
         if not self._initialized_bridge:
-            self._callback_ref = CALLBACK_TYPE(self._dispatch_update)
+            self._callback_ref = LOGGER_CALLBACK_TYPE(self._dispatch_update)
             lib.UniLog_OnConfigUpdate(self._handle, self._callback_ref)
             self._initialized_bridge = True
 
@@ -219,7 +219,7 @@ class UniLog(Logger):
             except Exception as e:
                 print(f"!!! on_notification EXCEPTION: {e}")
 
-        self._notif_callback_ref = CALLBACK_TYPE(_bridge_cb)
+        self._notif_callback_ref = LOGGER_CALLBACK_TYPE(_bridge_cb)
         lib.UniLog_RegisterNotifCallback(self._handle, self._notif_callback_ref)
 
     ##########################################################################

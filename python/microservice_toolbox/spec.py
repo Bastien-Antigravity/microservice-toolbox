@@ -31,7 +31,7 @@ from dataclasses import asdict as dcAsdict, dataclass as dcDataclass, field as d
 from json import dumps as jsonDumps
 from random import uniform as rndUniform
 from socket import gethostname as sockGetHostname
-from threading import Thread as thThread
+from threading import Thread as thThread, Event as thEvent
 from time import sleep as timeSleep
 from typing import Any as typeAny, Dict as typeDict, List as typeList, Optional as typeOptional, Union as typeUnion
 from urllib.request import Request as urlRequest, urlopen as urlOpen
@@ -333,6 +333,94 @@ def publish_sync(
 
 
 # -----------------------------------------------------------------------------------------------
+def _background_publisher(
+    app_config: typeAny,
+    logger: typeOptional[typeAny],
+    capability: str,
+    spec: typeOptional[typeUnion[ServiceSpec, typeDict[str, typeAny]]] = None,
+    stop_event: typeOptional[thEvent] = None,
+    **overrides: typeAny
+) -> None:
+    """
+    Background worker maintaining spec registration and periodic 30s heartbeats with web-interface.
+    """
+    try:
+        web_addr = app_config.get_listen_addr("web_interface")
+    except Exception as e:
+        if logger and hasattr(logger, "critical"):
+            logger.critical(f"spec._background_publisher: web_interface unresolvable: {e}")
+        return
+
+    reg_url = f"http://{web_addr}/api/v1/register"
+
+    try:
+        if spec is None:
+            spec_obj = build_spec_from_config(app_config, capability, **overrides)
+        elif isinstance(spec, ServiceSpec):
+            merged = dcAsdict(spec)
+            merged.update(overrides)
+            spec_obj = build_spec_from_config(app_config, capability or spec.capability, **merged)
+        elif dcIsDataclass(spec):
+            merged = dcAsdict(spec)
+            merged.update(overrides)
+            spec_obj = build_spec_from_config(app_config, capability or merged.get("capability", ""), **merged)
+        else:
+            merged = dict(spec)
+            merged.update(overrides)
+            spec_obj = build_spec_from_config(app_config, capability or merged.get("capability", ""), **merged)
+
+        payload_bytes = jsonDumps(spec_obj.to_dict()).encode("utf-8")
+        svc_name = spec_obj.name
+    except Exception as e:
+        if logger and hasattr(logger, "error"):
+            logger.error(f"spec._background_publisher: Spec serialization failed: {e}")
+        return
+
+    delay = 1.0
+    max_delay = 30.0
+    is_first_success = True
+
+    while stop_event is None or not stop_event.is_set():
+        try:
+            active_web_addr = app_config.get_listen_addr("web_interface")
+            if active_web_addr:
+                reg_url = f"http://{active_web_addr}/api/v1/register"
+        except Exception:
+            pass
+
+        registered = False
+        try:
+            req = urlRequest(reg_url, data=payload_bytes, headers={"Content-Type": "application/json"})
+            with urlOpen(req, timeout=3.0) as resp:
+                if resp.status in (200, 201):
+                    registered = True
+                    if is_first_success:
+                        if logger and hasattr(logger, "info"):
+                            logger.info(f"spec: Service '{svc_name}' registered with web-interface at {reg_url}")
+                        is_first_success = False
+                    elif logger and hasattr(logger, "debug"):
+                        logger.debug(f"spec: Heartbeat for '{svc_name}' accepted by web-interface at {reg_url}")
+                    delay = 1.0
+                elif logger and hasattr(logger, "warning"):
+                    logger.warning(f"spec: Registration for '{svc_name}' returned status {resp.status}. Retrying...")
+        except Exception as e:
+            if logger and hasattr(logger, "debug"):
+                logger.debug(f"spec: Waiting for web-interface at {reg_url} ({e}). Retrying in {delay:.1f}s...")
+
+        if registered:
+            interval = 30.0 + rndUniform(0, 3.0)
+        else:
+            jitter = rndUniform(0, delay * 0.5)
+            interval = delay + jitter
+            delay = min(delay * 2, max_delay)
+
+        if stop_event is not None:
+            stop_event.wait(timeout=interval)
+        else:
+            timeSleep(interval)
+
+
+# -----------------------------------------------------------------------------------------------
 def publish(
     app_config: typeAny,
     logger: typeOptional[typeAny],
@@ -342,7 +430,7 @@ def publish(
 ) -> None:
     """
     Validates spec synchronously (FAIL-FAST) and publishes to web-interface
-    in a non-blocking background thread with exponential backoff.
+    in a non-blocking background thread with exponential backoff and 30s heartbeats.
     """
     # Fail-fast synchronous validation of config, web_interface, and spec before spawning thread
     if app_config is None:
@@ -376,7 +464,12 @@ def publish(
         merged.update(overrides)
         _ = build_spec_from_config(app_config, capability or merged.get("capability", ""), **merged)
 
-    t = thThread(target=publish_sync, args=(app_config, logger, capability, spec), kwargs=overrides, daemon=True)
+    t = thThread(
+        target=_background_publisher,
+        args=(app_config, logger, capability, spec),
+        kwargs=overrides,
+        daemon=True
+    )
     t.start()
 
 
@@ -391,9 +484,59 @@ def publish_with_lifecycle(
 ) -> None:
     """
     Validates spec synchronously (FAIL-FAST), binds background cancellation to the lifecycle manager,
-    and publishes to web-interface in a non-blocking background thread.
+    and publishes to web-interface in a non-blocking background thread with 30s heartbeats.
     """
-    publish(app_config, logger, capability, spec, **overrides)
+    # Fail-fast synchronous validation
+    if app_config is None:
+        if logger and hasattr(logger, "critical"):
+            logger.critical("spec.publish_with_lifecycle: app_config is strictly required (nil provided) (FAIL-FAST)")
+        raise ValueError("spec.publish_with_lifecycle: app_config is strictly required (FAIL-FAST)")
+
+    try:
+        web_addr = app_config.get_listen_addr("web_interface")
+        if not web_addr or not str(web_addr).strip():
+            raise ValueError("empty web_interface address")
+    except Exception as e:
+        if logger and hasattr(logger, "critical"):
+            logger.critical(f"spec.publish_with_lifecycle: capability 'web_interface' is unresolvable: {e} (FAIL-FAST)")
+        raise RuntimeError(f"spec.publish_with_lifecycle: capability 'web_interface' is unresolvable: {e} (FAIL-FAST)")
+
+    # Validate spec
+    if spec is None:
+        _ = build_spec_from_config(app_config, capability, **overrides)
+    elif isinstance(spec, ServiceSpec):
+        merged = dcAsdict(spec)
+        merged.update(overrides)
+        _ = build_spec_from_config(app_config, capability or spec.capability, **merged)
+    elif dcIsDataclass(spec):
+        merged = dcAsdict(spec)
+        merged.update(overrides)
+        _ = build_spec_from_config(app_config, capability or merged.get("capability", ""), **merged)
+    else:
+        merged = dict(spec)
+        merged.update(overrides)
+        _ = build_spec_from_config(app_config, capability or merged.get("capability", ""), **merged)
+
+    stop_event = thEvent()
+    if lm is not None:
+        if hasattr(lm, "register") and callable(lm.register):
+            try:
+                lm.register(f"OpenMFEPublisher_{capability}", stop_event.set)
+            except Exception:
+                pass
+        elif hasattr(lm, "add_shutdown_hook") and callable(lm.add_shutdown_hook):
+            try:
+                lm.add_shutdown_hook(stop_event.set)
+            except Exception:
+                pass
+
+    t = thThread(
+        target=_background_publisher,
+        args=(app_config, logger, capability, spec, stop_event),
+        kwargs=overrides,
+        daemon=True
+    )
+    t.start()
 
 
 # -----------------------------------------------------------------------------------------------

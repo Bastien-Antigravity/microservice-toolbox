@@ -47,9 +47,12 @@ pub fn print_internal_log(
 }
 
 fn truncate(s: &str, max_len: usize) -> &str {
-    if s.len() > max_len {
-        &s[..max_len]
-    } else {
-        s
+    if s.len() <= max_len {
+        return s;
     }
+    let mut end = max_len;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }

@@ -181,7 +181,7 @@ impl NetworkManager {
         ip: String,
         port: String,
     ) -> ManagedConnection {
-        let mc = ManagedConnection::new(ip.clone(), port.clone(), self.clone());
+        let mc = ManagedConnection::new(ip, port, self);
         let mc_clone = mc.clone();
         
         tokio::spawn(async move {

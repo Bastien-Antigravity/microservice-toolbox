@@ -37,6 +37,17 @@
 #include <sstream>
 #include <stdexcept>
 #include <atomic>
+#include <mutex>
+
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <sys/socket.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#endif
 
 #include "../config/AppConfig.hpp"
 #include "../config/json.hpp"
@@ -45,6 +56,99 @@
 
 namespace microservice_toolbox {
 namespace spec {
+
+namespace detail {
+
+inline bool SendHttpRequest(const std::string& targetAddr, const std::string& payload) {
+    auto colon = targetAddr.rfind(':');
+    if (colon == std::string::npos) return false;
+    std::string host = targetAddr.substr(0, colon);
+    int port = 0;
+    try {
+        port = std::stoi(targetAddr.substr(colon + 1));
+    } catch (...) {
+        return false;
+    }
+    if (port <= 0) return false;
+
+#if defined(_WIN32)
+    static std::once_flag wsa_init;
+    std::call_once(wsa_init, []() {
+        WSADATA wsa;
+        WSAStartup(MAKEWORD(2, 2), &wsa);
+    });
+#endif
+
+    struct addrinfo hints{}, *res = nullptr;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    std::string portStr = std::to_string(port);
+    if (getaddrinfo(host.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
+        return false;
+    }
+
+    int sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (sock < 0) {
+        freeaddrinfo(res);
+        return false;
+    }
+
+#if defined(_WIN32)
+    DWORD tv = 3000;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+#else
+    struct timeval tv{3, 0};
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+
+    if (connect(sock, res->ai_addr, res->ai_addrlen) != 0) {
+        freeaddrinfo(res);
+#if defined(_WIN32)
+        closesocket(sock);
+#else
+        close(sock);
+#endif
+        return false;
+    }
+    freeaddrinfo(res);
+
+    std::ostringstream req;
+    req << "POST /api/v1/register HTTP/1.1\r\n"
+        << "Host: " << targetAddr << "\r\n"
+        << "Content-Type: application/json\r\n"
+        << "Content-Length: " << payload.size() << "\r\n"
+        << "Connection: close\r\n\r\n"
+        << payload;
+    std::string reqStr = req.str();
+
+    size_t sent = 0;
+    while (sent < reqStr.size()) {
+        ssize_t n = send(sock, reqStr.c_str() + sent, reqStr.size() - sent, 0);
+        if (n <= 0) break;
+        sent += n;
+    }
+
+    char buf[1024];
+    std::string resp;
+    while (true) {
+        ssize_t n = recv(sock, buf, sizeof(buf) - 1, 0);
+        if (n <= 0) break;
+        buf[n] = '\0';
+        resp.append(buf, n);
+    }
+
+#if defined(_WIN32)
+    closesocket(sock);
+#else
+    close(sock);
+#endif
+
+    return (resp.find(" 200 ") != std::string::npos || resp.find(" 201 ") != std::string::npos);
+}
+
+} // namespace detail
 
 // -----------------------------------------------------------------------------
 
@@ -171,9 +275,12 @@ public:
             spec.navTitle = spec.name;
         }
 
-        std::string listenAddr = appConfig.GetListenAddr(capability);
-        std::string restAddr = appConfig.GetRESTAddr(capability);
-        std::string grpcAddr = appConfig.GetGRPCListenAddr(capability);
+        std::string listenAddr;
+        try { listenAddr = appConfig.GetListenAddr(capability); } catch (...) {}
+        std::string restAddr;
+        try { restAddr = appConfig.GetRESTAddr(capability); } catch (...) {}
+        std::string grpcAddr;
+        try { grpcAddr = appConfig.GetGRPCListenAddr(capability); } catch (...) {}
 
         auto extractPort = [](const std::string& addr) -> std::string {
             auto idx = addr.rfind(':');
@@ -243,9 +350,9 @@ public:
     // -------------------------------------------------------------------------
 
     /**
-     * PublishSync validates web_interface connectivity (FAIL-FAST) and executes publishing.
+     * PublishSync validates web_interface connectivity (FAIL-FAST) and executes HTTP publishing.
      */
-    static bool PublishSync(const config::AppConfig& appConfig, utils::Logger* logger, const std::string& capability, const ServiceSpec& base) {
+    static bool PublishSync(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, const std::string& capability, const ServiceSpec& base) {
         std::string webAddr = appConfig.GetListenAddr("web_interface");
         if (webAddr.empty()) {
             if (logger) {
@@ -255,11 +362,37 @@ public:
         }
 
         // Validate specification synchronously (FAIL-FAST)
-        BuildSpecFromConfig(appConfig, capability, base);
-        return true;
+        ServiceSpec spec = BuildSpecFromConfig(appConfig, capability, base);
+        std::string payload = spec.ToJson().dump();
+
+        bool ok = detail::SendHttpRequest(webAddr, payload);
+        if (ok) {
+            if (logger) {
+                logger->Info("spec.PublishSync: Successfully published '" + spec.name + "' to " + webAddr);
+            }
+        } else {
+            if (logger) {
+                logger->Debug("spec.PublishSync: Failed to reach web-interface at " + webAddr);
+            }
+        }
+        return ok;
+    }
+
+    static bool PublishSync(const config::AppConfig& appConfig, utils::Logger* logger, const std::string& capability, const ServiceSpec& base) {
+        std::shared_ptr<utils::Logger> safeLogger;
+        if (logger) {
+            safeLogger = std::shared_ptr<utils::Logger>(logger, [](utils::Logger*){});
+        } else {
+            safeLogger = appConfig.GetLogger();
+        }
+        return PublishSync(appConfig, safeLogger, capability, base);
     }
 
     static bool publishSync(const config::AppConfig& appConfig, utils::Logger* logger, const std::string& capability, const ServiceSpec& base) {
+        return PublishSync(appConfig, logger, capability, base);
+    }
+
+    static bool publishSync(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, const std::string& capability, const ServiceSpec& base) {
         return PublishSync(appConfig, logger, capability, base);
     }
 
@@ -267,9 +400,9 @@ public:
 
     /**
      * Publish validates web_interface reachability and specification synchronously (FAIL-FAST)
-     * before spawning background publishing.
+     * before spawning background publishing with periodic 30s heartbeats.
      */
-    static void Publish(const config::AppConfig& appConfig, utils::Logger* logger, const std::string& capability, const ServiceSpec& base) {
+    static void Publish(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, const std::string& capability, const ServiceSpec& base, std::shared_ptr<std::atomic<bool>> stopFlag = nullptr) {
         std::string webAddr = appConfig.GetListenAddr("web_interface");
         if (webAddr.empty()) {
             if (logger) {
@@ -279,10 +412,55 @@ public:
         }
 
         // Validate specification synchronously (FAIL-FAST)
-        BuildSpecFromConfig(appConfig, capability, base);
+        ServiceSpec spec = BuildSpecFromConfig(appConfig, capability, base);
+        std::string payload = spec.ToJson().dump();
+
+        if (!stopFlag) {
+            stopFlag = std::make_shared<std::atomic<bool>>(false);
+        }
+
+        // Spawn non-blocking background thread maintaining periodic 30s heartbeats
+        // Avoid raw pointer capture by holding std::shared_ptr<utils::Logger>
+        std::thread([webAddr, payload, spec, logger, stopFlag]() {
+            bool isFirst = true;
+            while (!stopFlag->load()) {
+                if (detail::SendHttpRequest(webAddr, payload)) {
+                    if (logger) {
+                        if (isFirst) {
+                            logger->Info("spec.Publish: Service '" + spec.name + "' registered with web-interface at " + webAddr);
+                            isFirst = false;
+                        } else {
+                            logger->Debug("spec.Publish: Heartbeat for '" + spec.name + "' sent to " + webAddr);
+                        }
+                    }
+                } else {
+                    if (logger) {
+                        logger->Debug("spec.Publish: Waiting for web-interface at " + webAddr + ". Retrying...");
+                    }
+                }
+                for (int i = 0; i < 30; ++i) {
+                    if (stopFlag->load()) return;
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                }
+            }
+        }).detach();
+    }
+
+    static void Publish(const config::AppConfig& appConfig, utils::Logger* logger, const std::string& capability, const ServiceSpec& base, std::shared_ptr<std::atomic<bool>> stopFlag = nullptr) {
+        std::shared_ptr<utils::Logger> safeLogger;
+        if (logger) {
+            safeLogger = std::shared_ptr<utils::Logger>(logger, [](utils::Logger*){});
+        } else {
+            safeLogger = appConfig.GetLogger();
+        }
+        Publish(appConfig, safeLogger, capability, base, stopFlag);
     }
 
     static void publish(const config::AppConfig& appConfig, utils::Logger* logger, const std::string& capability, const ServiceSpec& base) {
+        Publish(appConfig, logger, capability, base);
+    }
+
+    static void publish(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, const std::string& capability, const ServiceSpec& base) {
         Publish(appConfig, logger, capability, base);
     }
 
@@ -291,14 +469,31 @@ public:
     /**
      * PublishWithLifecycle binds publishing to the service's lifecycle manager.
      */
-    static void PublishWithLifecycle(const config::AppConfig& appConfig, utils::Logger* logger, lifecycle::LifecycleManager* lm, const std::string& capability, const ServiceSpec& base) {
-        Publish(appConfig, logger, capability, base);
+    static void PublishWithLifecycle(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, lifecycle::LifecycleManager* lm, const std::string& capability, const ServiceSpec& base) {
+        auto stopFlag = std::make_shared<std::atomic<bool>>(false);
+        Publish(appConfig, logger, capability, base, stopFlag);
         if (lm) {
-            lm->Register("OpenMFEPublisher_" + capability, []() {});
+            lm->Register("OpenMFEPublisher_" + capability, [stopFlag]() {
+                if (stopFlag) stopFlag->store(true);
+            });
         }
     }
 
+    static void PublishWithLifecycle(const config::AppConfig& appConfig, utils::Logger* logger, lifecycle::LifecycleManager* lm, const std::string& capability, const ServiceSpec& base) {
+        std::shared_ptr<utils::Logger> safeLogger;
+        if (logger) {
+            safeLogger = std::shared_ptr<utils::Logger>(logger, [](utils::Logger*){});
+        } else {
+            safeLogger = appConfig.GetLogger();
+        }
+        PublishWithLifecycle(appConfig, safeLogger, lm, capability, base);
+    }
+
     static void publishWithLifecycle(const config::AppConfig& appConfig, utils::Logger* logger, lifecycle::LifecycleManager* lm, const std::string& capability, const ServiceSpec& base) {
+        PublishWithLifecycle(appConfig, logger, lm, capability, base);
+    }
+
+    static void publishWithLifecycle(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, lifecycle::LifecycleManager* lm, const std::string& capability, const ServiceSpec& base) {
         PublishWithLifecycle(appConfig, logger, lm, capability, base);
     }
 };

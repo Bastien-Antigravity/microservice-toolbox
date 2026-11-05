@@ -107,8 +107,12 @@ func LoadConfigWithLogger(profile string, l logger.Logger, specificFlags []strin
 	// Phase 2: Local Overrides (Developer-Intent Parity)
 	// We re-apply the local file as a hard override to ensure the 'local' section
 	// and any local overrides are loaded across all profiles.
-	ac.Logger.Info("Applying Local File as Hard Override (Ecosystem Parity).")
-	ac.applyFileOverride(actualProfile + ".yaml")
+	overrideFile := actualProfile + ".yaml"
+	if cliArgs.Conf != "" {
+		overrideFile = cliArgs.Conf
+	}
+	ac.Logger.Info("Applying Local File as Hard Override (Ecosystem Parity): %s", overrideFile)
+	ac.applyFileOverride(overrideFile)
 
 	// Phase 3: CLI Arguments (Highest Priority)
 	ac.applyCLIOverrides(cliArgs)
@@ -226,6 +230,19 @@ func (ac *AppConfig) GetLocal(key string) interface{} {
 	}
 
 	return current
+}
+
+// GetLocalString returns a string value from the 'local' configuration section.
+// Returns an empty string if the key does not exist or is nil.
+func (ac *AppConfig) GetLocalString(key string) string {
+	val := ac.GetLocal(key)
+	if val == nil {
+		return ""
+	}
+	if s, ok := val.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", val)
 }
 
 // UnmarshalLocal maps the 'local' configuration section into a target struct.
