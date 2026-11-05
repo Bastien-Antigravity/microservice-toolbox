@@ -87,6 +87,10 @@ func (mc *ManagedConnection) Write(p []byte) (n int, err error) {
 func (mc *ManagedConnection) isClosing() bool {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
+	return mc.isClosingLocked()
+}
+
+func (mc *ManagedConnection) isClosingLocked() bool {
 	if mc.closing == nil {
 		return false
 	}
@@ -168,7 +172,7 @@ func (mc *ManagedConnection) reconnect() error {
 		conn, err := mc.nm.EstablishConnection(mc.ip, mc.port, mc.publicIP, mc.profile)
 		if err == nil {
 			mc.mu.Lock()
-			if mc.isClosing() {
+			if mc.isClosingLocked() {
 				if conn != nil {
 					_ = conn.Close()
 				}

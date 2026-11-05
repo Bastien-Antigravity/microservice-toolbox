@@ -355,7 +355,7 @@ func PublishSync(ctx context.Context, appConfig *toolbox_config.AppConfig, logge
 		if err == nil {
 			req.Header.Set("Content-Type", "application/json")
 			resp, err := client.Do(req)
-			if err == nil {
+			if err == nil && resp != nil {
 				if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
 					resp.Body.Close()
 					if logger != nil {

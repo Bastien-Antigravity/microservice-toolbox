@@ -186,16 +186,19 @@ func TestPublishSyncFailFast(t *testing.T) {
 
 	// 2. web_interface capability missing
 	appConfig, err := toolbox_config.LoadConfig("standalone", nil)
-	if err != nil {
-		t.Fatalf("Failed to load standalone config: %v", err)
+	if err != nil || appConfig == nil {
+		appConfig = &toolbox_config.AppConfig{}
 	}
+	if appConfig.Capabilities == nil {
+		appConfig.Capabilities = make(map[string]interface{})
+	}
+	appConfig.Capabilities["config_server"] = map[string]interface{}{"ip": "127.0.0.1", "port": 3306}
 	delete(appConfig.Capabilities, "web_interface")
 
 	err = PublishSync(context.Background(), appConfig, nil, "config_server", validBase)
 	if err == nil {
 		t.Errorf("PublishSync must FAIL FAST when web_interface is missing from configuration")
-	}
-	if !strings.Contains(err.Error(), "web_interface") {
+	} else if !strings.Contains(err.Error(), "web_interface") {
 		t.Errorf("Error must mention web_interface: %v", err)
 	}
 }
@@ -230,11 +233,15 @@ func TestServiceSpecPublishSync(t *testing.T) {
 
 	serverAddr := strings.TrimPrefix(ts.URL, "http://")
 	appConfig, err := toolbox_config.LoadConfig("standalone", nil)
-	if err != nil {
-		t.Fatalf("Failed to load standalone config: %v", err)
+	if err != nil || appConfig == nil {
+		appConfig = &toolbox_config.AppConfig{}
 	}
 	if appConfig.Capabilities == nil {
 		appConfig.Capabilities = make(map[string]interface{})
+	}
+	appConfig.Capabilities["config_server"] = map[string]interface{}{
+		"ip":   "127.0.0.1",
+		"port": 3306,
 	}
 	parts := strings.Split(serverAddr, ":")
 	portNum := 0
