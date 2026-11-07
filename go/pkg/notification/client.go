@@ -23,6 +23,7 @@ import (
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/config"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/notification/grpc_client"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/wiretap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -195,7 +196,11 @@ func (c *NotificationClient) getOrCreateClient() (grpc_client.NotifServiceClient
 		return c.client, nil
 	}
 
-	conn, err := grpc.Dial(c.targetAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	dialOpts := append(
+		[]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
+		wiretap.ClientDialOptions("notif_server")...,
+	)
+	conn, err := grpc.Dial(c.targetAddr, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial %s: %w", c.targetAddr, err)
 	}

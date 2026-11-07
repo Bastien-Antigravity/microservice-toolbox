@@ -149,4 +149,9 @@ def init_microservice(
     )
 
     config.set_logger(logger)
+    try:
+        from ..wiretap import configure_from_config
+        configure_from_config(app_name, config)
+    except Exception as e:
+        logger.error(f"Failed to initialize WireTap transport telemetry: {e}")
     return config, logger

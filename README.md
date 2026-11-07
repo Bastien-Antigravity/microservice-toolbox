@@ -62,6 +62,12 @@ Centralized NATS connection factories and configuration schemas to eliminate boi
 - **Observability**: Automatically logs connection loss and recovery events, prefixed with the connection's `ClientID` for easy debugging.
 - **SDK Parity**: Implemented natively in Go (`pkg/messaging`), Python (`microservice_toolbox/messaging`), and Rust (`src/messaging`).
 
+### 6. Real-Time Transport WireTap (`wiretap`)
+Lock-free, real-time inter-service connection and segregated channel telemetry across **SafeSocket TCP**, **gRPC**, **NATS**, **HTTP REST**, and **External Gateways/MCP Clients**:
+- **Atomic Switch**: Controlled via `common.wiretap_enabled` in `AppConfig` (`wiretap.SetEnabled(bool)` / `set_enabled(bool)`) with zero mutexes on the hot path and live runtime hot-reload.
+- **Segregated Channel Tracking**: Captures per-edge logical sub-channels (e.g., `RegisterService`, `SendEvent`, `DispatchNotification`, `mcp:tool:query_brain`, `SYNC_CONFIG`, NATS subjects) with live frame and byte counters.
+- **Zero-Touch Mesh Integration**: Automatically initialized by `BootstrapService` (Go) and `init_microservice` / `configure_from_config` (Python), streaming `EdgeReport` snapshots to `web-interface` (`/api/v1/system/wiretap/ingest`) to dynamically synthesize `L1–L3`, `> L3` (`L4+`), and `EXT` nodes and links.
+
 ---
 
 ## Polyglot Parity Matrix

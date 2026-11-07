@@ -20,6 +20,7 @@
   - `go/pkg/utils`: Terminal UI helpers, environment and formatting utilities
   - `go/pkg/version`: Standardized dynamic semver resolution adhering to VERSION.txt
   - `go/pkg/spec`: Canonical declarative service specification and dynamic OpenMFE registration
+  - `go/pkg/wiretap`: Lock-free real-time transport telemetry aggregator (`SafeSocket`, gRPC, NATS, HTTP, MCP)
 - **Configuration Link**: `standalone.yaml -> ../docker-deployment/modes/local/config/native.yaml`
 
 ## Key Build & Test Commands
@@ -83,4 +84,13 @@ cd rust && cargo test
     - **Microservice Specification Ownership**: Microservices are the authoritative source of truth for their own metadata (`Name`, `Tag`, `URL`, `Layer`, `Category`, `Description`, `DocLink`, `Protocol`, and directly formatted `Framing`). Libraries must not perform heuristic `%s` string parsing or redundant config re-scraping.
     - **Fail-Fast Synchronous Validation**: `PublishWithLifecycle` / `publish` strictly validates mandatory metadata synchronously on startup; missing metadata or unresolvable `web_interface` capability aborts boot immediately (fail-fast) before launching the background retry worker.
     - **Infinite Retry Background Registration**: Spec publication to `web-interface` runs in a non-blocking background thread/goroutine with exponential backoff and randomized jitter, adhering to the L1 Resilience Contract so microservice boot never hangs on offline downstream UI dependencies.
+12. **Real-Time Transport WireTap Standard (`go/pkg/wiretap`, `python/microservice_toolbox/wiretap.py`)**:
+    - **Lock-Free Atomic Switch**: Controlled via `wiretap.SetEnabled(bool)` / `wiretap.IsEnabled()` (Go `sync/atomic.Bool`, simultaneously toggling `safesocket.SetTelemetryEnabled`) and `set_enabled(bool)` / `is_enabled()` (Python). Configured via `common.wiretap_enabled` (or `local.wiretap_enabled`) in `AppConfig` and hot-reloadable at runtime via `OnLiveConfUpdate` or the `web-interface` canvas toggle (`POST /api/v1/system/wiretap/toggle`).
+    - **Zero-Fallback `AppConfig` Contract**: `ConfigureFromConfig` (Go) and `configure_from_config` (Python) MUST read pre-validated string parameters directly from `AppConfig` (`appConfig.GetListenAddr("web_interface")`, `appConfig.GetLocal("wiretap_enabled")`, `appConfig.Config.Common["wiretap_enabled"]`). Never add defensive `hasattr` chains, `try/except: pass` blocks, `os.Getenv` overrides, hardcoded `"http://127.0.0.1:5000"` fallbacks, or hardcoded default port maps.
+    - **Explicit Error Logging on Init**: In `python/microservice_toolbox/utils/init.py`, any exception during `configure_from_config` initialization MUST be logged via `logger.error(f"Failed to initialize WireTap transport telemetry: {e}")` — silent `except Exception: pass` is strictly prohibited.
+    - **Automatic Multi-Transport Wiring**:
+      - `bootstrap.BootstrapService` (Go) and `init_microservice` (Python) automatically initialize WireTap and bind the `safe-socket` telemetry hook (`safesocket.SetTelemetryHook`).
+      - `go/pkg/teleremote` (`client.go`), `go/pkg/notification` (`client.go`), `go/pkg/network` (`grpc.go` unary and stream server interceptors), and `go/pkg/messaging` (`connector.go` NATS wrapper) automatically emit real-time `EdgeReport`s with segregated sub-channels (`ChannelStat` with `frames` and `bytes`) when WireTap is enabled.
+      - External clients and gateways (such as `antigravity_ide` MCP requests in `09-RAG-Engine` and `telegram_cloud` Bot API calls in `tele-remote` / `notif-server`) report live edges with `Layer: "EXT"`.
+
 

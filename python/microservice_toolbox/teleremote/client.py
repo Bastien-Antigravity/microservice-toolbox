@@ -38,6 +38,7 @@ from typing import Any, Callable, Dict, List, Optional
 from grpc import aio as grpcAio
 
 from ..logger import Logger, ensure_safe_logger
+from ..wiretap import is_enabled as wiretap_is_enabled, record_event as wiretap_record_event
 from .grpc_client import teleremote_pb2, teleremote_pb2_grpc
 
 
@@ -128,6 +129,18 @@ class TeleClient:
             telemetry=msg,
         )
         await self._stream.write(payload)
+        if wiretap_is_enabled():
+            wiretap_record_event(
+                source=self.component_name,
+                target="tele_remote",
+                protocol="GRPC",
+                framing="HTTP/2 Protobuf (Stream)",
+                channel="teleremote:telemetry",
+                category="telemetry",
+                direction="outbound",
+                payload_summary=msg,
+                bytes_count=len(msg),
+            )
 
     def send_log(self, text: str):
         """pushes a raw string update to the channel"""
@@ -174,6 +187,18 @@ class TeleClient:
             # 4. Receive loop
             try:
                 async for cmd in stream:
+                    if wiretap_is_enabled():
+                        wiretap_record_event(
+                            source="tele_remote",
+                            target=self.component_name,
+                            protocol="GRPC",
+                            framing="HTTP/2 Protobuf (Stream)",
+                            channel="teleremote:command",
+                            category="command",
+                            direction="inbound",
+                            payload_summary=getattr(cmd, "custom_payload", "command"),
+                            bytes_count=len(getattr(cmd, "custom_payload", "")) + len(getattr(cmd, "input", "")),
+                        )
                     if cmd.command_type == teleremote_pb2.BotCommand.REFRESH_MENU:
                         self.logger.info("TeleClient received REFRESH_MENU request")
                         await self._send_registration(stream)
@@ -205,6 +230,19 @@ class TeleClient:
         )
         try:
             await stream.write(reg_msg)
+            if wiretap_is_enabled():
+                wiretap_record_event(
+                    source=self.component_name,
+                    target="tele_remote",
+                    protocol="GRPC",
+                    framing="HTTP/2 Protobuf (Stream)",
+                    channel="teleremote:registration",
+                    category="registration",
+                    direction="outbound",
+                    payload_summary="menu_sync",
+                    bytes_count=len(menu),
+                    conn_delta=1,
+                )
         except Exception as e:
             self.logger.error(f"TeleClient failed to send registration: {e}")
 

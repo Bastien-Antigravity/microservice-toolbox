@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/wiretap"
 	"github.com/nats-io/nats.go"
 )
 
@@ -39,12 +40,15 @@ func Connect(cfg *NatsConfig, l logger.Logger) (*nats.Conn, error) {
 
 		// Standardized Connection Event Handlers
 		nats.ClosedHandler(func(nc *nats.Conn) {
+			wiretap.RecordNATSDisconnect(cfg.ClientID, true)
 			log.Error("[%s] NATS connection closed unexpectedly", cfg.ClientID)
 		}),
 		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
+			wiretap.RecordNATSDisconnect(cfg.ClientID, err != nil)
 			log.Warning("[%s] NATS disconnected, attempting reconnect: %v", cfg.ClientID, err)
 		}),
 		nats.ReconnectHandler(func(nc *nats.Conn) {
+			wiretap.RecordNATSConnect(cfg.ClientID, nc.ConnectedUrl())
 			log.Info("[%s] NATS successfully reconnected to %s", cfg.ClientID, nc.ConnectedUrl())
 		}),
 	}
@@ -82,6 +86,7 @@ func Connect(cfg *NatsConfig, l logger.Logger) (*nats.Conn, error) {
 		return nil, fmt.Errorf("nats connection failed: %w", err)
 	}
 
+	wiretap.RecordNATSConnect(cfg.ClientID, conn.ConnectedUrl())
 	log.Info("[%s] Successfully connected to NATS at %s", cfg.ClientID, conn.ConnectedUrl())
 	return conn, nil
 }

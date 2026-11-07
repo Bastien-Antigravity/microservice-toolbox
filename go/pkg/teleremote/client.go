@@ -21,6 +21,7 @@ import (
 
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/teleremote/grpc_client"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/wiretap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -193,11 +194,31 @@ func (tc *TeleClient) SendTelemetry(msg string) error {
 
 	tc.sendMu.Lock()
 	defer tc.sendMu.Unlock()
-	return stream.Send(payload)
+	err := stream.Send(payload)
+	if wiretap.IsEnabled() {
+		wiretap.RecordEvent(
+			tc.componentName,
+			"tele_remote",
+			"GRPC",
+			"HTTP/2 Protobuf (Stream)",
+			"teleremote:telemetry",
+			"telemetry",
+			"outbound",
+			msg,
+			len(msg),
+			0,
+			err != nil,
+			false,
+		)
+	}
+	return err
 }
 
 func (tc *TeleClient) connectionManager() {
 	addr := fmt.Sprintf("%s:%d", tc.targetIP, tc.targetPort)
+	if wiretap.GetLocalService() == "unknown_service" && tc.componentName != "" {
+		wiretap.SetLocalService(tc.componentName)
+	}
 
 	for {
 		tc.mu.RLock()
@@ -209,7 +230,11 @@ func (tc *TeleClient) connectionManager() {
 
 		tc.logger.Info("TeleClient connecting to %s...", addr)
 
-		conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialOpts := append(
+			[]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
+			wiretap.ClientDialOptions("tele_remote")...,
+		)
+		conn, err := grpc.Dial(addr, dialOpts...)
 		if err != nil {
 			tc.logger.Warning("TeleClient connection failed: %v", err)
 			time.Sleep(5 * time.Second)
@@ -245,6 +270,23 @@ func (tc *TeleClient) connectionManager() {
 			if err != nil {
 				tc.logger.Warning("TeleClient disconnected from tele-remote: %v", err)
 				break
+			}
+
+			if wiretap.IsEnabled() && cmd != nil {
+				wiretap.RecordEvent(
+					"tele_remote",
+					tc.componentName,
+					"GRPC",
+					"HTTP/2 Protobuf (Stream)",
+					"teleremote:command",
+					"command",
+					"inbound",
+					cmd.CustomPayload,
+					len(cmd.CustomPayload)+len(cmd.Input),
+					0,
+					false,
+					false,
+				)
 			}
 
 			if cmd.CommandType == grpc_client.BotCommand_REFRESH_MENU {
@@ -288,7 +330,24 @@ func (tc *TeleClient) sendRegistration(stream grpc_client.TeleRemoteService_Conn
 
 	tc.sendMu.Lock()
 	defer tc.sendMu.Unlock()
-	if err := stream.Send(regMsg); err != nil {
+	err := stream.Send(regMsg)
+	if wiretap.IsEnabled() {
+		wiretap.RecordEvent(
+			tc.componentName,
+			"tele_remote",
+			"GRPC",
+			"HTTP/2 Protobuf (Stream)",
+			"teleremote:registration",
+			"registration",
+			"outbound",
+			"menu_sync",
+			len(menu),
+			0,
+			err != nil,
+			false,
+		)
+	}
+	if err != nil {
 		tc.logger.Error("TeleClient failed to send registration: %v", err)
 	}
 }

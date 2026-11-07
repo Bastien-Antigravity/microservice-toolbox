@@ -17,6 +17,7 @@ import (
 
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/connectivity"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/wiretap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -50,7 +51,8 @@ func NewGRPCServerWithLogger(addr string, l logger.Logger, opts ...grpc.ServerOp
 		safeLogger.Info("Toolbox: Docker Guard suppressed bind address %s -> %s", addr, resolvedAddr)
 	}
 
-	s := grpc.NewServer(opts...)
+	allOpts := append(wiretap.ServerOptions(), opts...)
+	s := grpc.NewServer(allOpts...)
 	reflection.Register(s) // Enable reflection by default for debugging
 	return &GRPCServer{
 		Server: s,
