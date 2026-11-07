@@ -58,6 +58,81 @@ class ProtocolSpec:
 
 # -----------------------------------------------------------------------------------------------
 @dcDataclass
+class DependencySpec:
+    target: str = ""
+    proto: str = ""
+    label: str = ""
+    exchange_id: str = ""
+    description: str = ""
+
+    def to_dict(self) -> typeDict[str, typeAny]:
+        d = {
+            "target": self.target,
+            "proto": self.proto,
+            "label": self.label,
+        }
+        if self.exchange_id:
+            d["exchangeId"] = self.exchange_id
+        if self.description:
+            d["description"] = self.description
+        return d
+
+    toDict = to_dict
+
+
+# -----------------------------------------------------------------------------------------------
+@dcDataclass
+class HealthSpec:
+    type: str = "tcp"
+    port: int = 0
+    path: str = ""
+    timeout_ms: int = 350
+
+    def to_dict(self) -> typeDict[str, typeAny]:
+        d = {
+            "type": self.type,
+            "timeoutMs": self.timeout_ms,
+        }
+        if self.port > 0:
+            d["port"] = self.port
+        if self.path:
+            d["path"] = self.path
+        return d
+
+    toDict = to_dict
+
+
+# -----------------------------------------------------------------------------------------------
+@dcDataclass
+class CanvasSpec:
+    icon: str = ""
+    color: str = ""
+    preferred_slot: str = ""
+    preferred_x: float = 0.0
+    preferred_y: float = 0.0
+    particle_proto: typeList[str] = dcField(default_factory=list)
+
+    def to_dict(self) -> typeDict[str, typeAny]:
+        d = {}
+        if self.icon:
+            d["icon"] = self.icon
+        if self.color:
+            d["color"] = self.color
+        if self.preferred_slot:
+            d["preferredSlot"] = self.preferred_slot
+        if self.preferred_x > 0:
+            d["preferredX"] = self.preferred_x
+        if self.preferred_y > 0:
+            d["preferredY"] = self.preferred_y
+        if self.particle_proto:
+            d["particleProto"] = self.particle_proto
+        return d
+
+    toDict = to_dict
+
+
+# -----------------------------------------------------------------------------------------------
+@dcDataclass
 class ServiceSpec:
     name: str = ""
     tag: str = ""
@@ -67,12 +142,17 @@ class ServiceSpec:
     category: str = ""
     priority: int = 100
     icon: str = "fa-cubes"
+    color: str = ""
     requires_auth: bool = False
     capability: str = ""
     description: str = ""
     protocol: str = ""
     framing: str = ""
     doc_link: str = ""
+    nav_route: str = ""
+    health: typeOptional[HealthSpec] = None
+    canvas: typeOptional[CanvasSpec] = None
+    dependencies: typeList[DependencySpec] = dcField(default_factory=list)
     protocols: typeList[ProtocolSpec] = dcField(default_factory=list)
     flow_diagram: typeList[str] = dcField(default_factory=list)
     data_structure: typeDict[str, typeAny] = dcField(default_factory=dict)
@@ -100,6 +180,18 @@ class ServiceSpec:
             "sdkLang": self.sdk_lang,
             "sourceCode": self.source_code,
         }
+        if self.color:
+            d["color"] = self.color
+        if self.nav_route:
+            d["navRoute"] = self.nav_route
+        if self.health is not None:
+            d["health"] = self.health.to_dict() if hasattr(self.health, "to_dict") else self.health
+        if self.canvas is not None:
+            d["canvas"] = self.canvas.to_dict() if hasattr(self.canvas, "to_dict") else self.canvas
+        if self.dependencies:
+            d["dependencies"] = [
+                dep.to_dict() if hasattr(dep, "to_dict") else dep for dep in self.dependencies
+            ]
         if self.protocols:
             d["protocols"] = [
                 p.to_dict() if hasattr(p, "to_dict") else p for p in self.protocols
@@ -250,6 +342,25 @@ def build_spec_from_config(app_config: typeAny, capability: str, **overrides: ty
     except Exception:
         pass
     spec.data_structure = ds
+
+    # 9. Auto-populate NavRoute, Canvas, and Health defaults if not explicitly set
+    if not getattr(spec, "nav_route", ""):
+        spec.nav_route = f"/mfe/{spec.name}"
+    if getattr(spec, "color", "") and spec.canvas and not spec.canvas.color:
+        spec.canvas.color = spec.color
+    elif spec.canvas and spec.canvas.color and not getattr(spec, "color", ""):
+        spec.color = spec.canvas.color
+
+    if not spec.health:
+        probe_port = 0
+        for p_cand in (rest_port, tcp_port, grpc_port):
+            try:
+                probe_port = int(p_cand)
+                if probe_port > 0:
+                    break
+            except Exception:
+                pass
+        spec.health = HealthSpec(type="tcp", port=probe_port, timeout_ms=350)
 
     return spec
 

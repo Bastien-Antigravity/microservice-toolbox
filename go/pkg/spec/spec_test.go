@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +78,56 @@ func TestBuildSpecFromConfigValid(t *testing.T) {
 	}
 	if spec.URL != "http://127.0.0.1:13308" {
 		t.Errorf("Expected dynamic REST URL 'http://127.0.0.1:13308', got %q", spec.URL)
+	}
+}
+
+// -----------------------------------------------------------------------------
+
+func TestBuildSpecFromConfig_EnhancedMetadata(t *testing.T) {
+	appConfig, err := toolbox_config.LoadConfig("standalone", nil)
+	if err != nil {
+		t.Fatalf("Failed to load standalone config: %v", err)
+	}
+
+	base := ServiceSpec{
+		Name:        "Payment Gateway",
+		Tag:         "payment-gateway-mfe",
+		Layer:       "L2",
+		Category:    "Domain Services",
+		Description: "Handles payments.",
+		Protocol:    "REST",
+		Framing:     "Port %s REST",
+		DocLink:     "obsidian-brain/06-Microservices/Payment-Gateway.md",
+		Color:       "#38bdf8",
+		Dependencies: []DependencySpec{
+			{Target: "notif_server", Protocol: "grpc", Label: "Payment Alerts"},
+			{Target: "timescale_db", Protocol: "sql", Label: "Transaction Ledger"},
+		},
+		Canvas: CanvasSpec{
+			Icon:          "fa-credit-card",
+			PreferredSlot: "domain",
+		},
+	}
+
+	spec, err := BuildSpecFromConfig(appConfig, "config_server", base)
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig failed: %v", err)
+	}
+
+	if spec.NavRoute != "/mfe/Payment Gateway" {
+		t.Errorf("Expected default NavRoute '/mfe/Payment Gateway', got %q", spec.NavRoute)
+	}
+	if spec.Canvas.Color != "#38bdf8" {
+		t.Errorf("Expected Canvas.Color '#38bdf8', got %q", spec.Canvas.Color)
+	}
+	if spec.Health.ProbeType != "tcp" {
+		t.Errorf("Expected default Health.ProbeType 'tcp', got %q", spec.Health.ProbeType)
+	}
+	if spec.Health.TimeoutMs != 350 {
+		t.Errorf("Expected default Health.TimeoutMs 350, got %d", spec.Health.TimeoutMs)
+	}
+	if len(spec.Dependencies) != 2 {
+		t.Errorf("Expected 2 dependencies, got %d", len(spec.Dependencies))
 	}
 }
 
@@ -236,24 +287,21 @@ func TestServiceSpecPublishSync(t *testing.T) {
 	if err != nil || appConfig == nil {
 		appConfig = &toolbox_config.AppConfig{}
 	}
-	if appConfig.Capabilities == nil {
-		appConfig.Capabilities = make(map[string]interface{})
-	}
-	appConfig.Capabilities["config_server"] = map[string]interface{}{
-		"ip":   "127.0.0.1",
-		"port": 3306,
-	}
 	parts := strings.Split(serverAddr, ":")
 	portNum := 0
 	if len(parts) == 2 {
-		var p int
-		json.Unmarshal([]byte(parts[1]), &p)
-		portNum = p
+		portNum, _ = strconv.Atoi(parts[1])
 	}
-	appConfig.Capabilities["web_interface"] = map[string]interface{}{
-		"ip":   parts[0],
-		"port": portNum,
-	}
+	appConfig.Set(map[string]map[string]string{
+		"web_interface": {
+			"ip":   parts[0],
+			"port": strconv.Itoa(portNum),
+		},
+		"config_server": {
+			"ip":   "127.0.0.1",
+			"port": "3306",
+		},
+	})
 
 	validBase := ServiceSpec{
 		Name:        "Config Server",

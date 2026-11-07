@@ -34,6 +34,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,6 +51,33 @@ type ProtocolSpec struct {
 	Description string `json:"description"`
 }
 
+// DependencySpec represents a declared downstream dependency of a microservice.
+type DependencySpec struct {
+	Target      string `json:"target"`                // Target capability or service key e.g. "timescale_db", "nats"
+	Protocol    string `json:"proto"`                 // Protocol e.g. "sql", "nats", "grpc", "safesocket", "http", "mcp"
+	Label       string `json:"label,omitempty"`        // Human-readable wire label e.g. "Order Hypertables"
+	ExchangeID  string `json:"exchangeId,omitempty"`   // Associated message exchange schema id
+	Description string `json:"description,omitempty"` // Context / description
+}
+
+// HealthSpec standardizes declarative health check and reachability probes.
+type HealthSpec struct {
+	ProbeType string `json:"type,omitempty"`      // "tcp", "http", "rest", "sql", "nats"
+	Port      int    `json:"port,omitempty"`      // Explicit port (0 to resolve from config)
+	Path      string `json:"path,omitempty"`      // HTTP path e.g. "/healthz", "/varz", "/"
+	TimeoutMs int    `json:"timeoutMs,omitempty"` // Probe timeout in milliseconds (default 350)
+}
+
+// CanvasSpec declares presentation attributes for the transport SVG mesh canvas and UI tiers.
+type CanvasSpec struct {
+	Icon          string   `json:"icon,omitempty"`          // FontAwesome icon class e.g. "fa-bolt"
+	Color         string   `json:"color,omitempty"`         // Hex accent color e.g. "#38bdf8"
+	PreferredSlot string   `json:"preferredSlot,omitempty"`  // Suggested slot or tier e.g. "core-top", "domain"
+	PreferredX    float64  `json:"preferredX,omitempty"`     // Preferred initial canvas X coordinate
+	PreferredY    float64  `json:"preferredY,omitempty"`     // Preferred initial canvas Y coordinate
+	ParticleProto []string `json:"particleProto,omitempty"` // Protocols that emit particle telemetry streams
+}
+
 // ServiceSpec is the canonical declarative specification of a microservice.
 // Microservices must explicitly provide their own domain metadata; zero dummy defaults are permitted.
 type ServiceSpec struct {
@@ -61,12 +89,17 @@ type ServiceSpec struct {
 	Category      string                 `json:"category"`     // Required: "Base Fleet", "Domain Services", "Secure Controls"
 	Priority      int                    `json:"priority"`     // Lower number = higher priority
 	Icon          string                 `json:"icon"`         // FontAwesome icon class
+	Color         string                 `json:"color,omitempty"` // Canvas accent color e.g. "#38bdf8"
 	RequiresAuth  bool                   `json:"requiresAuth"`
 	Capability    string                 `json:"capability"`   // Capability key in AppConfig e.g. "config_server"
 	Description   string                 `json:"desc"`         // Required description
 	Protocol      string                 `json:"protocol"`     // Required: e.g. "TCP / SafeSocket, REST & gRPC"
 	Framing       string                 `json:"framing"`      // Required: e.g. "Port %s TCP / Port %s REST"
 	DocLink       string                 `json:"docLink"`      // Required: Obsidian vault markdown path
+	NavRoute      string                 `json:"navRoute,omitempty"` // Dynamic web route e.g. "/mfe/order-processor"
+	Health        HealthSpec             `json:"health,omitempty"`
+	Canvas        CanvasSpec             `json:"canvas,omitempty"`
+	Dependencies  []DependencySpec       `json:"dependencies,omitempty"`
 	Protocols     []ProtocolSpec         `json:"protocols,omitempty"`
 	DataStructure map[string]interface{} `json:"dataStructure,omitempty"`
 	FlowDiagram   []string               `json:"flowDiagram,omitempty"`
@@ -205,6 +238,34 @@ func BuildSpecFromConfig(appConfig *toolbox_config.AppConfig, capability string,
 	}
 	if host, err := os.Hostname(); err == nil {
 		s.DataStructure["node"] = host
+	}
+
+	// 8. Auto-populate NavRoute, Canvas, and Health defaults if not explicitly set
+	if strings.TrimSpace(s.NavRoute) == "" {
+		s.NavRoute = "/mfe/" + s.Name
+	}
+	if s.Color == "" && s.Canvas.Color != "" {
+		s.Color = s.Canvas.Color
+	}
+	if s.Canvas.Color == "" && s.Color != "" {
+		s.Canvas.Color = s.Color
+	}
+	if s.Canvas.Icon == "" && s.Icon != "" {
+		s.Canvas.Icon = s.Icon
+	}
+	if s.Health.ProbeType == "" {
+		s.Health.ProbeType = "tcp"
+	}
+	if s.Health.Port == 0 {
+		for _, pStr := range []string{restPort, tcpPort, grpcPort} {
+			if n, err := strconv.Atoi(pStr); err == nil && n > 0 {
+				s.Health.Port = n
+				break
+			}
+		}
+	}
+	if s.Health.TimeoutMs == 0 {
+		s.Health.TimeoutMs = 350
 	}
 
 	return s, nil
