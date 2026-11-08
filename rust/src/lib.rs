@@ -22,6 +22,7 @@ pub mod teleremote;
 pub mod notification;
 pub mod version;
 pub mod spec;
+pub mod wiretap;
 
 // Re-export logger at crate root for 100% parity with Go and Python
 pub use utils::logger;

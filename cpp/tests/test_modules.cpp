@@ -20,6 +20,7 @@
 #include "../include/microservice_toolbox/serializers/JsonSerializer.hpp"
 #include "../include/microservice_toolbox/serializers/BinSerializer.hpp"
 #include "../include/microservice_toolbox/logger/Logger.hpp"
+#include "../include/microservice_toolbox/wiretap/WireTap.hpp"
 
 using namespace microservice_toolbox;
 
@@ -139,6 +140,61 @@ void test_logger_interface() {
     std::cout << "  Passed." << std::endl;
 }
 
+void test_wiretap() {
+    std::cout << "Testing WireTap lock-free telemetry & sampling..." << std::endl;
+    using namespace wiretap;
+
+    Reset();
+    SetEnabled(true);
+    assert(IsEnabled());
+
+    RecordEvent(
+        "cpp-service",
+        "web-interface",
+        "SAFESOCKET",
+        "frame",
+        "market:trades",
+        "frame",
+        "outbound",
+        "test payload",
+        2048,
+        0.8,
+        false,
+        false
+    );
+
+    auto snap = Snapshot();
+    assert(snap.size() == 1);
+    assert(snap[0].source == "cpp_service");
+    assert(snap[0].target == "web_interface");
+    assert(snap[0].protocol == "SAFESOCKET");
+    assert(snap[0].total_frames == 1);
+    assert(snap[0].total_bytes == 2048);
+    assert(snap[0].channels.size() == 1);
+    assert(snap[0].channels[0].channel == "market:trades");
+    assert(snap[0].channels[0].frames == 1);
+    assert(snap[0].channels[0].bytes == 2048);
+    assert(snap[0].channels[0].last_payload == "test payload");
+
+    // Test sampling (mask 0x3 -> 1 in 4)
+    int samples = 0;
+    for (int i = 0; i < 16; ++i) {
+        if (ShouldSample(0x3)) {
+            samples++;
+        }
+    }
+    assert(samples == 4);
+
+    // Test toggle OFF
+    SetEnabled(false);
+    assert(!IsEnabled());
+    RecordEvent("cpp-service", "web-interface", "SAFESOCKET", "frame", "market:trades", "frame", "outbound", "", 500);
+    auto snap2 = Snapshot();
+    assert(snap2[0].total_frames == 1); // Should not increase when disabled
+
+    std::cout << "  Passed." << std::endl;
+}
+
 int main() {
     try {
         test_connectivity_resolver();
@@ -147,6 +203,7 @@ int main() {
         test_json_serializer();
         test_bin_serializer();
         test_logger_interface();
+        test_wiretap();
 
         std::cout << "\n=======================================" << std::endl;
         std::cout << "  All C++ Modules Tests Passed!" << std::endl;
