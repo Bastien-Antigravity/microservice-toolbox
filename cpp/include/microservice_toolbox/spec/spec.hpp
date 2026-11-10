@@ -53,6 +53,7 @@
 #include "../config/json.hpp"
 #include "../utils/Logger.hpp"
 #include "../lifecycle/LifecycleManager.hpp"
+#include "contracts.hpp"
 
 namespace microservice_toolbox {
 namespace spec {
@@ -190,19 +191,23 @@ struct ServiceSpec {
     std::string category;
     int priority{100};
     std::string icon{"fa-cubes"};
+    std::string color;
     bool requiresAuth{false};
     std::string capability;
     std::string description;
     std::string protocol;
     std::string framing;
     std::string docLink;
+    std::string navRoute;
+    std::vector<ProtocolSpec> protocols;
+    std::vector<ExchangeContract> contracts;
     std::vector<std::string> flowDiagram;
     nlohmann::json dataStructure = nlohmann::json::object();
     std::string sdkLang{"language-cpp"};
     std::string sourceCode;
 
     nlohmann::json ToJson() const {
-        return {
+        nlohmann::json j = {
             {"name", name},
             {"tag", tag},
             {"url", url},
@@ -222,6 +227,27 @@ struct ServiceSpec {
             {"sdkLang", sdkLang},
             {"sourceCode", sourceCode}
         };
+        if (!color.empty()) {
+            j["color"] = color;
+        }
+        if (!navRoute.empty()) {
+            j["navRoute"] = navRoute;
+        }
+        if (!protocols.empty()) {
+            nlohmann::json protoArr = nlohmann::json::array();
+            for (const auto& p : protocols) {
+                protoArr.push_back(p.ToJson());
+            }
+            j["protocols"] = protoArr;
+        }
+        if (!contracts.empty()) {
+            nlohmann::json contractArr = nlohmann::json::array();
+            for (const auto& c : contracts) {
+                contractArr.push_back(c.ToJson());
+            }
+            j["contracts"] = contractArr;
+        }
+        return j;
     }
 
     nlohmann::json toJson() const {
@@ -339,6 +365,16 @@ public:
         if (!tcpPort.empty()) spec.dataStructure["ports"]["tcp"] = tcpPort;
         if (!restPort.empty()) spec.dataStructure["ports"]["rest"] = restPort;
         if (!grpcPort.empty()) spec.dataStructure["ports"]["grpc"] = grpcPort;
+
+#if !defined(_WIN32)
+        char hostBuf[256] = {0};
+        if (gethostname(hostBuf, sizeof(hostBuf) - 1) == 0 && hostBuf[0] != '\0') {
+            spec.dataStructure["node"] = std::string(hostBuf);
+        }
+#endif
+        if (spec.navRoute.empty()) {
+            spec.navRoute = "/mfe/" + spec.name;
+        }
 
         return spec;
     }

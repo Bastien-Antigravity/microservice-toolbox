@@ -101,6 +101,7 @@ type ServiceSpec struct {
 	Canvas        CanvasSpec             `json:"canvas,omitempty"`
 	Dependencies  []DependencySpec       `json:"dependencies,omitempty"`
 	Protocols     []ProtocolSpec         `json:"protocols,omitempty"`
+	Contracts     []ExchangeContract     `json:"contracts,omitempty"`
 	DataStructure map[string]interface{} `json:"dataStructure,omitempty"`
 	FlowDiagram   []string               `json:"flowDiagram,omitempty"`
 	SDKLang       string                 `json:"sdkLang,omitempty"`

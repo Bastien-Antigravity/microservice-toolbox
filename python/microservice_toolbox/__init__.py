@@ -86,6 +86,30 @@ def __getattr__(name):
         globals()["PublishSync"] = PublishSync
         globals()["BuildSpecFromConfig"] = BuildSpecFromConfig
         return globals()[name]
+        return globals()[name]
+    if name in [
+        "ContractPeer",
+        "ContractOperation",
+        "ExchangeContract",
+        "build_contracts_envelope",
+        "extract_fastapi_operations",
+        "extract_proto_operations",
+    ]:
+        from .contracts import (
+            ContractPeer,
+            ContractOperation,
+            ExchangeContract,
+            build_contracts_envelope,
+            extract_fastapi_operations,
+            extract_proto_operations,
+        )
+        globals()["ContractPeer"] = ContractPeer
+        globals()["ContractOperation"] = ContractOperation
+        globals()["ExchangeContract"] = ExchangeContract
+        globals()["build_contracts_envelope"] = build_contracts_envelope
+        globals()["extract_fastapi_operations"] = extract_fastapi_operations
+        globals()["extract_proto_operations"] = extract_proto_operations
+        return globals()[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

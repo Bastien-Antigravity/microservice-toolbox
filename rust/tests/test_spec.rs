@@ -11,7 +11,10 @@
 //! - None (Unit Test Suite).
 
 use microservice_toolbox::config::loader::AppConfig;
-use microservice_toolbox::spec::{build_spec_from_config, publish_service_spec, publish_service_spec_sync, ServiceSpec};
+use microservice_toolbox::spec::{
+    build_spec_from_config, publish_service_spec, publish_service_spec_sync, ContractOperation, ContractPeer,
+    ExchangeContract, ServiceSpec,
+};
 
 //-----------------------------------------------------------------------------------------------
 #[test]
@@ -141,4 +144,40 @@ async fn test_publish_service_spec_fail_fast() {
 
     let sync_res = publish_service_spec_sync(&app_config, None, "config_server", valid_base).await;
     assert!(sync_res.is_err(), "publish_service_spec_sync must FAIL FAST when web_interface is missing");
+}
+
+//-----------------------------------------------------------------------------------------------
+#[test]
+fn test_exchange_contract_serialization() {
+    let spec = ServiceSpec {
+        name: "log_server".to_string(),
+        tag: "log-server-inspector".to_string(),
+        contracts: vec![ExchangeContract {
+            id: "protobuf".to_string(),
+            r#type: "gRPC / Protobuf".to_string(),
+            tab_label: "Protobuf API Spec".to_string(),
+            port: 9021,
+            peers: vec![ContractPeer {
+                service: "web_interface".to_string(),
+                role: "consumer".to_string(),
+                description: "Log bridge SSE proxy".to_string(),
+            }],
+            operations: vec![ContractOperation {
+                name: "GetTailLogs".to_string(),
+                kind: "RPC".to_string(),
+                target: "logservice.LogBridge/GetTailLogs".to_string(),
+                input: "TailLogsRequest".to_string(),
+                output: "TailLogsResponse".to_string(),
+                description: "Fetch ring buffer tail".to_string(),
+            }],
+            schema_format: "proto3".to_string(),
+            schema: "syntax = \"proto3\";".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let json = serde_json::to_string(&spec).expect("serialize ServiceSpec contracts");
+    assert!(json.contains("\"tabLabel\":\"Protobuf API Spec\""));
+    assert!(json.contains("\"schemaFormat\":\"proto3\""));
 }

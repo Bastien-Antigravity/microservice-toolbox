@@ -64,6 +64,17 @@ from microservice_toolbox.business.helpers import serialize
 json_bytes = serialize(event)
 ```
 
+### 4. Declarative `ServiceSpec` & Exchange Contracts (`spec` & `contracts`)
+Authoritative OpenMFE registration (`publish_with_lifecycle`) and live contract introspection (`extract_fastapi_operations`, `extract_proto_operations`, `build_contracts_envelope`).
+
+```python
+from microservice_toolbox.contracts import ExchangeContract, build_contracts_envelope, extract_fastapi_operations
+from microservice_toolbox.spec import ServiceSpec, publish_with_lifecycle
+
+contracts = [ExchangeContract(id="rest", type="HTTP/1.1 REST", operations=extract_fastapi_operations(app))]
+envelope = build_contracts_envelope("my_service", cfg.get_version(), "live FastAPI routes", contracts)
+```
+
 ## Architecture: The FFI Bridge
 To prevent logic drift, the Python SDK does not implement its own configuration resolution or RSA decryption. Instead, it uses `ctypes` to load `libdistconf` (Go). At startup, a **Full Sync** is performed, mirroring the entire Go configuration state into a Python dictionary for sub-millisecond lookups.
 

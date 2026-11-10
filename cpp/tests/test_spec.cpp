@@ -182,6 +182,119 @@ void test_publish_sync() {
 
 // -----------------------------------------------------------------------------
 
+void test_exchange_contracts_and_extractors() {
+    std::cout << "Testing ExchangeContract, ContractsEnvelope & IDL Extractors..." << std::endl;
+
+    std::string proto =
+        "syntax = \"proto3\";\n"
+        "package demo.v1;\n"
+        "service DemoControl {\n"
+        "  rpc Ping (PingReq) returns (PingResp);\n"
+        "  rpc StreamEvents (stream EventReq) returns (stream EventResp);\n"
+        "  rpc TailLogs (TailReq) returns (stream LogChunk);\n"
+        "}\n";
+
+    auto protoOps = ExtractProtoTextOperations(proto);
+    assert(protoOps.size() == 3);
+    assert(protoOps[0].kind == "RPC");
+    assert(protoOps[0].target == "demo.v1.DemoControl/Ping");
+    assert(protoOps[1].kind == "BIDI_STREAM");
+    assert(protoOps[1].input == "stream EventReq");
+    assert(protoOps[1].output == "stream EventResp");
+    assert(protoOps[2].kind == "SERVER_STREAM");
+
+    std::string capnp =
+        "enum Level {\n"
+        "  info @0; # info severity\n"
+        "  error @1;\n"
+        "}\n"
+        "struct Frame {\n"
+        "  seq @0 :UInt64;\n"
+        "  payload @1 :Data;\n"
+        "}\n";
+
+    auto capOps = ExtractCapnpOperations(capnp);
+    assert(capOps.size() == 2);
+    assert(capOps[0].kind == "ENUM");
+    assert(capOps[0].name == "Level");
+    assert(capOps[0].output.find("info @0") != std::string::npos);
+    assert(capOps[1].kind == "STRUCT");
+    assert(capOps[1].name == "Frame");
+    assert(capOps[1].input.find("payload @1 :Data") != std::string::npos);
+
+    assert(ResolveContractPort("0.0.0.0:9021") == 9021);
+    assert(DisplayAddress(":3308") == "127.0.0.1:3308");
+    assert(DisplayAddress("") == "dynamic");
+
+    ExchangeContract grpcContract;
+    grpcContract.id = "grpc";
+    grpcContract.type = "gRPC / Protobuf";
+    grpcContract.tabLabel = "gRPC Protobuf";
+    grpcContract.address = DisplayAddress(":9021");
+    grpcContract.port = ResolveContractPort(":9021");
+    grpcContract.peers = {ContractPeer{"web_interface", "consumer", "Displays OpenMFE tabs"}};
+    grpcContract.operations = protoOps;
+    grpcContract.schemaFormat = "proto3";
+    grpcContract.schema = proto;
+
+    auto env = NewContractsEnvelope("demo_cpp_service", "0.2.0", "unit test", {grpcContract});
+    auto envJson = env.ToJson();
+    assert(envJson["service"] == "demo_cpp_service");
+    assert(envJson["version"] == "0.2.0");
+    assert(envJson["reliable"] == true);
+    assert(envJson["exhaustive"] == true);
+    assert(envJson["contracts"].size() == 1);
+    assert(envJson["contracts"][0]["tabLabel"] == "gRPC Protobuf");
+    assert(envJson["contracts"][0]["operations"].size() == 3);
+
+    // Verify FromJson round-trip
+    auto parsedEnv = ContractsEnvelope::FromJson(envJson);
+    assert(parsedEnv.contracts.size() == 1);
+    assert(parsedEnv.contracts[0].operations.size() == 3);
+
+    // Verify ServiceSpec carries protocols + contracts through BuildSpecFromConfig
+    microservice_toolbox::config::AppConfig cfg("test");
+    ServiceSpec base;
+    base.name = "Config Server";
+    base.tag = "config-server-mfe";
+    base.layer = "L1";
+    base.category = "Base Fleet";
+    base.description = "Centralized configuration repository.";
+    base.protocol = "TCP, REST & gRPC";
+    base.framing = "Port %s REST";
+    base.docLink = "obsidian-brain/06-Microservices/Config-Server-Hub.md";
+    base.protocols = {ProtocolSpec{"gRPC", 9021, "Protobuf", "gRPC control"}};
+    base.contracts = {grpcContract};
+
+    ServiceSpec enriched = SpecPublisher::BuildSpecFromConfig(cfg, "config_server", base);
+    auto specJson = enriched.ToJson();
+    assert(specJson["navRoute"] == "/mfe/Config Server");
+    assert(specJson["protocols"].size() == 1);
+    assert(specJson["contracts"].size() == 1);
+    assert(specJson["contracts"][0]["schemaFormat"] == "proto3");
+
+    // Verify C helper JSON parses cleanly via nlohmann::json::parse
+    MtExchangeContract cContract = {
+        "c-contract", "gRPC / C ABI", "C Contract", "fa-code", "inbound",
+        "TCP", "127.0.0.1:9020", 9020, "Raw frame", "mesh", "summary", "c.proto",
+        nullptr, 0, nullptr, 0, "wire", "line1\n\"quoted\""
+    };
+    MtContractsEnvelope cEnv = {
+        "c_service", "0.0.1", 1, 1, nullptr, "c_test", &cContract, 1
+    };
+    char* rawCJson = mt_contracts_envelope_to_json(&cEnv);
+    assert(rawCJson != nullptr);
+    auto cParsed = nlohmann::json::parse(rawCJson);
+    mt_spec_free_string(rawCJson);
+    assert(cParsed["service"] == "c_service");
+    assert(cParsed["reliable"] == true);
+    assert(cParsed["contracts"][0]["schema"] == "line1\n\"quoted\"");
+
+    std::cout << "  Passed (ExchangeContract, Extractors, BuildSpecFromConfig & C ABI JSON verified)." << std::endl;
+}
+
+// -----------------------------------------------------------------------------
+
 int main() {
     std::cout << "\n=======================================" << std::endl;
     std::cout << "  Running C++ Spec Unit Tests" << std::endl;
@@ -192,6 +305,7 @@ int main() {
         test_service_spec_serialization();
         test_build_spec_from_config();
         test_publish_sync();
+        test_exchange_contracts_and_extractors();
 
         std::cout << "\n=======================================" << std::endl;
         std::cout << "  All C++ Spec Tests Passed!" << std::endl;

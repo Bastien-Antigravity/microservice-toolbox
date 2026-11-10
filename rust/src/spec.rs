@@ -41,6 +41,68 @@ pub struct ProtocolSpec {
 }
 
 //-----------------------------------------------------------------------------------------------
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractPeer {
+    pub service: String,
+    pub role: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+}
+
+//-----------------------------------------------------------------------------------------------
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractOperation {
+    pub name: String,
+    pub kind: String,
+    pub target: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub input: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub output: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+}
+
+//-----------------------------------------------------------------------------------------------
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ExchangeContract {
+    pub id: String,
+    pub r#type: String,
+    #[serde(rename = "tabLabel", default, skip_serializing_if = "String::is_empty")]
+    pub tab_label: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub icon: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub direction: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub transport: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub address: String,
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub port: i32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub framing: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub auth: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub peers: Vec<ContractPeer>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub operations: Vec<ContractOperation>,
+    #[serde(rename = "schemaFormat", default, skip_serializing_if = "String::is_empty")]
+    pub schema_format: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub schema: String,
+}
+
+fn is_zero_i32(v: &i32) -> bool {
+    *v == 0
+}
+
+//-----------------------------------------------------------------------------------------------
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ServiceSpec {
     pub name: String,
@@ -61,6 +123,10 @@ pub struct ServiceSpec {
     pub framing: String,
     #[serde(rename = "docLink")]
     pub doc_link: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub protocols: Vec<ProtocolSpec>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contracts: Vec<ExchangeContract>,
     #[serde(rename = "flowDiagram")]
     pub flow_diagram: Vec<String>,
     #[serde(rename = "dataStructure")]

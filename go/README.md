@@ -82,6 +82,20 @@ cfg := &messaging.NatsConfig{
 nc, err := messaging.Connect(cfg, &logger.FmtLogger{})
 ```
 
+### 5. Declarative `ServiceSpec` & Exchange Contracts (`pkg/spec`)
+Authoritative microservice OpenMFE registration (`PublishWithLifecycle`) and runtime Exchange Contract helpers (`ExchangeContract`, `ContractsEnvelope`, `ExtractProtoTextOperations`, `ExtractCapnpOperations`, `RenderProtoIDL`).
+
+```go
+contracts := []spec.ExchangeContract{{
+    ID: "grpc", Type: "gRPC / Protobuf", TabLabel: "gRPC Protobuf",
+    Operations: spec.ExtractProtoTextOperations(embeddedProto),
+    SchemaFormat: "proto3", Schema: embeddedProto,
+}}
+_ = spec.PublishWithLifecycle(cfg, log, lm, "my_service", spec.ServiceSpec{
+    Name: "My Service", Tag: "my-service-mfe", Contracts: contracts, /* ... */
+})
+```
+
 ## Architecture: The Reference Engine
 The Go module serves as the **Core Execution Engine**. All non-Go implementations (Python, Rust, C++, VBA) bridge to this library (via `libdistconf`) to perform sensitive operations like RSA decryption, ensuring absolute logic synchronization and zero security drift across the fleet.
 

@@ -62,7 +62,13 @@ Centralized NATS connection factories and configuration schemas to eliminate boi
 - **Observability**: Automatically logs connection loss and recovery events, prefixed with the connection's `ClientID` for easy debugging.
 - **SDK Parity**: Implemented natively in Go (`pkg/messaging`), Python (`microservice_toolbox/messaging`), and Rust (`src/messaging`).
 
-### 6. Real-Time Transport WireTap (`wiretap`)
+### 6. Declarative `ServiceSpec` & Authoritative Exchange Contracts (`spec`)
+Unified service registration and live Exchange Contract descriptors published to `web-interface` (`POST /api/v1/register`) and exposed directly by microservices (`GET /api/v1/contracts`):
+- **Typed Contract Model**: `ExchangeContract`, `ContractPeer`, `ContractOperation`, and `ContractsEnvelope` (`reliable`, `exhaustive`, `generatedAt` UTC, `contracts[]`).
+- **Schema Introspection**: Built-in extractors for raw `.proto` IDLs (`ExtractProtoTextOperations` / `extract_proto_operations`), Cap'n Proto wire specs (`ExtractCapnpOperations`), and live FastAPI routes (`extract_fastapi_operations`).
+- **Polyglot Support**: Go (`go/pkg/spec`), Python (`microservice_toolbox/contracts.py`), Rust (`rust/src/spec.rs`), C++17 (`cpp/include/microservice_toolbox/spec/contracts.hpp` & `spec.hpp`), and pure C11/C99 (`cpp/include/microservice_toolbox/spec/contracts.h`).
+
+### 7. Real-Time Transport WireTap (`wiretap`)
 Lock-free, real-time inter-service connection and segregated channel telemetry across **SafeSocket TCP**, **gRPC**, **NATS**, **HTTP REST**, and **External Gateways/MCP Clients**:
 - **Atomic Switch**: Controlled via `common.wiretap_enabled` in `AppConfig` (`wiretap.SetEnabled(bool)` / `set_enabled(bool)`) with zero mutexes on the hot path and live runtime hot-reload.
 - **Segregated Channel Tracking**: Captures per-edge logical sub-channels (e.g., `RegisterService`, `SendEvent`, `DispatchNotification`, `mcp:tool:query_brain`, `SYNC_CONFIG`, NATS subjects) with live frame and byte counters.
@@ -72,7 +78,7 @@ Lock-free, real-time inter-service connection and segregated channel telemetry a
 
 ## Polyglot Parity Matrix
 
-| Feature | Go | Python | Rust | C++ | VBA |
+| Feature | Go | Python | Rust | C/C++ | VBA |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | Layered YAML Loading | ✅ | ✅ | ✅ | ✅ | ✅ |
 | CLI Flag Overrides (`--key`) | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -84,6 +90,8 @@ Lock-free, real-time inter-service connection and segregated channel telemetry a
 | **Business Data Models**| ✅ | ✅ | ✅ | ✅ | ❌ |
 | Connection Manager | ✅ | ✅ | ✅ | ✅ | ❌ |
 | NATS Standard Connector | ✅ | ✅ | ✅ | ❌ | ❌ |
+| `ServiceSpec` / OpenMFE Registration | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `ExchangeContract` & IDL Extractors | ✅ | ✅ | ✅ | ✅ | ❌ |
 
 ---
 

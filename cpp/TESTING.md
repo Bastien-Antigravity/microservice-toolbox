@@ -23,6 +23,10 @@ cd cpp && make test
 ### 3. Business Model Compatibility
 - Ensures that `Models.hpp` structures serialize to `snake_case` JSON compatible with Go, Python, and Rust.
 
+### 4. ServiceSpec & Exchange Contracts (`test_spec.cpp` & `test_contracts_c.c`)
+- **`test_spec.cpp`**: Verifies `ProtocolSpec`, `ExchangeContract`, `ContractsEnvelope`, `ExtractProtoTextOperations`, `ExtractCapnpOperations`, fail-fast validation in `SpecPublisher::BuildSpecFromConfig`/`PublishSync`, and C ABI JSON parsing.
+- **`test_contracts_c.c`**: Pure C11 (`-std=c11 -Wall -Wextra -Werror`) suite verifying `MtExchangeContract`, `MtContractsEnvelope`, address/port normalization, UTC ISO-8601 formatting, and RFC 8259 JSON escaping via `mt_contracts_envelope_to_json`.
+
 ## Technical Compilation (Manual)
 To compile manually on macOS (adjust for Linux/Windows):
 ```bash

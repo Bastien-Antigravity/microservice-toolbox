@@ -90,6 +90,9 @@ Docker Guard suppression, IPv4/IPv6 loopback detection, and dynamic port bind re
 ### 7. Serializers (`serializers`)
 High-performance JSON and MsgPack binary serializers.
 
+### 8. `ServiceSpec` & Exchange Contracts (`spec`)
+Declarative OpenMFE service registration (`publish_service_spec`, `publish_with_lifecycle`) with embedded `ExchangeContract`, `ContractPeer`, and `ContractOperation` payloads matching Go, Python, and C/C++.
+
 ## Architecture & FFI Safety
 The Rust SDK interacts with the Go reference implementation via a high-performance C-linkage bridge. To ensure safety and performance:
 - **In-Memory Mirroring**: Full config state is synced at startup, allowing lock-free reads.

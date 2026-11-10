@@ -19,7 +19,7 @@
   - `go/pkg/notification`: Direct multi-channel notification client facade for L2/L3 services (gRPC port 1027 to notif-server)
   - `go/pkg/utils`: Terminal UI helpers, environment and formatting utilities
   - `go/pkg/version`: Standardized dynamic semver resolution adhering to VERSION.txt
-  - `go/pkg/spec`: Canonical declarative service specification and dynamic OpenMFE registration
+  - `go/pkg/spec`: Canonical declarative service specification, OpenMFE registration, and Exchange Contract models/extractors (`contracts.go`)
   - `go/pkg/wiretap`: Lock-free real-time transport telemetry aggregator (`SafeSocket`, gRPC, NATS, HTTP, MCP)
 - **Configuration Link**: `standalone.yaml -> ../docker-deployment/modes/local/config/native.yaml`
 
@@ -33,6 +33,9 @@ pytest python/
 
 # Test Rust crate
 cd rust && cargo test
+
+# Test C and C++ spec/contracts suites
+cd cpp && make test
 ```
 
 ## AI Development & Integration Guidelines
@@ -75,13 +78,14 @@ cd rust && cargo test
       - C++: `appConfig.GetVersion()` or `microservice_toolbox::version::GetVersion()`
       - VBA: `cfg.GetVersion()` / `cfg.Version` or `Toolbox.GetVersion()`
     - **Zero Ad-Hoc Scanning Loops**: Microservices MUST NOT write bespoke directory searching loops or relative path slices (e.g. `[]string{"VERSION.txt", "../VERSION.txt"}`). Hardcoding version numbers in code or status responses is strictly prohibited (`HARDCODED_VERSION_VIOLATION`).
-11. **Standardized Declarative Service Specification & OpenMFE Registration (`go/pkg/spec`, `python/microservice_toolbox/spec`, `rust/src/spec`, `cpp/.../spec.hpp`)**:
+11. **Standardized Declarative Service Specification, OpenMFE & Exchange Contracts (`go/pkg/spec`, `python/microservice_toolbox/contracts.py`, `rust/src/spec.rs`, `cpp/.../spec/spec.hpp`, `contracts.hpp`, `contracts.h`)**:
     - **Canonical API Access Across Languages**:
-      - Go: `spec.PublishWithLifecycle(appConfig, logger, lm, capability, spec.ServiceSpec{...})`
-      - Python: `spec.publish_with_lifecycle(app_config, logger, lm, capability, spec=ServiceSpec(...))`
-      - Rust: `spec::publish_with_lifecycle(&app_config, logger, Some(&lm), capability, ServiceSpec{...})`
-      - C++: `SpecPublisher::PublishWithLifecycle(appConfig, logger, &lm, capability, ServiceSpec{...})`
-    - **Microservice Specification Ownership**: Microservices are the authoritative source of truth for their own metadata (`Name`, `Tag`, `URL`, `Layer`, `Category`, `Description`, `DocLink`, `Protocol`, and directly formatted `Framing`). Libraries must not perform heuristic `%s` string parsing or redundant config re-scraping.
+      - Go: `spec.PublishWithLifecycle(appConfig, logger, lm, capability, spec.ServiceSpec{...})` + `spec.ExchangeContract` / `spec.NewContractsEnvelope`
+      - Python: `spec.publish_with_lifecycle(app_config, logger, lm, capability, spec=ServiceSpec(...))` + `contracts.ExchangeContract` / `contracts.build_contracts_envelope`
+      - Rust: `spec::publish_with_lifecycle(&app_config, logger, Some(&lm), capability, ServiceSpec{...})` + `spec::ExchangeContract`
+      - C++: `SpecPublisher::PublishWithLifecycle(appConfig, logger, &lm, capability, ServiceSpec{...})` + `contracts.hpp` (`ExchangeContract`, `ContractsEnvelope`, `ExtractProtoTextOperations`, `ExtractCapnpOperations`)
+      - C11/C99: `cpp/include/microservice_toolbox/spec/contracts.h` (`MtExchangeContract`, `MtContractsEnvelope`, `mt_contracts_envelope_to_json`, `mt_spec_free_string`)
+    - **Microservice Specification & Contract Ownership**: Microservices are the authoritative source of truth for their own metadata (`Name`, `Tag`, `URL`, `Layer`, `Category`, `Description`, `DocLink`, `Protocol`, `Framing`) and their `ExchangeContract[]` descriptors (derived from embedded `.proto`, `.capnp`, SQL DDLs, and live route/tool introspection). HTTP-capable services expose `GET /api/v1/contracts` (`ContractsEnvelope`); non-HTTP services publish `ServiceSpec.Contracts` cleanly to `web-interface` (never fabricated in UI code).
     - **Fail-Fast Synchronous Validation**: `PublishWithLifecycle` / `publish` strictly validates mandatory metadata synchronously on startup; missing metadata or unresolvable `web_interface` capability aborts boot immediately (fail-fast) before launching the background retry worker.
     - **Infinite Retry Background Registration**: Spec publication to `web-interface` runs in a non-blocking background thread/goroutine with exponential backoff and randomized jitter, adhering to the L1 Resilience Contract so microservice boot never hangs on offline downstream UI dependencies.
 12. **Real-Time Transport WireTap Standard (`go/pkg/wiretap`, `python/microservice_toolbox/wiretap.py`)**:

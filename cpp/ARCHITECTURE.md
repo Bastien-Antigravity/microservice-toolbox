@@ -10,6 +10,7 @@ To avoid the overhead of crossing the C++/Go bridge for every configuration look
 
 ## 2. Core Modules (Parity Expansion)
 - **Business**: Standard models (`MarketEvent`, `Trade`, `Signal`) with unified JSON mapping.
+- **Spec & Exchange Contracts (`spec/`)**: `spec.hpp` (`ServiceSpec`, `SpecPublisher`), `contracts.hpp` (`ExchangeContract`, `ContractsEnvelope`, `ExtractProtoTextOperations`, `ExtractCapnpOperations`), and zero-dependency pure C11 header `contracts.h` (`MtExchangeContract`, `MtContractsEnvelope`, `mt_contracts_envelope_to_json`).
 - **Connectivity**: `Resolver` for environment-aware address translation (Docker vs Native).
 - **Serializers**: High-performance `JsonSerializer`.
 - **Lifecycle**: `LifecycleManager` for graceful shutdown via signal handling (SIGINT/SIGTERM) and LIFO cleanup execution.

@@ -36,6 +36,8 @@ from time import sleep as timeSleep
 from typing import Any as typeAny, Dict as typeDict, List as typeList, Optional as typeOptional, Union as typeUnion
 from urllib.request import Request as urlRequest, urlopen as urlOpen
 
+from microservice_toolbox.contracts import ExchangeContract
+
 
 # -----------------------------------------------------------------------------------------------
 @dcDataclass
@@ -154,6 +156,7 @@ class ServiceSpec:
     canvas: typeOptional[CanvasSpec] = None
     dependencies: typeList[DependencySpec] = dcField(default_factory=list)
     protocols: typeList[ProtocolSpec] = dcField(default_factory=list)
+    contracts: typeList[ExchangeContract] = dcField(default_factory=list)
     flow_diagram: typeList[str] = dcField(default_factory=list)
     data_structure: typeDict[str, typeAny] = dcField(default_factory=dict)
     sdk_lang: str = "language-python"
@@ -195,6 +198,10 @@ class ServiceSpec:
         if self.protocols:
             d["protocols"] = [
                 p.to_dict() if hasattr(p, "to_dict") else p for p in self.protocols
+            ]
+        if self.contracts:
+            d["contracts"] = [
+                c.to_dict() if hasattr(c, "to_dict") else c for c in self.contracts
             ]
         return d
 
@@ -260,12 +267,19 @@ def build_spec_from_config(app_config: typeAny, capability: str, **overrides: ty
         category=str(category).strip(),
         priority=int(overrides.get("priority", 100)),
         icon=overrides.get("icon") or "fa-cubes",
-        requires_auth=bool(overrides.get("requires_auth", False)),
+        color=overrides.get("color") or "",
+        requires_auth=bool(overrides.get("requires_auth", overrides.get("requiresAuth", False))),
         capability=capability,
         description=str(description).strip(),
         protocol=str(protocol).strip(),
         framing=str(framing).strip(),
         doc_link=str(doc_link).strip(),
+        nav_route=overrides.get("nav_route") or overrides.get("navRoute") or "",
+        health=overrides.get("health"),
+        canvas=overrides.get("canvas"),
+        dependencies=list(overrides.get("dependencies") or []),
+        protocols=list(overrides.get("protocols") or []),
+        contracts=list(overrides.get("contracts") or []),
         sdk_lang=overrides.get("sdk_lang") or "language-python",
         source_code=overrides.get("source_code") or "",
         flow_diagram=list(overrides.get("flow_diagram") or []),

@@ -81,10 +81,36 @@ notif.SendAlert("TRADE", "Filled limit order: BUY 1.5 BTC @ 64500", {"telegram",
 notif.SendWithAttachment("REPORT", "Daily risk report generated", "risk.pdf", {"reports"});
 ```
 
+### 5. Declarative `ServiceSpec` & Exchange Contracts (`spec.hpp`, `contracts.hpp`, `contracts.h`)
+Standardizes OpenMFE boot registration (`SpecPublisher::PublishWithLifecycle`) and authoritative microservice-owned Exchange Contract serialization across both **C++17** and **pure C11/C99**:
+
+```cpp
+// C++17: Build contracts from embedded .proto/.capnp and register with web-interface
+#include "microservice_toolbox/spec/spec.hpp"
+using namespace microservice_toolbox::spec;
+
+auto ops = ExtractProtoTextOperations(EMBEDDED_PROTO_SCHEMA);
+ExchangeContract grpcContract{
+    .id = "grpc", .type = "gRPC / Protobuf", .tabLabel = "gRPC Control",
+    .address = DisplayAddress(grpcAddr), .port = ResolveContractPort(grpcAddr),
+    .operations = ops, .schemaFormat = "proto3", .schema = EMBEDDED_PROTO_SCHEMA
+};
+
+auto envelope = NewContractsEnvelope("my_cpp_service", ac->GetVersion(), "my.proto", {grpcContract});
+std::string httpBody = envelope.ToJson().dump();
+
+ServiceSpec spec;
+spec.contracts = {grpcContract};
+// Populate name, tag, layer, category, description, docLink, protocol, framing...
+SpecPublisher::PublishWithLifecycle(*ac, logger, &lm, "my_cpp_service", spec);
+```
+
+For pure **C11/C99** services or CGO/FFI wrappers, include `microservice_toolbox/spec/contracts.h` (`MtExchangeContract`, `MtContractsEnvelope`, `mt_contracts_envelope_to_json`, `mt_spec_free_string`).
+
 ## Build Requirements
-- **C++17** compatible compiler (Clang/GCC).
+- **C++17** compatible compiler (Clang/GCC) and **C11** compiler (`cc`) for pure C contract headers.
 - **libdistconf**: The Go-based CGO bridge library.
-- **nlohmann/json**: Header-only JSON library (included).
+- **nlohmann/json**: Header-only JSON library (included for C++; zero external dependencies for `contracts.h`).
 
 ## Testing
 Run the C++ parity suite:
