@@ -1,13 +1,12 @@
 // -----------------------------------------------------------------------------
 // ESSENTIAL PROCESS:
-// Resolves capability network addresses and applies Docker Guard suppression rules.
+// Resolves configured capability network addresses strictly from AppConfig inputs.
 //
 // DATA FLOW:
-// Capability Query -> Address Resolution + Docker Guard -> Final Bind Address
+// Config Address Input -> Validation + Host/Port Split -> Final Bind Address
 //
 // KEY PARAMETERS:
-// - capability: Service name to resolve.
-// - Docker Guard: Suppresses localhost to 0.0.0.0 in container environments.
+// - requestedIP: Configured IP/host from AppConfig (zero hardcoded defaults).
 // -----------------------------------------------------------------------------
 
 package connectivity
@@ -19,7 +18,7 @@ import (
 	"strings"
 )
 
-// Resolver handles environment-aware network address translation.
+// Resolver handles network address resolution strictly from configuration.
 type Resolver struct {
 	// IsDocker indicates if the current environment is a Docker container.
 	IsDocker bool
@@ -34,33 +33,32 @@ func NewResolver() *Resolver {
 	}
 }
 
-// ResolveBindAddr resolves the requested IP into an actual address to bind to.
-//
-// Docker Guard Logic:
-// If running in a Docker container, this method suppresses the requested IP
-// and forces a bind to 0.0.0.0. This ensures that the container port mapping
-// (Docker/K8s) works regardless of what was specified in the configuration.
-func (r *Resolver) ResolveBindAddr(requestedIP string) (string, error) {
-	requestedIP = strings.Trim(requestedIP, "\"")
-
-	// If not in Docker, use the requested IP directly.
-	if !r.IsDocker {
-		return requestedIP, nil
-	}
-
-	// In Docker, we force 0.0.0.0 to ensure orchestrated networking works.
-	// This "suppresses" any manual IP overrides.
-	return "0.0.0.0", nil
+// IsDockerEnv returns whether the resolver detected or was configured for a Docker environment.
+func (r *Resolver) IsDockerEnv() bool {
+	return r.IsDocker
 }
 
-// ResolveFullBindAddr takes a "host:port" string and returns a resolved "host:port"
-// using the Docker Guard logic.
+// ResolveBindAddr validates and returns the configured IP without substituting any hardcoded default.
+func (r *Resolver) ResolveBindAddr(requestedIP string) (string, error) {
+	if strings.TrimSpace(requestedIP) == "" {
+		return "", fmt.Errorf("connectivity.ResolveBindAddr: configured bind IP must not be empty (FAIL-FAST)")
+	}
+	return requestedIP, nil
+}
+
+// ResolveFullBindAddr validates and returns a configured "host:port", "[ipv6]:port", or bare host string.
 func (r *Resolver) ResolveFullBindAddr(addr string) (string, error) {
+	if strings.TrimSpace(addr) == "" {
+		return "", fmt.Errorf("connectivity.ResolveFullBindAddr: configured bind address must not be empty (FAIL-FAST)")
+	}
+
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		// If no port specified, treat the whole string as host
-		resolvedHost, err := r.ResolveBindAddr(addr)
-		return resolvedHost, err
+		return r.ResolveBindAddr(addr)
+	}
+	if strings.TrimSpace(port) == "" {
+		return "", fmt.Errorf("connectivity.ResolveFullBindAddr: configured bind port must not be empty in %q (FAIL-FAST)", addr)
 	}
 
 	resolvedHost, err := r.ResolveBindAddr(host)
@@ -71,21 +69,24 @@ func (r *Resolver) ResolveFullBindAddr(addr string) (string, error) {
 	return net.JoinHostPort(resolvedHost, port), nil
 }
 
-// isLoopback checks if the IP is in the 127.0.0.0/8 range.
-func (r *Resolver) isLoopback(ip string) bool {
-	return strings.HasPrefix(ip, "127.") || ip == "::1" || ip == "localhost"
+// IsLoopback checks if the IP or hostname refers to a loopback address.
+func (r *Resolver) IsLoopback(ip string) bool {
+	return strings.HasPrefix(ip, "127.") || ip == "::1" || strings.EqualFold(ip, "localhost")
 }
 
-// getPrimaryInterfaceIP finds the first non-loopback IP address.
-// Keep as utility for potential client-side discovery.
-func (r *Resolver) getPrimaryInterfaceIP() (string, error) {
+// isLoopback delegates to IsLoopback for package-internal compatibility.
+func (r *Resolver) isLoopback(ip string) bool {
+	return r.IsLoopback(ip)
+}
+
+// GetPrimaryInterfaceIP finds the first non-loopback IPv4 interface address.
+func (r *Resolver) GetPrimaryInterfaceIP() (string, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return "", err
 	}
 
 	for _, i := range ifaces {
-		// Skip loopback and down interfaces
 		if i.Flags&net.FlagLoopback != 0 || i.Flags&net.FlagUp == 0 {
 			continue
 		}
@@ -108,7 +109,6 @@ func (r *Resolver) getPrimaryInterfaceIP() (string, error) {
 				continue
 			}
 
-			// Return the first internal IPv4 address found (standard Docker behavior)
 			ip = ip.To4()
 			if ip != nil {
 				return ip.String(), nil
@@ -117,4 +117,9 @@ func (r *Resolver) getPrimaryInterfaceIP() (string, error) {
 	}
 
 	return "", fmt.Errorf("no primary network interface found")
+}
+
+// getPrimaryInterfaceIP delegates to GetPrimaryInterfaceIP for internal compatibility.
+func (r *Resolver) getPrimaryInterfaceIP() (string, error) {
+	return r.GetPrimaryInterfaceIP()
 }

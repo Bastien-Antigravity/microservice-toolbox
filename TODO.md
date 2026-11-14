@@ -13,7 +13,7 @@ tags:
 
 ## 🏗️ Architecture & Refactoring
 - [x] Standardize the C++ wrapper to use the Go-bridge expansion logic (FEAT-002).
-- [x] Docker Guard for gRPC server builders (Go, Python, Rust parity).
+- [x] Config-driven gRPC server builders (Go, Python, Rust parity consuming `AppConfig` verbatim; CLI Docker Guard in `config`).
 - [x] Log-level mapping: Simplified and standardized logic for cross-language log levels.
 
 ## 🧪 Testing & CI/CD
@@ -26,5 +26,5 @@ tags:
 - [x] Standardize Lifecycle Manager across Go, Python, Rust, and C++.
 - [x] Resilience Standard: Added randomized jitter and backoff to Reconnect loops (Go, Python, Rust, and C++ policy).
 - [x] C++ Parity: Implemented ManagedConnection and orchestration methods (ConnectBlocking, etc).
-- [x] Networking Hardening: Implemented "Docker Guard" suppression to prevent broken network binds in containers.
+- [x] Networking Hardening: Implemented "Docker Guard" CLI override suppression (`--host`/`--port` ignored in containers) and config-verbatim bind resolution (`connectivity.Resolver` preserves configured `AppConfig` IP/host/port).
 - [x] Direct Notification Client Standard: Go, Python, Rust, C++, and VBA parity pushing direct alerts to notif-server (gRPC port 1027) via libnotif CGO bridge.

@@ -33,7 +33,8 @@ if err != nil {
     log.Fatalf("failed to load config: %v", err)
 }
 
-// Decrypt secrets using the centralized RSA engine
+// Decrypt secrets using the centralized RSA engine and resolve version via AppConfig
+ver := cfg.GetVersion()
 secret, _ := cfg.DecryptSecret("ENC(...)")
 ```
 
@@ -83,18 +84,29 @@ nc, err := messaging.Connect(cfg, &logger.FmtLogger{})
 ```
 
 ### 5. Declarative `ServiceSpec` & Exchange Contracts (`pkg/spec`)
-Authoritative microservice OpenMFE registration (`PublishWithLifecycle`) and runtime Exchange Contract helpers (`ExchangeContract`, `ContractsEnvelope`, `ExtractProtoTextOperations`, `ExtractCapnpOperations`, `RenderProtoIDL`).
+Authoritative OpenMFE registration (`PublishWithLifecycle`, `BuildSpecFromConfig`) and runtime Exchange Contract helpers (`ExchangeContract`, `ContractPeer`, `ContractOperation`, `ContractsEnvelope`, `NewContractsEnvelope`, `DisplayAddress`, `ResolveContractPort`, `ExtractProtoTextOperations`, `ExtractCapnpOperations`, `RenderProtoIDL`). `BuildSpecFromConfig` / `PublishWithLifecycle` automatically populates `URL`, `%s` port placeholders in `Framing`, `DataStructure` (`version` via `cfg.GetVersion()`, `capability`, `ports`, `node`), `NavRoute`, `Canvas`, and `Health` from `AppConfig`.
 
 ```go
 contracts := []spec.ExchangeContract{{
     ID: "grpc", Type: "gRPC / Protobuf", TabLabel: "gRPC Protobuf",
+    Address: spec.DisplayAddress(grpcAddr), Port: spec.ResolveContractPort(grpcAddr),
     Operations: spec.ExtractProtoTextOperations(embeddedProto),
     SchemaFormat: "proto3", Schema: embeddedProto,
 }}
 _ = spec.PublishWithLifecycle(cfg, log, lm, "my_service", spec.ServiceSpec{
-    Name: "My Service", Tag: "my-service-mfe", Contracts: contracts, /* ... */
+    Name: "My Service", Tag: "my-service-mfe", Contracts: contracts,
+    Layer: "L2", Category: "Domain Services", Description: "...",
+    DocLink: "obsidian-brain/06-Microservices/my-service.md",
+    Protocol: "gRPC", Framing: "Port %s gRPC",
 })
+env := spec.NewContractsEnvelope("my_service", cfg.GetVersion(), "live contracts", contracts)
 ```
+
+### 6. WireTap, Lifecycle, Connectivity & Notifications
+- **WireTap (`pkg/wiretap`)**: Auto-initialized by `bootstrap.BootstrapService` (`ConfigureFromConfig`, `SetEnabled`/`IsEnabled`, `Snapshot`) with automatic hooks on `safe-socket`, `teleremote`, `notification`, `network`, and `messaging`.
+- **Lifecycle (`pkg/lifecycle`)**: LIFO shutdown cleanup (`NewManagerWithLogger`, `Register`, `Wait`).
+- **Connectivity (`pkg/connectivity`)**: Config-verbatim `Resolver` (`ResolveBindAddr`, `ResolveFullBindAddr`) failing fast on empty host/port.
+- **Notifications (`pkg/notification`)**: Direct one-way multi-channel alerting client (`NewClient(cfg, log)`).
 
 ## Architecture: The Reference Engine
 The Go module serves as the **Core Execution Engine**. All non-Go implementations (Python, Rust, C++, VBA) bridge to this library (via `libdistconf`) to perform sensitive operations like RSA decryption, ensuring absolute logic synchronization and zero security drift across the fleet.

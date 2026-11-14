@@ -4,7 +4,7 @@ The `notification` module provides a standardized client facade for dispatching 
 
 ## Architectural Role & Port Mapping
 - **Target Daemon**: `notif-server`
-- **Port**: Auto-discovered dynamically via `app_config.get_grpc_listen_addr("notif_server")` (canonical default `1027`). Strictly fails fast if the capability is missing or unresolvable (zero silent fallback).
+- **Port**: Auto-discovered dynamically via `app_config.get_grpc_listen_addr("notif_server")` (configured as `1027` in fleet YAML). Strictly fails fast if the capability is missing or unresolvable (zero silent fallback).
 - **Core Engine**: Binds dynamically to `notif-server`'s `libnotif` CGO shared library (via `notification::ffi`), mirroring `distconf::ffi`.
 - **Contrast with `tele-remote`**:
   - `tele-remote`: Bi-directional interactive control plane (bot menus, button callbacks, commands).
@@ -16,7 +16,7 @@ The `notification` module provides a standardized client facade for dispatching 
 - **100% Parity with Go, Python, and C++**: Identical method signatures (`send`, `send_alert`, `send_with_attachment`, `close`).
 - **libnotif CGO Bridge**: High-performance C ABI dispatch without requiring heavy tonic/prost compilation overhead.
 - **Asynchronous Tokio**: Native async/await support with synchronous helpers (`send_sync`, `send_alert_sync`).
-- **Dynamic Port Resolution**: Fully integrates with `AppConfig` and Docker Guard.
+- **Dynamic Port Resolution**: Consumes pre-validated `AppConfig` capability strings verbatim (with CLI Docker Guard in `config`).
 - **Fail-Fast Configuration**: Fails immediately on initialization if `notif_server` capability is missing or unresolvable.
 - **Two-Tier Logger Compliance**: Constructor wraps injected loggers with `ensure_safe_logger`.
 

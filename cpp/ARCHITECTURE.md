@@ -1,27 +1,29 @@
-# Architecture: C++ Microservice Toolbox
+# Architecture: C++17 & C11 Microservice Toolbox
 
-The C++ implementation is designed for maximum performance in latency-sensitive environments while maintaining full parity with the polyglot ecosystem.
+The C++ implementation is designed for maximum performance in latency-sensitive environments while maintaining 100% behavioral parity with the Go reference implementation.
 
 ## 1. Full FFI Bridge Sync
-To avoid the overhead of crossing the C++/Go bridge for every configuration lookup, the `AppConfig` class implements a **Full Sync** pattern:
-- **Initialization**: Upon startup, it calls `GetFullConfig()` from the Go bridge.
-- **Mirroring**: The resulting JSON is parsed using the header-only `nlohmann/json` library and stored in an internal `data_` object.
-- **Lookups**: `GetListenAddr` and `GetLocal` read directly from this in-memory mirror.
+To avoid the overhead of crossing the C++/Go bridge for every configuration lookup, `AppConfig` implements a **Full Sync** pattern:
+- **Initialization**: Calls `GetFullConfig()` from `libdistconf` once at startup.
+- **Mirroring**: The resulting JSON is parsed via header-only `nlohmann/json` into `data_`, with `local` overrides merged cleanly.
+- **Lookups**: `GetLocal`, `UnmarshalLocal`, `GetVersion` (`VERSION.txt`-only), and address validation (`GetListenAddr`, `GetGRPCListenAddr`, `GetRESTAddr`) operate fail-fast with zero silent fallbacks.
 
-## 2. Core Modules (Parity Expansion)
-- **Business**: Standard models (`MarketEvent`, `Trade`, `Signal`) with unified JSON mapping.
-- **Spec & Exchange Contracts (`spec/`)**: `spec.hpp` (`ServiceSpec`, `SpecPublisher`), `contracts.hpp` (`ExchangeContract`, `ContractsEnvelope`, `ExtractProtoTextOperations`, `ExtractCapnpOperations`), and zero-dependency pure C11 header `contracts.h` (`MtExchangeContract`, `MtContractsEnvelope`, `mt_contracts_envelope_to_json`).
-- **Connectivity**: `Resolver` for environment-aware address translation (Docker vs Native).
-- **Serializers**: High-performance `JsonSerializer`.
-- **Lifecycle**: `LifecycleManager` for graceful shutdown via signal handling (SIGINT/SIGTERM) and LIFO cleanup execution.
-- **Conn Manager**: `NetworkManager` for managing reconnection policies with backoff and jitter.
+## 2. Core Modules (100% Parity)
+- **Business (`business/Models.hpp`)**: Canonical `MarketEvent` (with RFC 4648 Base64 payload encoding), `Trade`, `Quote`, `OrderBook`, `OHLCV`, `Signal`, plus `WrapMarketEvent`, `Serialize`, `Deserialize`, and `SystemTimestamp`.
+- **Spec & Exchange Contracts (`spec/`)**: `spec.hpp` (`ServiceSpec`, `SpecPublisher` with `BuildSpecFromConfig` auto-enrichment & `PublishWithLifecycle`), `contracts.hpp` (`ExchangeContract`, `ContractsEnvelope`, `ExtractProtoTextOperations`, `ExtractCapnpOperations`), and zero-dependency pure C11 header `contracts.h` (`MtExchangeContract`, `MtContractsEnvelope`, `mt_contracts_envelope_to_json`).
+- **WireTap (`wiretap/WireTap.hpp`)**: Lock-free transport telemetry aggregator (`ConfigureFromConfig`, `SetEnabled`/`IsEnabled`, `RecordEvent`, `Snapshot`).
+- **Notification (`notification/NotificationClient.hpp`)**: Fail-fast direct gRPC alerting client (`FromConfig`) via `libnotif`.
+- **Connectivity (`connectivity/Resolver.hpp`)**: Config-verbatim `Resolver` (`ResolveBindAddr`, `ResolveFullBindAddr`) failing fast on empty host/port (never rewriting configured IPs to `0.0.0.0`).
+- **Version (`version/Version.hpp`)**: Exposed via `AppConfig::GetVersion()`, resolving strictly from `VERSION.txt` (or `-DAPP_VERSION` compiled from `VERSION.txt`) with zero runtime env overrides or `"0.0.1"` fallbacks.
+- **Serializers (`serializers/`)**: `JsonSerializer` & MsgPack serializers.
+- **Lifecycle (`lifecycle/LifecycleManager.hpp`)**: Graceful shutdown via signal handling (SIGINT/SIGTERM) and LIFO cleanup execution.
+- **Conn Manager (`conn_manager/`)**: Unified `NetworkManager::New(ac, logger)`, immutable precomputed `Endpoint` pointer structure (`ip`, `port`, `public_ip`, `profile`, `address`), zero-lock hot-path reads via `std::shared_ptr<const Endpoint>`, and dynamic 3-try `AppConfig->Sync()` reload contract.
 
 ## 3. Decryption Delegation
-While lookups are mirrored, **Decryption** is always delegated back to the Go core. This ensures that the private RSA keys only ever reside in the Go engine's memory space, providing a single, hardened security boundary.
+While config lookups are mirrored, **Decryption** is always delegated back to the Go core (`DistConf::Decrypt`) so private RSA keys remain isolated inside a single cryptographic boundary.
 
 ## 4. Hierarchy of Truth
-- **CLI Flags**: Managed via the Go engine (if passed through) or system-level overrides.
-- **Local Overrides**: The `LoadLocalOverrides()` method manually parses the `local:` section of local YAML files to ensure engine decoupling for service-specific settings.
+- **CLI Flags & Overrides**: Processed through `LoadConfig("standalone", argc, argv)` (with CLI Docker Guard ignoring `--host`/`--port` overrides inside containers) and `ValidateUniquePorts()`.
 
-## 5. Fallback Logic
-If the In-memory mirror fails to initialize or contains incomplete data for a specific capability, the toolbox automatically falls back to a direct FFI call to the Go engine as a failsafe.
+## 5. Cold-Path Fail-Fast / Zero Silent Fallback
+Required capabilities (`GetListenAddr`, `GetGRPCListenAddr`, `GetRESTAddr`), `VERSION.txt`, and unique port allocations validate upfront and throw explicit `std::runtime_error` diagnostics if missing or conflicting — never falling back silently to `"127.0.0.1"`, `"0.0.0.0"`, or `"0.0.1"`.

@@ -19,8 +19,11 @@ Utilizes `serde_yml` and `clap` to implement the "Hierarchy of Truth".
 ```rust
 use microservice_toolbox::config::load_config;
 
-// Loads standalone.yaml and applies CLI overrides with Docker Guard protection
-let cfg = load_config("standalone")?;
+// Loads standalone.yaml and applies CLI overrides (with CLI Docker Guard in containers)
+let cfg = AppConfig::load_config("standalone", None)?;
+
+// Version strictly via AppConfig (VERSION.txt only, fail-fast)
+let ver = cfg.get_version();
 
 // Access capability resolution
 let addr = cfg.get_listen_addr("my-service")?;
@@ -85,13 +88,17 @@ client.send_telemetry("Worker initialized successfully").await?;
 LIFO graceful shutdown manager trapping OS termination signals (`SIGINT`, `SIGTERM`).
 
 ### 6. Network Connectivity (`connectivity`)
-Docker Guard suppression, IPv4/IPv6 loopback detection, and dynamic port bind resolver.
+Config-verbatim endpoint/bind resolution from `AppConfig` (plus CLI Docker Guard flag suppression in `config`), IPv4/IPv6 loopback detection, and fail-fast empty-host/port rejection.
 
 ### 7. Serializers (`serializers`)
 High-performance JSON and MsgPack binary serializers.
 
-### 8. `ServiceSpec` & Exchange Contracts (`spec`)
-Declarative OpenMFE service registration (`publish_service_spec`, `publish_with_lifecycle`) with embedded `ExchangeContract`, `ContractPeer`, and `ContractOperation` payloads matching Go, Python, and C/C++.
+### 8. `ServiceSpec` & Exchange Contracts (`spec` & `contracts`)
+Declarative OpenMFE service registration (`publish`, `publish_with_lifecycle`, `build_spec_from_config`) with auto-enriched `url`, `%s` `framing` ports, `data_structure` (`version` via `cfg.get_version()`, `ports`, `node`), `ExchangeContract`, `ContractPeer`, `ContractOperation`, `ContractsEnvelope`, and IDL extractors (`extract_proto_operations`, `extract_capnp_operations`, `build_contracts_envelope`) re-exported under `microservice_toolbox::contracts`.
+
+### 9. Real-Time Transport WireTap (`wiretap`) & Notifications (`notification`)
+- **WireTap**: Lock-free transport telemetry aggregator (`configure_from_config`, `set_enabled`/`is_enabled`, `record_event`, `snapshot`).
+- **Notifications**: Direct gRPC alert dispatch (`NotificationClient::from_config(&cfg, logger)` via `libnotif`).
 
 ## Architecture & FFI Safety
 The Rust SDK interacts with the Go reference implementation via a high-performance C-linkage bridge. To ensure safety and performance:

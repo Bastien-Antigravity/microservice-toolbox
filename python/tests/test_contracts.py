@@ -7,8 +7,10 @@ from unittest import TestCase as utTestCase, main as utMain
 from microservice_toolbox.contracts import (
     ContractOperation,
     ContractPeer,
+    ContractsEnvelope,
     ExchangeContract,
     build_contracts_envelope,
+    extract_capnp_operations,
     extract_fastapi_operations,
     extract_proto_operations,
 )
@@ -21,6 +23,7 @@ class TestContractsHelpers(utTestCase):
 syntax = "proto3";
 package demo_pkg;
 service DemoControl {
+  option (google.api.default_host) = { host: "localhost" };
   rpc GetStatus(StatusReq) returns (StatusResp);
   rpc Connect(stream ClientMsg) returns (stream ServerCmd);
 }
@@ -32,6 +35,20 @@ service DemoControl {
         self.assertEqual(ops[1].kind, "BIDI_STREAM")
         self.assertEqual(ops[1].input, "stream ClientMsg")
         self.assertEqual(ops[1].output, "stream ServerCmd")
+
+        capnp = """
+enum Level {
+  info @0; # info level
+  error @1;
+}
+struct Packet {
+  id @0 :Text;
+}
+"""
+        cap_ops = extract_capnp_operations(capnp)
+        self.assertEqual(len(cap_ops), 2)
+        self.assertEqual(cap_ops[0].kind, "ENUM")
+        self.assertEqual(cap_ops[1].kind, "STRUCT")
 
         contract = ExchangeContract(
             id="grpc",
@@ -48,6 +65,9 @@ service DemoControl {
         self.assertTrue(env["exhaustive"])
         self.assertEqual(len(env["contracts"]), 1)
         self.assertEqual(env["contracts"][0]["tabLabel"], "gRPC Control")
+        parsed = ContractsEnvelope.from_dict(env)
+        self.assertEqual(parsed.service, "demo_service")
+        self.assertEqual(parsed.contracts[0].operations[0].name, "GetStatus")
 
     def test_extract_fastapi_operations_and_spec_forwarding(self) -> None:
         async def status_handler():

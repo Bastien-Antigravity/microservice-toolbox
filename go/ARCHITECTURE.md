@@ -9,10 +9,10 @@ Configuration is resolved in the following priority:
 3.  **Local YAML**: File-based settings (e.g., `standalone.yaml`).
 4.  **Remote/Defaults**: Infrastructure-level settings.
 
-## 2. Docker Guard
-A specialized networking layer that detects if a service is running inside a Docker container.
-- **Native Mode**: Uses resolved IP addresses as-is.
-- **Docker Mode**: Automatically rewrites binding addresses to `0.0.0.0` to ensure connectivity through container port mappings, regardless of what the config says.
+## 2. Docker Guard & Config-Only Networking
+A specialized networking guard that prevents CLI overrides from breaking automated container orchestration:
+- **CLI Docker Guard (`config/args.go`)**: Inside containers (`/.dockerenv` or `DOCKER_ENV=true`), CLI network overrides (`--host`, `--port`, `--grpc_host`, `--grpc_port`) are strictly ignored so container YAML DNS routing is never overwritten.
+- **Config-Only Bindings**: `connectivity.Resolver` and network servers preserve the IP, hostname, and port configured in `AppConfig` **verbatim** (never rewriting configured addresses to `0.0.0.0` or interface IPs) and fail fast on missing values.
 
 ## 3. Decryption Engine
 Integrates directly with `distributed-config` to handle `ENC(...)` blocks. It uses process-local environment variables to discover the RSA keys, allowing for seamless CLI overrides via the `--key` flag.
@@ -61,3 +61,10 @@ To ensure a consistent developer experience while respecting language idioms, we
 
 ### 7.4 Verification
 Cross-language compatibility is verified via the `integration/` suite. Any change to the toolbox must pass the polyglot matrix tests to ensure that a value serialized in one language can be reliably deserialized in another.
+
+## 8. Resilient Connection Manager (`conn_manager`)
+The Go implementation serves as the reference architecture for network resilience, automated dynamic failover, and zero-lock hot-path connectivity:
+- **Unified Constructor**: `NewNetworkManager(ac *config.AppConfig, l logger.Logger)` binds `AppConfig` and logger pointers directly.
+- **Lock-Free Atomic Endpoint Architecture**: All destination parameters are encapsulated in an immutable, precalculated `Endpoint` struct (`IP`, `Port`, `PublicIP`, `Profile`, `Address`). `ManagedConnection` loads endpoints and socket writers via `atomic.Pointer[Endpoint]` and `atomic.Pointer[io.WriteCloser]`. The steady-state hot path (`Write()`) has **zero mutex locks**, zero defensive nil checks, and zero temporary string formatting.
+- **Dynamic 3-Try Config Reload Contract**: On severed connections, reconnection loops use exponential backoff and randomized jitter. At attempt 3 (and every 3 attempts thereafter), `ManagedConnection` queries `AppConfig` (or calls `OnReloadConfig`). If a broken process restarted on a new port or an emergency fallback registered its address, the `Endpoint` pointer is atomically swapped to the new address and the pending write retries seamlessly.
+- **Testability & Sandboxing**: `NetworkManager.Dialer` allows plugging mock or in-memory transports (`net.Pipe()`) to verify complete multi-service reconnect and failover scenarios in sandboxed environments without requiring raw OS socket permissions.

@@ -17,11 +17,11 @@ KEY PARAMETERS:
 """
 
 from base64 import b64decode as base64B64Decode, b64encode as base64B64Encode
-from dataclasses import asdict as dcAsdict, is_dataclass as dcIs_dataclass
+from dataclasses import asdict as dcAsdict, fields as dcFields, is_dataclass as dcIs_dataclass
 from enum import Enum
 from json import JSONEncoder as jsonJSONEncoder, dumps as jsonDumps, loads as jsonLoads
 from time import time as timeTime
-from typing import Any
+from typing import Any, get_args, get_origin, get_type_hints
 
 from .models import MarketEvent, MarketEventType
 
@@ -40,9 +40,41 @@ class BusinessEncoder(jsonJSONEncoder):
             return dcAsdict(obj)
         if isinstance(obj, Enum):
             return obj.value
-        if isinstance(obj, bytes):
-            return base64B64Encode(obj).decode("utf-8")
+        if isinstance(obj, (bytes, bytearray)):
+            return base64B64Encode(bytes(obj)).decode("utf-8")
         return super().default(obj)
+
+
+# -----------------------------------------------------------------------------------------------
+
+
+def _coerce_value(value: Any, target_type: Any) -> Any:
+    """Recursively coerces decoded JSON values to target dataclass, Enum, or bytes types."""
+    if value is None:
+        return None
+    origin = get_origin(target_type)
+    if origin in (list, tuple) and isinstance(value, list):
+        item_types = get_args(target_type)
+        elem_type = item_types[0] if item_types else Any
+        return [_coerce_value(item, elem_type) for item in value]
+    if isinstance(target_type, type):
+        if target_type is bytes and isinstance(value, str):
+            return base64B64Decode(value)
+        if issubclass(target_type, Enum) and not isinstance(value, target_type):
+            return target_type(value)
+        if dcIs_dataclass(target_type) and isinstance(value, dict):
+            return _coerce_dataclass(value, target_type)
+    return value
+
+
+def _coerce_dataclass(raw: dict, target_class: Any) -> Any:
+    hints = get_type_hints(target_class)
+    field_names = {f.name for f in dcFields(target_class)}
+    kwargs = {}
+    for name in field_names:
+        if name in raw:
+            kwargs[name] = _coerce_value(raw[name], hints.get(name, Any))
+    return target_class(**kwargs)
 
 
 # -----------------------------------------------------------------------------------------------
@@ -59,19 +91,8 @@ def serialize(obj: Any) -> bytes:
 def deserialize(data: bytes, target_class: Any) -> Any:
     """Converts a JSON byte array back into a business object or dataclass."""
     raw = jsonLoads(data.decode("utf-8"))
-
-    # Handle base64 bytes for MarketEvent payload
-    if target_class == MarketEvent and "payload" in raw:
-        raw["payload"] = base64B64Decode(raw["payload"])
-        # Handle enum conversion
-        if "type" in raw:
-            raw["type"] = MarketEventType(raw["type"])
-
-    if dcIs_dataclass(target_class):
-        # Filter raw keys to match dataclass fields
-        fields = target_class.__dataclass_fields__.keys()
-        filtered = {k: v for k, v in raw.items() if k in fields}
-        return target_class(**filtered)
+    if dcIs_dataclass(target_class) and isinstance(raw, dict):
+        return _coerce_dataclass(raw, target_class)
     return raw
 
 

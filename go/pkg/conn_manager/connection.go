@@ -15,82 +15,200 @@ package conn_manager
 import (
 	"fmt"
 	"io"
+	"net"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/config"
 )
 
 // -----------------------------------------------------------------------------
-// ManagedConnection wraps a connection and handles automatic reconnection.
-type ManagedConnection struct {
-	ip           *string
-	port         *string
-	publicIP     *string
-	profile      string
-	nm           *NetworkManager
-	currentConn  io.WriteCloser
-	reconnecting bool
-	closing      chan struct{}
-	mu           sync.Mutex
+// Endpoint holds immutable destination coordinates for a connection.
+// Precalculates Address on the cold path to eliminate hot-path formatting and parsing.
+type Endpoint struct {
+	IP       string
+	Port     string
+	PublicIP string
+	Profile  string
+	Address  string // pre-formatted "IP:Port"
 }
 
-// NewManagedConnection creates a new connection wrapper.
-func NewManagedConnection(nm *NetworkManager, ip, port, publicIP *string, profile string) *ManagedConnection {
-	return &ManagedConnection{
-		nm:       nm,
-		ip:       ip,
-		port:     port,
-		publicIP: publicIP,
-		profile:  profile,
-		closing:  make(chan struct{}),
+// NewEndpoint builds and validates an immutable Endpoint on the cold path.
+func NewEndpoint(ip, port, publicIP, profile string) *Endpoint {
+	cleanIP := strings.Trim(ip, "\"")
+	cleanPort := strings.Trim(port, "\"")
+	cleanPubIP := strings.Trim(publicIP, "\"")
+	cleanProfile := strings.Trim(profile, "\"")
+	return &Endpoint{
+		IP:       cleanIP,
+		Port:     cleanPort,
+		PublicIP: cleanPubIP,
+		Profile:  cleanProfile,
+		Address:  cleanIP + ":" + cleanPort,
 	}
 }
 
 // -----------------------------------------------------------------------------
+// ManagedConnection wraps a connection and handles automatic reconnection lock-free.
+type ManagedConnection struct {
+	endpoint    atomic.Pointer[Endpoint]
+	currentConn atomic.Pointer[io.WriteCloser]
+	nm          *NetworkManager
+	appConfig   *config.AppConfig
+	capability  string
+	onReload    atomic.Pointer[ReloadHandler]
+	reconnectMu sync.Mutex
+	closing     chan struct{}
+}
 
-// Write sends data over the connection, automatically reconnecting if needed.
+// NewManagedConnection creates a new connection wrapper with an immutable Endpoint pointer.
+func NewManagedConnection(nm *NetworkManager, ep *Endpoint) *ManagedConnection {
+	mc := &ManagedConnection{
+		nm:      nm,
+		closing: make(chan struct{}),
+	}
+	if ep != nil {
+		mc.endpoint.Store(ep)
+	}
+	if nm != nil {
+		mc.appConfig = nm.AppConfig
+		if nm.OnReloadConfig != nil {
+			h := nm.OnReloadConfig
+			mc.onReload.Store(&h)
+		}
+	}
+	return mc
+}
+
+// NewManagedConnectionRaw creates a ManagedConnection from string pointers (backwards compatibility).
+func NewManagedConnectionRaw(nm *NetworkManager, ip, port, publicIP *string, profile string) *ManagedConnection {
+	var sIP, sPort, sPub string
+	if ip != nil {
+		sIP = *ip
+	}
+	if port != nil {
+		sPort = *port
+	}
+	if publicIP != nil {
+		sPub = *publicIP
+	}
+	return NewManagedConnection(nm, NewEndpoint(sIP, sPort, sPub, profile))
+}
+
+// SetReloadHandler sets the reload callback on ManagedConnection atomically.
+func (mc *ManagedConnection) SetReloadHandler(handler ReloadHandler) {
+	mc.onReload.Store(&handler)
+}
+
+// UpdateEndpoint atomically updates the target destination IP and Port.
+func (mc *ManagedConnection) UpdateEndpoint(newIP, newPort string) {
+	old := mc.endpoint.Load()
+	pubIP := ""
+	profile := ""
+	if old != nil {
+		pubIP = old.PublicIP
+		profile = old.Profile
+	}
+	mc.endpoint.Store(NewEndpoint(newIP, newPort, pubIP, profile))
+}
+
+// GetEndpoint returns the current IP and Port destination coordinates lock-free.
+func (mc *ManagedConnection) GetEndpoint() (string, string) {
+	ep := mc.endpoint.Load()
+	if ep == nil {
+		return "", ""
+	}
+	return ep.IP, ep.Port
+}
+
+// Endpoint returns the current immutable Endpoint pointer.
+func (mc *ManagedConnection) Endpoint() *Endpoint {
+	return mc.endpoint.Load()
+}
+
+func (mc *ManagedConnection) triggerReload(attempt int) {
+	ac := mc.appConfig
+	capName := mc.capability
+	reloadPtr := mc.onReload.Load()
+
+	// 1. Direct AppConfig resolution if bound to capability
+	if ac != nil && capName != "" {
+		mc.nm.Logger.Warning("ManagedConnection: 3 failed connection attempts reached (attempt %d). Synchronizing config from server...", attempt)
+		_ = ac.Sync()
+		newAddr, err := ac.GetListenAddr(capName)
+		if err == nil {
+			host, port, splitErr := net.SplitHostPort(newAddr)
+			if splitErr == nil {
+				mc.UpdateEndpoint(host, port)
+				mc.nm.Logger.Info("ManagedConnection: Target address for capability %s updated to %s:%s following config sync", capName, host, port)
+				return
+			}
+		}
+		mc.nm.Logger.Warning("ManagedConnection: Config sync for capability %s returned error: %v", capName, err)
+		return
+	}
+
+	// 2. Custom ReloadHandler callback fallback (for raw connections without AppConfig)
+	var reloadFn ReloadHandler
+	if reloadPtr != nil {
+		reloadFn = *reloadPtr
+	} else if mc.nm != nil {
+		reloadFn = mc.nm.OnReloadConfig
+	}
+	if reloadFn == nil {
+		return
+	}
+
+	mc.nm.Logger.Warning("ManagedConnection: 3 failed connection attempts reached (attempt %d). Reloading configuration...", attempt)
+	newIP, newPort, err := reloadFn(attempt)
+	if err != nil {
+		mc.nm.Logger.Warning("ManagedConnection: Configuration reload returned error: %v", err)
+		return
+	}
+
+	mc.UpdateEndpoint(newIP, newPort)
+	mc.nm.Logger.Info("ManagedConnection: Target address updated to %s:%s following config reload", newIP, newPort)
+}
+
+// -----------------------------------------------------------------------------
+
+// Write sends data over the connection, lock-free on the hot path.
 func (mc *ManagedConnection) Write(p []byte) (n int, err error) {
-	mc.mu.Lock()
-	defer mc.mu.Unlock()
-
-	// If no connection, try to reconnect immediately (blocking)
-	if mc.currentConn == nil {
-		mc.mu.Unlock()
+	connPtr := mc.currentConn.Load()
+	if connPtr == nil || *connPtr == nil {
 		if err := mc.reconnect(); err != nil {
-			mc.mu.Lock()
 			return 0, err
 		}
-		mc.mu.Lock()
+		connPtr = mc.currentConn.Load()
+		if connPtr == nil || *connPtr == nil {
+			return 0, io.ErrClosedPipe
+		}
 	}
 
-	n, err = mc.currentConn.Write(p)
-	if err != nil {
-		mc.nm.Logger.Warning("ManagedConnection: Write failed (%v). Reconnecting...", err)
-		_ = mc.currentConn.Close()
-		mc.currentConn = nil
-
-		// Reconnect and retry once (unlocking during reconnect)
-		mc.mu.Unlock()
-		if rErr := mc.reconnect(); rErr != nil {
-			mc.mu.Lock()
-			return 0, fmt.Errorf("%w: base write error: %v; reconnect error: %v", ErrWriteFailed, err, rErr)
-		}
-		mc.mu.Lock()
-
-		if mc.currentConn == nil {
-			return 0, fmt.Errorf("%w: reconnection succeeded but currentConn is still nil", ErrWriteFailed)
-		}
-		return mc.currentConn.Write(p) // Retry
+	n, err = (*connPtr).Write(p)
+	if err == nil {
+		return n, nil
 	}
-	return n, nil
+
+	// Hot-path recovery: reconnect and retry once
+	mc.nm.Logger.Warning("ManagedConnection: Write failed (%v). Reconnecting...", err)
+	oldConn := mc.currentConn.Swap(nil)
+	if oldConn != nil && *oldConn != nil {
+		_ = (*oldConn).Close()
+	}
+	if rErr := mc.reconnect(); rErr != nil {
+		return 0, fmt.Errorf("%w: base write error: %v; reconnect error: %v", ErrWriteFailed, err, rErr)
+	}
+	connPtr = mc.currentConn.Load()
+	if connPtr != nil && *connPtr != nil {
+		return (*connPtr).Write(p)
+	}
+	return 0, ErrWriteFailed
 }
 
 func (mc *ManagedConnection) isClosing() bool {
-	mc.mu.Lock()
-	defer mc.mu.Unlock()
-	return mc.isClosingLocked()
-}
-
-func (mc *ManagedConnection) isClosingLocked() bool {
 	if mc.closing == nil {
 		return false
 	}
@@ -106,7 +224,6 @@ func (mc *ManagedConnection) isClosingLocked() bool {
 
 // Close terminates the connection and stops the reconnection loop.
 func (mc *ManagedConnection) Close() error {
-	mc.mu.Lock()
 	select {
 	case <-mc.closing:
 		// Already closed
@@ -114,105 +231,63 @@ func (mc *ManagedConnection) Close() error {
 		close(mc.closing)
 	}
 
-	if mc.currentConn != nil {
-		err := mc.currentConn.Close()
-		mc.mu.Unlock()
-		return err
+	connPtr := mc.currentConn.Swap(nil)
+	if connPtr != nil && *connPtr != nil {
+		return (*connPtr).Close()
 	}
-	mc.mu.Unlock()
 	return nil
 }
 
 // -----------------------------------------------------------------------------
 
 func (mc *ManagedConnection) reconnect() error {
-	mc.mu.Lock()
-	if mc.reconnecting {
-		// Already reconnecting. Wait for it or just block until it's done.
-		// For simplicity, we'll wait for the currentConn to become non-nil
-		// by checking in a loop or using a condition variable.
-		// Given the "easiest way" instruction, let's just let the caller loop a bit
-		// or block on the mutex after releasing it.
+	mc.reconnectMu.Lock()
+	defer mc.reconnectMu.Unlock()
 
-		// Actually, better: if already reconnecting, we should block until it's done.
-		mc.mu.Unlock()
-		for {
-			mc.mu.Lock()
-			if mc.currentConn != nil {
-				mc.mu.Unlock()
-				return nil
-			}
-			if !mc.reconnecting {
-				// Reconnection failed or was canceled?
-				// Should we try again?
-				mc.reconnecting = true
-				mc.mu.Unlock()
-				break
-			}
-			mc.mu.Unlock()
-			time.Sleep(100 * time.Millisecond)
-		}
-	} else {
-		mc.reconnecting = true
-		mc.mu.Unlock()
+	// Double-check if another goroutine already restored the connection
+	if connPtr := mc.currentConn.Load(); connPtr != nil && *connPtr != nil {
+		return nil
 	}
 
-	// Actual reconnection loop
-	i := 0
+	nm := mc.nm
+	var lastErr error
 
-	for {
-		// Check if we are closing
+	for i := 0; (nm.MaxRetries == -1) || (i < nm.MaxRetries); i++ {
 		if mc.isClosing() {
-			mc.mu.Lock()
-			mc.reconnecting = false
-			mc.mu.Unlock()
 			return fmt.Errorf("connection closed")
 		}
 
-		conn, err := mc.nm.EstablishConnection(mc.ip, mc.port, mc.publicIP, mc.profile)
+		attempt := i + 1
+		if attempt%3 == 0 {
+			mc.triggerReload(attempt)
+		}
+
+		ep := mc.endpoint.Load()
+		conn, err := nm.EstablishConnection(ep)
 		if err == nil {
-			mc.mu.Lock()
-			if mc.isClosingLocked() {
-				if conn != nil {
-					_ = conn.Close()
-				}
-				mc.reconnecting = false
-				mc.mu.Unlock()
-				return fmt.Errorf("connection closed")
+			nm.Logger.Info("ManagedConnection: Reconnected to %s", ep.Address)
+			old := mc.currentConn.Swap(&conn)
+			if old != nil && *old != nil {
+				_ = (*old).Close()
 			}
-			address := fmt.Sprintf("%s:%s", *mc.ip, *mc.port)
-			mc.nm.Logger.Info("ManagedConnection: Reconnected to %s", address)
-			mc.currentConn = conn
-			mc.reconnecting = false
-			mc.mu.Unlock()
 			return nil
 		}
+		lastErr = err
 
-		// Check if we reached max retries (if not infinite)
-		if mc.nm.MaxRetries != -1 && i >= mc.nm.MaxRetries {
-			mc.mu.Lock()
-			mc.reconnecting = false
-			mc.mu.Unlock()
-			return fmt.Errorf("%w: reached max retries %d", ErrMaxRetriesReached, mc.nm.MaxRetries)
+		if nm.OnError != nil {
+			nm.OnError(attempt, err, "NetworkManager", fmt.Sprintf("Failed to recover connection to %s", ep.Address))
 		}
 
-		// Report failure to the optional hook
-		if mc.nm.OnError != nil {
-			mc.nm.OnError(i+1, err, "NetworkManager", fmt.Sprintf("Failed to recover connection to %s:%s", *mc.ip, *mc.port))
-		}
+		delay := nm.GetNextDelay(i)
+		nm.Logger.Warning("ManagedConnection: Reconnect to %s failed: %v. Retrying in %v...", ep.Address, err, delay)
 
-		delay := mc.nm.GetNextDelay(i)
-
-		// Sleep with cancellation check
 		select {
-		case <-time.After(delay):
 		case <-mc.closing:
-			mc.mu.Lock()
-			mc.reconnecting = false
-			mc.mu.Unlock()
 			return fmt.Errorf("connection closed during retry sleep")
+		case <-time.After(delay):
 		}
-
-		i++
 	}
+
+	ep := mc.endpoint.Load()
+	return fmt.Errorf("%w: reached max retries %d for %s (last error: %v)", ErrMaxRetriesReached, nm.MaxRetries, ep.Address, lastErr)
 }

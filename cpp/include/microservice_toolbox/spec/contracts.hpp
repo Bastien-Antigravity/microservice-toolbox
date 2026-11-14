@@ -198,8 +198,8 @@ struct ExchangeContract {
     std::string id;
     std::string type;
     std::string tabLabel;
-    std::string icon{"fa-exchange"};
-    std::string direction{"inbound"};
+    std::string icon;
+    std::string direction;
     std::string transport;
     std::string address;
     int port{0};
@@ -282,7 +282,7 @@ struct ExchangeContract {
  */
 struct ContractsEnvelope {
     std::string service;
-    std::string version{"0.0.1"};
+    std::string version;
     bool reliable{true};
     bool exhaustive{true};
     std::string generatedAt;
@@ -389,7 +389,7 @@ inline ContractsEnvelope NewContractsEnvelope(
     const std::vector<ExchangeContract>& contracts) {
     ContractsEnvelope env;
     env.service = service;
-    env.version = detail::TrimStr(version).empty() ? "0.0.1" : detail::TrimStr(version);
+    env.version = detail::TrimStr(version);
     env.reliable = true;
     env.exhaustive = true;
     env.generatedAt = CurrentUtcTimestampIso8601();

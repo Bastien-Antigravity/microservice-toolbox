@@ -5,8 +5,8 @@
  * ESSENTIAL PROCESS:
  * Standardizes self-describing microservice specifications and dynamic
  * registration with web-interface across the Bastien-Antigravity fleet for C++.
- * Auto-resolves runtime listen/REST addresses, dynamic semver, active
- * profile, and documentation links from AppConfig.
+ * Auto-resolves runtime listen/REST addresses, dynamic semver, host node,
+ * canvas/health metadata, and documentation links from AppConfig.
  *
  * FAIL-FAST PRINCIPLE:
  * Zero silent fallbacks, zero default values, and zero dummy placeholders.
@@ -27,17 +27,19 @@
  * - base: Microservice-provided ServiceSpec containing domain metadata.
  */
 
-#include <string>
-#include <vector>
-#include <map>
-#include <memory>
-#include <thread>
+#include <atomic>
 #include <chrono>
 #include <iostream>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <random>
 #include <sstream>
 #include <stdexcept>
-#include <atomic>
-#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
 
 #if defined(_WIN32)
 #include <winsock2.h>
@@ -64,6 +66,9 @@ inline bool SendHttpRequest(const std::string& targetAddr, const std::string& pa
     auto colon = targetAddr.rfind(':');
     if (colon == std::string::npos) return false;
     std::string host = targetAddr.substr(0, colon);
+    if (host.size() >= 2 && host.front() == '[' && host.back() == ']') {
+        host = host.substr(1, host.size() - 2);
+    }
     int port = 0;
     try {
         port = std::stoi(targetAddr.substr(colon + 1));
@@ -149,6 +154,26 @@ inline bool SendHttpRequest(const std::string& targetAddr, const std::string& pa
     return (resp.find(" 200 ") != std::string::npos || resp.find(" 201 ") != std::string::npos);
 }
 
+inline int JitteredBackoffMs(int delayMs) {
+    static thread_local std::mt19937 rng{std::random_device{}()};
+    int half = delayMs / 2;
+    if (half <= 0) return delayMs;
+    std::uniform_int_distribution<int> dist(0, half);
+    return delayMs + dist(rng);
+}
+
+inline std::string CurrentHostname() {
+    char hostBuf[256] = {0};
+#if defined(_WIN32)
+    const char* envHost = std::getenv("COMPUTERNAME");
+    if (envHost && envHost[0] != '\0') return std::string(envHost);
+#endif
+    if (gethostname(hostBuf, sizeof(hostBuf) - 1) == 0 && hostBuf[0] != '\0') {
+        return std::string(hostBuf);
+    }
+    return "";
+}
+
 } // namespace detail
 
 // -----------------------------------------------------------------------------
@@ -171,9 +196,145 @@ struct ProtocolSpec {
         };
     }
 
-    nlohmann::json toJson() const {
-        return ToJson();
+    nlohmann::json toJson() const { return ToJson(); }
+    nlohmann::json to_json() const { return ToJson(); }
+
+    static ProtocolSpec FromJson(const nlohmann::json& j) {
+        ProtocolSpec p;
+        p.type = j.value("type", "");
+        p.port = j.value("port", 0);
+        p.framing = j.value("framing", "");
+        p.description = j.value("description", "");
+        return p;
     }
+
+    static ProtocolSpec fromJson(const nlohmann::json& j) { return FromJson(j); }
+    static ProtocolSpec from_json(const nlohmann::json& j) { return FromJson(j); }
+};
+
+// -----------------------------------------------------------------------------
+
+/**
+ * DependencySpec represents a declared downstream dependency of a microservice.
+ */
+struct DependencySpec {
+    std::string target;
+    std::string proto;
+    std::string label;
+    std::string exchangeId;
+    std::string description;
+
+    nlohmann::json ToJson() const {
+        nlohmann::json j = {
+            {"target", target},
+            {"proto", proto}
+        };
+        if (!label.empty()) j["label"] = label;
+        if (!exchangeId.empty()) j["exchangeId"] = exchangeId;
+        if (!description.empty()) j["description"] = description;
+        return j;
+    }
+
+    nlohmann::json toJson() const { return ToJson(); }
+    nlohmann::json to_json() const { return ToJson(); }
+
+    static DependencySpec FromJson(const nlohmann::json& j) {
+        DependencySpec d;
+        d.target = j.value("target", "");
+        d.proto = j.value("proto", "");
+        d.label = j.value("label", "");
+        d.exchangeId = j.value("exchangeId", "");
+        d.description = j.value("description", "");
+        return d;
+    }
+
+    static DependencySpec fromJson(const nlohmann::json& j) { return FromJson(j); }
+    static DependencySpec from_json(const nlohmann::json& j) { return FromJson(j); }
+};
+
+// -----------------------------------------------------------------------------
+
+/**
+ * HealthSpec standardizes declarative health check and reachability probes.
+ */
+struct HealthSpec {
+    std::string type;
+    int port{0};
+    std::string path;
+    int timeoutMs{0};
+
+    nlohmann::json ToJson() const {
+        nlohmann::json j = nlohmann::json::object();
+        if (!type.empty()) j["type"] = type;
+        if (port > 0) j["port"] = port;
+        if (!path.empty()) j["path"] = path;
+        if (timeoutMs > 0) j["timeoutMs"] = timeoutMs;
+        return j;
+    }
+
+    nlohmann::json toJson() const { return ToJson(); }
+    nlohmann::json to_json() const { return ToJson(); }
+
+    static HealthSpec FromJson(const nlohmann::json& j) {
+        HealthSpec h;
+        h.type = j.value("type", "");
+        h.port = j.value("port", 0);
+        h.path = j.value("path", "");
+        h.timeoutMs = j.value("timeoutMs", 0);
+        return h;
+    }
+
+    static HealthSpec fromJson(const nlohmann::json& j) { return FromJson(j); }
+    static HealthSpec from_json(const nlohmann::json& j) { return FromJson(j); }
+};
+
+// -----------------------------------------------------------------------------
+
+/**
+ * CanvasSpec declares presentation attributes for the transport SVG mesh canvas and UI tiers.
+ */
+struct CanvasSpec {
+    std::string icon;
+    std::string color;
+    std::string preferredSlot;
+    double preferredX{0.0};
+    double preferredY{0.0};
+    std::vector<std::string> particleProto;
+
+    bool IsEmpty() const {
+        return icon.empty() && color.empty() && preferredSlot.empty() &&
+               preferredX == 0.0 && preferredY == 0.0 && particleProto.empty();
+    }
+
+    nlohmann::json ToJson() const {
+        nlohmann::json j = nlohmann::json::object();
+        if (!icon.empty()) j["icon"] = icon;
+        if (!color.empty()) j["color"] = color;
+        if (!preferredSlot.empty()) j["preferredSlot"] = preferredSlot;
+        if (preferredX > 0.0) j["preferredX"] = preferredX;
+        if (preferredY > 0.0) j["preferredY"] = preferredY;
+        if (!particleProto.empty()) j["particleProto"] = particleProto;
+        return j;
+    }
+
+    nlohmann::json toJson() const { return ToJson(); }
+    nlohmann::json to_json() const { return ToJson(); }
+
+    static CanvasSpec FromJson(const nlohmann::json& j) {
+        CanvasSpec c;
+        c.icon = j.value("icon", "");
+        c.color = j.value("color", "");
+        c.preferredSlot = j.value("preferredSlot", "");
+        c.preferredX = j.value("preferredX", 0.0);
+        c.preferredY = j.value("preferredY", 0.0);
+        if (j.contains("particleProto") && j["particleProto"].is_array()) {
+            c.particleProto = j["particleProto"].get<std::vector<std::string>>();
+        }
+        return c;
+    }
+
+    static CanvasSpec fromJson(const nlohmann::json& j) { return FromJson(j); }
+    static CanvasSpec from_json(const nlohmann::json& j) { return FromJson(j); }
 };
 
 // -----------------------------------------------------------------------------
@@ -199,6 +360,9 @@ struct ServiceSpec {
     std::string framing;
     std::string docLink;
     std::string navRoute;
+    std::optional<HealthSpec> health;
+    std::optional<CanvasSpec> canvas;
+    std::vector<DependencySpec> dependencies;
     std::vector<ProtocolSpec> protocols;
     std::vector<ExchangeContract> contracts;
     std::vector<std::string> flowDiagram;
@@ -233,6 +397,19 @@ struct ServiceSpec {
         if (!navRoute.empty()) {
             j["navRoute"] = navRoute;
         }
+        if (health.has_value()) {
+            j["health"] = health->ToJson();
+        }
+        if (canvas.has_value() && !canvas->IsEmpty()) {
+            j["canvas"] = canvas->ToJson();
+        }
+        if (!dependencies.empty()) {
+            nlohmann::json depArr = nlohmann::json::array();
+            for (const auto& d : dependencies) {
+                depArr.push_back(d.ToJson());
+            }
+            j["dependencies"] = depArr;
+        }
         if (!protocols.empty()) {
             nlohmann::json protoArr = nlohmann::json::array();
             for (const auto& p : protocols) {
@@ -250,9 +427,61 @@ struct ServiceSpec {
         return j;
     }
 
-    nlohmann::json toJson() const {
-        return ToJson();
+    nlohmann::json toJson() const { return ToJson(); }
+    nlohmann::json to_json() const { return ToJson(); }
+
+    static ServiceSpec FromJson(const nlohmann::json& j) {
+        ServiceSpec s;
+        s.name = j.value("name", "");
+        s.tag = j.value("tag", "");
+        s.url = j.value("url", "");
+        s.navTitle = j.value("navTitle", "");
+        s.layer = j.value("layer", "");
+        s.category = j.value("category", "");
+        s.priority = j.value("priority", 100);
+        s.icon = j.value("icon", "fa-cubes");
+        s.color = j.value("color", "");
+        s.requiresAuth = j.value("requiresAuth", false);
+        s.capability = j.value("capability", "");
+        s.description = j.value("desc", j.value("description", ""));
+        s.protocol = j.value("protocol", "");
+        s.framing = j.value("framing", "");
+        s.docLink = j.value("docLink", "");
+        s.navRoute = j.value("navRoute", "");
+        if (j.contains("health") && j["health"].is_object()) {
+            s.health = HealthSpec::FromJson(j["health"]);
+        }
+        if (j.contains("canvas") && j["canvas"].is_object()) {
+            s.canvas = CanvasSpec::FromJson(j["canvas"]);
+        }
+        if (j.contains("dependencies") && j["dependencies"].is_array()) {
+            for (const auto& item : j["dependencies"]) {
+                s.dependencies.push_back(DependencySpec::FromJson(item));
+            }
+        }
+        if (j.contains("protocols") && j["protocols"].is_array()) {
+            for (const auto& item : j["protocols"]) {
+                s.protocols.push_back(ProtocolSpec::FromJson(item));
+            }
+        }
+        if (j.contains("contracts") && j["contracts"].is_array()) {
+            for (const auto& item : j["contracts"]) {
+                s.contracts.push_back(ExchangeContract::FromJson(item));
+            }
+        }
+        if (j.contains("flowDiagram") && j["flowDiagram"].is_array()) {
+            s.flowDiagram = j["flowDiagram"].get<std::vector<std::string>>();
+        }
+        if (j.contains("dataStructure") && j["dataStructure"].is_object()) {
+            s.dataStructure = j["dataStructure"];
+        }
+        s.sdkLang = j.value("sdkLang", "language-cpp");
+        s.sourceCode = j.value("sourceCode", "");
+        return s;
     }
+
+    static ServiceSpec fromJson(const nlohmann::json& j) { return FromJson(j); }
+    static ServiceSpec from_json(const nlohmann::json& j) { return FromJson(j); }
 };
 
 // -----------------------------------------------------------------------------
@@ -267,46 +496,53 @@ public:
      * FAIL-FAST: Strictly validates all required metadata and dynamic endpoints with zero fallbacks.
      */
     static ServiceSpec BuildSpecFromConfig(const config::AppConfig& appConfig, const std::string& capability, const ServiceSpec& base) {
-        if (capability.empty()) {
+        std::string cap = contracts_detail_trim(capability);
+        if (cap.empty()) {
             throw std::invalid_argument("spec.BuildSpecFromConfig: capability name is strictly required (FAIL-FAST)");
         }
-        if (base.name.empty()) {
-            throw std::invalid_argument("spec.BuildSpecFromConfig: 'name' is strictly required for capability '" + capability + "' (FAIL-FAST)");
+        if (contracts_detail_trim(base.name).empty()) {
+            throw std::invalid_argument("spec.BuildSpecFromConfig: 'name' is strictly required for capability '" + cap + "' (FAIL-FAST)");
         }
-        if (base.tag.empty()) {
-            throw std::invalid_argument("spec.BuildSpecFromConfig: 'tag' is strictly required for capability '" + capability + "' (FAIL-FAST)");
+        if (contracts_detail_trim(base.tag).empty()) {
+            throw std::invalid_argument("spec.BuildSpecFromConfig: 'tag' is strictly required for capability '" + cap + "' (FAIL-FAST)");
         }
-        if (base.layer.empty()) {
-            throw std::invalid_argument("spec.BuildSpecFromConfig: 'layer' (L1|L2|L3) is strictly required for capability '" + capability + "' (FAIL-FAST)");
+        if (contracts_detail_trim(base.layer).empty()) {
+            throw std::invalid_argument("spec.BuildSpecFromConfig: 'layer' (L1|L2|L3) is strictly required for capability '" + cap + "' (FAIL-FAST)");
         }
-        if (base.category.empty()) {
-            throw std::invalid_argument("spec.BuildSpecFromConfig: 'category' is strictly required for capability '" + capability + "' (FAIL-FAST)");
+        if (contracts_detail_trim(base.category).empty()) {
+            throw std::invalid_argument("spec.BuildSpecFromConfig: 'category' is strictly required for capability '" + cap + "' (FAIL-FAST)");
         }
-        if (base.description.empty()) {
-            throw std::invalid_argument("spec.BuildSpecFromConfig: 'description' is strictly required for capability '" + capability + "' (FAIL-FAST)");
+        if (contracts_detail_trim(base.description).empty()) {
+            throw std::invalid_argument("spec.BuildSpecFromConfig: 'description' is strictly required for capability '" + cap + "' (FAIL-FAST)");
         }
-        if (base.docLink.empty()) {
-            throw std::invalid_argument("spec.BuildSpecFromConfig: 'docLink' is strictly required for capability '" + capability + "' (FAIL-FAST)");
+        if (contracts_detail_trim(base.docLink).empty()) {
+            throw std::invalid_argument("spec.BuildSpecFromConfig: 'docLink' is strictly required for capability '" + cap + "' (FAIL-FAST)");
         }
-        if (base.protocol.empty()) {
-            throw std::invalid_argument("spec.BuildSpecFromConfig: 'protocol' is strictly required for capability '" + capability + "' (FAIL-FAST)");
+        if (contracts_detail_trim(base.protocol).empty()) {
+            throw std::invalid_argument("spec.BuildSpecFromConfig: 'protocol' is strictly required for capability '" + cap + "' (FAIL-FAST)");
         }
-        if (base.framing.empty()) {
-            throw std::invalid_argument("spec.BuildSpecFromConfig: 'framing' is strictly required for capability '" + capability + "' (FAIL-FAST)");
+        if (contracts_detail_trim(base.framing).empty()) {
+            throw std::invalid_argument("spec.BuildSpecFromConfig: 'framing' is strictly required for capability '" + cap + "' (FAIL-FAST)");
         }
 
         ServiceSpec spec = base;
-        spec.capability = capability;
-        if (spec.navTitle.empty()) {
+        spec.capability = cap;
+        if (contracts_detail_trim(spec.navTitle).empty()) {
             spec.navTitle = spec.name;
+        }
+        if (contracts_detail_trim(spec.icon).empty()) {
+            spec.icon = "fa-cubes";
+        }
+        if (contracts_detail_trim(spec.sdkLang).empty()) {
+            spec.sdkLang = "language-cpp";
         }
 
         std::string listenAddr;
-        try { listenAddr = appConfig.GetListenAddr(capability); } catch (...) {}
+        try { listenAddr = appConfig.GetListenAddr(cap); } catch (...) {}
         std::string restAddr;
-        try { restAddr = appConfig.GetRESTAddr(capability); } catch (...) {}
+        try { restAddr = appConfig.GetRESTAddr(cap); } catch (...) {}
         std::string grpcAddr;
-        try { grpcAddr = appConfig.GetGRPCListenAddr(capability); } catch (...) {}
+        try { grpcAddr = appConfig.GetGRPCListenAddr(cap); } catch (...) {}
 
         auto extractPort = [](const std::string& addr) -> std::string {
             auto idx = addr.rfind(':');
@@ -317,17 +553,17 @@ public:
         std::string restPort = extractPort(restAddr);
         std::string grpcPort = extractPort(grpcAddr);
 
-        if (spec.url.empty()) {
+        if (contracts_detail_trim(spec.url).empty()) {
             if (!restAddr.empty()) {
                 spec.url = "http://" + restAddr;
             } else if (!listenAddr.empty()) {
                 spec.url = "http://" + listenAddr;
             } else {
-                throw std::runtime_error("spec.BuildSpecFromConfig: unable to resolve URL for capability '" + capability + "' (FAIL-FAST)");
+                throw std::runtime_error("spec.BuildSpecFromConfig: unable to resolve URL for capability '" + cap + "' (FAIL-FAST)");
             }
         }
 
-        // Framing port interpolation: If caller provided format string with %s, populate available ports
+        // Framing port interpolation
         if (spec.framing.find("%s") != std::string::npos) {
             std::vector<std::string> available;
             if (!tcpPort.empty()) available.push_back(tcpPort);
@@ -342,7 +578,7 @@ public:
             }
 
             if (available.size() < count) {
-                throw std::runtime_error("spec.BuildSpecFromConfig: framing requires " + std::to_string(count) + " port(s) for capability '" + capability + "' (FAIL-FAST)");
+                throw std::runtime_error("spec.BuildSpecFromConfig: framing requires " + std::to_string(count) + " port(s) for capability '" + cap + "' (FAIL-FAST)");
             }
 
             for (size_t i = 0; i < count; ++i) {
@@ -354,27 +590,65 @@ public:
         }
 
         std::string ver = appConfig.GetVersion();
-        if (ver.empty()) {
+        if (contracts_detail_trim(ver).empty()) {
             throw std::runtime_error("spec.BuildSpecFromConfig: dynamic version resolution returned empty string (FAIL-FAST)");
         }
 
-        spec.dataStructure["version"] = ver;
-        spec.dataStructure["capability"] = capability;
-        spec.dataStructure["ports"] = nlohmann::json::object();
-
-        if (!tcpPort.empty()) spec.dataStructure["ports"]["tcp"] = tcpPort;
-        if (!restPort.empty()) spec.dataStructure["ports"]["rest"] = restPort;
-        if (!grpcPort.empty()) spec.dataStructure["ports"]["grpc"] = grpcPort;
-
-#if !defined(_WIN32)
-        char hostBuf[256] = {0};
-        if (gethostname(hostBuf, sizeof(hostBuf) - 1) == 0 && hostBuf[0] != '\0') {
-            spec.dataStructure["node"] = std::string(hostBuf);
+        if (!spec.dataStructure.is_object()) {
+            spec.dataStructure = nlohmann::json::object();
         }
-#endif
-        if (spec.navRoute.empty()) {
+        spec.dataStructure["version"] = ver;
+        spec.dataStructure["capability"] = cap;
+
+        nlohmann::json portsJson = nlohmann::json::object();
+        if (!tcpPort.empty()) portsJson["tcp"] = tcpPort;
+        if (!restPort.empty()) portsJson["rest"] = restPort;
+        if (!grpcPort.empty()) portsJson["grpc"] = grpcPort;
+        if (!portsJson.empty()) {
+            spec.dataStructure["ports"] = portsJson;
+        }
+
+        std::string host = detail::CurrentHostname();
+        if (!host.empty()) {
+            spec.dataStructure["node"] = host;
+        }
+
+        if (contracts_detail_trim(spec.navRoute).empty()) {
             spec.navRoute = "/mfe/" + spec.name;
         }
+
+        CanvasSpec cv = spec.canvas.value_or(CanvasSpec{});
+        if (spec.color.empty() && !cv.color.empty()) {
+            spec.color = cv.color;
+        } else if (cv.color.empty() && !spec.color.empty()) {
+            cv.color = spec.color;
+        }
+        if (cv.icon.empty() && !spec.icon.empty()) {
+            cv.icon = spec.icon;
+        }
+        spec.canvas = cv;
+
+        HealthSpec hs = spec.health.value_or(HealthSpec{});
+        if (hs.type.empty()) {
+            hs.type = "tcp";
+        }
+        if (hs.port == 0) {
+            for (const auto& pStr : {restPort, tcpPort, grpcPort}) {
+                if (!pStr.empty()) {
+                    try {
+                        int n = std::stoi(pStr);
+                        if (n > 0) {
+                            hs.port = n;
+                            break;
+                        }
+                    } catch (...) {}
+                }
+            }
+        }
+        if (hs.timeoutMs == 0) {
+            hs.timeoutMs = 350;
+        }
+        spec.health = hs;
 
         return spec;
     }
@@ -386,68 +660,99 @@ public:
     // -------------------------------------------------------------------------
 
     /**
-     * PublishSync validates web_interface connectivity (FAIL-FAST) and executes HTTP publishing.
+     * PublishSync validates web_interface and spec synchronously (FAIL-FAST).
+     * When maxWaitMs == 0 (default), performs a single delivery attempt matching fast unit tests.
+     * When maxWaitMs > 0 (or < 0 for infinite), retries with 500ms..30s exponential backoff and jitter.
      */
-    static bool PublishSync(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, const std::string& capability, const ServiceSpec& base) {
+    static bool PublishSync(
+        const config::AppConfig& appConfig,
+        std::shared_ptr<utils::Logger> logger,
+        const std::string& capability,
+        const ServiceSpec& base,
+        int maxWaitMs = 0,
+        std::shared_ptr<std::atomic<bool>> stopFlag = nullptr) {
         std::string webAddr = appConfig.GetListenAddr("web_interface");
-        if (webAddr.empty()) {
+        if (contracts_detail_trim(webAddr).empty()) {
             if (logger) {
                 logger->Critical("spec.PublishSync: Capability 'web_interface' is unresolvable from configuration (FAIL-FAST)");
             }
             throw std::runtime_error("spec.PublishSync: capability 'web_interface' is unresolvable from configuration (FAIL-FAST)");
         }
 
-        // Validate specification synchronously (FAIL-FAST)
         ServiceSpec spec = BuildSpecFromConfig(appConfig, capability, base);
         std::string payload = spec.ToJson().dump();
 
-        bool ok = detail::SendHttpRequest(webAddr, payload);
-        if (ok) {
-            if (logger) {
-                logger->Info("spec.PublishSync: Successfully published '" + spec.name + "' to " + webAddr);
+        auto start = std::chrono::steady_clock::now();
+        int delayMs = 500;
+        const int maxDelayMs = 30000;
+
+        while (true) {
+            if (stopFlag && stopFlag->load()) return false;
+
+            if (detail::SendHttpRequest(webAddr, payload)) {
+                if (logger) {
+                    logger->Info("spec.PublishSync: Successfully published '" + spec.name + "' to " + webAddr);
+                }
+                return true;
             }
-        } else {
-            if (logger) {
-                logger->Debug("spec.PublishSync: Failed to reach web-interface at " + webAddr);
+
+            if (maxWaitMs == 0) {
+                if (logger) {
+                    logger->Debug("spec.PublishSync: Failed to reach web-interface at " + webAddr);
+                }
+                return false;
             }
+
+            if (maxWaitMs > 0) {
+                auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - start).count();
+                if (elapsedMs >= maxWaitMs) {
+                    return false;
+                }
+            }
+
+            int sleepMs = detail::JitteredBackoffMs(delayMs);
+            if (logger) {
+                logger->Debug("spec.PublishSync: Waiting for web-interface at " + webAddr + ". Retrying in " + std::to_string(sleepMs) + "ms...");
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+            delayMs = std::min(delayMs * 2, maxDelayMs);
         }
-        return ok;
     }
 
-    static bool PublishSync(const config::AppConfig& appConfig, utils::Logger* logger, const std::string& capability, const ServiceSpec& base) {
+    static bool PublishSync(const config::AppConfig& appConfig, utils::Logger* logger, const std::string& capability, const ServiceSpec& base, int maxWaitMs = 0) {
         std::shared_ptr<utils::Logger> safeLogger;
         if (logger) {
             safeLogger = std::shared_ptr<utils::Logger>(logger, [](utils::Logger*){});
         } else {
             safeLogger = appConfig.GetLogger();
         }
-        return PublishSync(appConfig, safeLogger, capability, base);
+        return PublishSync(appConfig, safeLogger, capability, base, maxWaitMs);
     }
 
-    static bool publishSync(const config::AppConfig& appConfig, utils::Logger* logger, const std::string& capability, const ServiceSpec& base) {
-        return PublishSync(appConfig, logger, capability, base);
+    static bool publishSync(const config::AppConfig& appConfig, utils::Logger* logger, const std::string& capability, const ServiceSpec& base, int maxWaitMs = 0) {
+        return PublishSync(appConfig, logger, capability, base, maxWaitMs);
     }
 
-    static bool publishSync(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, const std::string& capability, const ServiceSpec& base) {
-        return PublishSync(appConfig, logger, capability, base);
+    static bool publishSync(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, const std::string& capability, const ServiceSpec& base, int maxWaitMs = 0) {
+        return PublishSync(appConfig, logger, capability, base, maxWaitMs);
     }
 
     // -------------------------------------------------------------------------
 
     /**
      * Publish validates web_interface reachability and specification synchronously (FAIL-FAST)
-     * before spawning background publishing with periodic 30s heartbeats.
+     * before spawning background publishing with 500ms..30s exponential backoff, jitter, and 30s heartbeats.
      */
     static void Publish(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, const std::string& capability, const ServiceSpec& base, std::shared_ptr<std::atomic<bool>> stopFlag = nullptr) {
         std::string webAddr = appConfig.GetListenAddr("web_interface");
-        if (webAddr.empty()) {
+        if (contracts_detail_trim(webAddr).empty()) {
             if (logger) {
                 logger->Critical("spec.Publish: Capability 'web_interface' is unresolvable from configuration (FAIL-FAST)");
             }
             throw std::runtime_error("spec.Publish: capability 'web_interface' is unresolvable from configuration (FAIL-FAST)");
         }
 
-        // Validate specification synchronously (FAIL-FAST)
         ServiceSpec spec = BuildSpecFromConfig(appConfig, capability, base);
         std::string payload = spec.ToJson().dump();
 
@@ -455,10 +760,11 @@ public:
             stopFlag = std::make_shared<std::atomic<bool>>(false);
         }
 
-        // Spawn non-blocking background thread maintaining periodic 30s heartbeats
-        // Avoid raw pointer capture by holding std::shared_ptr<utils::Logger>
         std::thread([webAddr, payload, spec, logger, stopFlag]() {
             bool isFirst = true;
+            int delayMs = 500;
+            const int maxDelayMs = 30000;
+
             while (!stopFlag->load()) {
                 if (detail::SendHttpRequest(webAddr, payload)) {
                     if (logger) {
@@ -469,14 +775,22 @@ public:
                             logger->Debug("spec.Publish: Heartbeat for '" + spec.name + "' sent to " + webAddr);
                         }
                     }
-                } else {
-                    if (logger) {
-                        logger->Debug("spec.Publish: Waiting for web-interface at " + webAddr + ". Retrying...");
+                    delayMs = 500;
+                    for (int i = 0; i < 30; ++i) {
+                        if (stopFlag->load()) return;
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
                     }
-                }
-                for (int i = 0; i < 30; ++i) {
-                    if (stopFlag->load()) return;
-                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                } else {
+                    int waitMs = detail::JitteredBackoffMs(delayMs);
+                    if (logger) {
+                        logger->Debug("spec.Publish: Waiting for web-interface at " + webAddr + ". Retrying in " + std::to_string(waitMs) + "ms...");
+                    }
+                    int chunk = 100;
+                    for (int elapsed = 0; elapsed < waitMs; elapsed += chunk) {
+                        if (stopFlag->load()) return;
+                        std::this_thread::sleep_for(std::chrono::milliseconds(std::min(chunk, waitMs - elapsed)));
+                    }
+                    delayMs = std::min(delayMs * 2, maxDelayMs);
                 }
             }
         }).detach();
@@ -531,6 +845,11 @@ public:
 
     static void publishWithLifecycle(const config::AppConfig& appConfig, std::shared_ptr<utils::Logger> logger, lifecycle::LifecycleManager* lm, const std::string& capability, const ServiceSpec& base) {
         PublishWithLifecycle(appConfig, logger, lm, capability, base);
+    }
+
+private:
+    static std::string contracts_detail_trim(const std::string& s) {
+        return detail::TrimStr(s);
     }
 };
 

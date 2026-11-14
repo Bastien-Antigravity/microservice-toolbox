@@ -24,6 +24,12 @@ using namespace microservice_toolbox::notification;
 
 // -----------------------------------------------------------------------------
 
+struct ScopedTestConfigFile {
+    std::string path;
+    explicit ScopedTestConfigFile(std::string p) : path(std::move(p)) {}
+    ~ScopedTestConfigFile() { std::remove(path.c_str()); }
+};
+
 static void ensure_test_config_dir() {
 #ifdef _WIN32
     system("mkdir config 2>nul");
@@ -58,6 +64,7 @@ void test_notification_client_validation() {
 void test_from_config_fail_fast() {
     std::cout << "Testing NotificationClient::FromConfig fail-fast on missing capability..." << std::endl;
     ensure_test_config_dir();
+    ScopedTestConfigFile cleanupGuard("config/test.yaml");
 
     std::ofstream ofs("config/test.yaml");
     ofs << "common:\n  name: test-app\n"
@@ -77,7 +84,6 @@ void test_from_config_fail_fast() {
         std::string msg = e.what();
         assert(msg.find("nonexistent_capability") != std::string::npos);
     }
-    std::remove("config/test.yaml");
     assert(caught && "Expected missing capability to fail-fast immediately");
 
     std::cout << "  Passed (Fail-fast verification verified: zero silent fallback)." << std::endl;
@@ -88,6 +94,7 @@ void test_from_config_fail_fast() {
 void test_from_config_success() {
     std::cout << "Testing NotificationClient::FromConfig default capability success..." << std::endl;
     ensure_test_config_dir();
+    ScopedTestConfigFile cleanupGuard("config/test.yaml");
 
     std::ofstream ofs("config/test.yaml");
     ofs << "common:\n  name: test-valid-notif\n"

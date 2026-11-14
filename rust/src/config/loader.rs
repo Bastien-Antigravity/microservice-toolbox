@@ -399,6 +399,22 @@ impl AppConfig {
         crate::version::get_version()
     }
 
+    pub fn sync(&mut self) -> bool {
+        if let Some(handle) = self._handle
+            && let Some(lib) = crate::config::ffi::get_lib() {
+                let res = (lib.dist_conf_sync)(handle);
+                if res != 0 {
+                    self.sync_from_bridge();
+                    return true;
+                }
+        }
+        false
+    }
+
+    pub fn get_public_ip(&self) -> String {
+        self.common().get("public_ip").and_then(|v| v.as_str()).unwrap_or("").to_string()
+    }
+
     pub fn get_local(&self, key: &str) -> Option<&Value> {
         self.get_value(&format!("local.{}", key))
     }

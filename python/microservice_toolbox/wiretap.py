@@ -3,62 +3,86 @@
 
 """
 ESSENTIAL PROCESS:
-Provides a distinct, lock-free switchable real-time transport telemetry wrapper
-("WireTap") for Python microservices (gRPC, FastMCP/SSE, NATS, PostgreSQL/ChromaDB).
-Tracks inter-service and external client connections (such as Antigravity IDE -> RAG MCP)
-and segregated information channels (MCP tool names, RPC methods, NATS subjects).
+Provides a distinct, switchable real-time transport telemetry wrapper ("WireTap")
+for Python microservices (gRPC, FastMCP/SSE, NATS, PostgreSQL/ChromaDB).
+Tracks inter-service and external client connections and segregated information
+channels under thread-safe synchronization, with power-of-two bitmask sampling.
 
 DATA FLOW:
 1. Input: Transport wrappers (TeleClient, FastMCP tool/ASGI middleware, gRPC server).
-2. Logic: Lock-free boolean check (`is_enabled()`). When enabled, updates edge and
-   segregated channel counters in memory.
+2. Logic: Lock-free boolean check (`is_enabled()`) + power-of-two `should_sample(mask)`.
+   When enabled, updates edge and segregated channel counters under `_lock`.
 3. Output: Periodic 2s non-blocking HTTP flush to web-interface (/api/v1/system/wiretap/ingest)
    with automatic synchronization of the global runtime ON/OFF switch.
 
 KEY PARAMETERS:
-- _enabled: Lock-free atomic-under-GIL boolean switch modifiable via config or UI toggle.
+- _enabled: Fast boolean switch modifiable via config or UI toggle.
+- _lock: Synchronizes `_edges` and channel mutations across worker threads.
 """
 
 from datetime import datetime, timezone
 from json import dumps as jsonDumps, loads as jsonLoads
-from threading import Thread as threadingThread
+from threading import Lock as threadingLock, Thread as threadingThread, local as threadingLocal
 from time import sleep as timeSleep
 from typing import Any, Dict, List
 from urllib.request import Request as urllibRequest, urlopen as urllibUrlopen
 
 # -----------------------------------------------------------------------------------------------
-# Lock-Free Switch & Module State
+# Switch, Thread-Safe Store & Bitmask Sampling State
 # -----------------------------------------------------------------------------------------------
 
 _enabled: bool = True
-_local_service: str = ""
+_local_service: str = "unknown_service"
 _web_hub_url: str = ""
 _reporter_started: bool = False
+_lock = threadingLock()
+_sample_tls = threadingLocal()
 
 # _edges maps "source|target|protocol" -> dict of edge metrics and channels dict
 _edges: Dict[str, Dict[str, Any]] = {}
 
 
 def set_enabled(on: bool) -> None:
-    """Atomically switches real-time connection tracking ON or OFF without locks."""
+    """Switches real-time connection tracking ON or OFF."""
     global _enabled
     _enabled = bool(on)
 
 
 def is_enabled() -> bool:
-    """Atomically returns whether real-time connection tracking is active."""
+    """Returns whether real-time connection tracking is active."""
     return _enabled
+
+
+def should_sample(mask: int = 0) -> bool:
+    """Power-of-two thread-local bitmask sampler (mask == 0 always returns True)."""
+    if mask <= 0:
+        return True
+    counter = getattr(_sample_tls, "counter", 0) + 1
+    _sample_tls.counter = counter
+    return (counter & mask) == 0
 
 
 def set_local_service(service_name: str) -> None:
     """Sets the canonical service identifier for this Python process."""
     global _local_service
-    _local_service = normalize_service_id(service_name)
+    norm = normalize_service_id(service_name)
+    _local_service = norm or "unknown_service"
 
 
 def get_local_service() -> str:
     """Returns the canonical service identifier for this Python process."""
-    return _local_service
+    return _local_service or "unknown_service"
+
+
+def set_web_hub_url(url: str) -> None:
+    """Sets the base HTTP URL for the central WireTap ingestion hub."""
+    global _web_hub_url
+    _web_hub_url = (url or "").strip().rstrip("/")
+
+
+def get_web_hub_url() -> str:
+    """Returns the configured base HTTP URL for the central WireTap ingestion hub."""
+    return _web_hub_url
 
 
 def normalize_service_id(raw: str) -> str:
@@ -85,18 +109,24 @@ def normalize_service_id(raw: str) -> str:
 def configure_from_config(service_name: str, config: Any) -> None:
     """
     Initializes WireTap from validated AppConfig and starts the background reporter daemon thread.
+    Zero silent fallback: reads web_interface capability and wiretap_enabled strictly from AppConfig.
     """
-    global _web_hub_url, _reporter_started
+    global _reporter_started
 
     set_local_service(service_name)
 
-    raw_enabled = str(config.get_local("wiretap_enabled") or config.common.get("wiretap_enabled") or "true")
+    raw_local = config.get_local("wiretap_enabled")
+    raw_enabled = str(
+        raw_local
+        if raw_local not in (None, "")
+        else (config.common.get("wiretap_enabled") or "true")
+    )
     set_enabled(raw_enabled.lower() == "true")
 
     web_addr = config.get_listen_addr("web_interface")
-    _web_hub_url = f"http://{web_addr}"
+    set_web_hub_url(f"http://{web_addr}")
 
-    if not _reporter_started and _local_service != "web_interface":
+    if not _reporter_started and get_local_service() != "web_interface":
         _reporter_started = True
         t = threadingThread(target=_reporter_loop, name="wiretap-reporter", daemon=True)
         t.start()
@@ -110,9 +140,9 @@ def configure_from_config(service_name: str, config: Any) -> None:
 def record_event(
     source: str,
     target: str,
-    protocol: str,
-    framing: str,
-    channel: str,
+    protocol: str = "TCP",
+    framing: str = "raw",
+    channel: str = "",
     category: str = "data",
     direction: str = "outbound",
     payload_summary: str = "",
@@ -136,114 +166,200 @@ def record_event(
 
     proto_upper = (protocol or "TCP").strip().upper()
     ch_name = channel or f"{proto_upper.lower()}:default"
+    frame_val = framing or "raw"
     edge_key = f"{src_norm}|{tgt_norm}|{proto_upper}"
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    edge = _edges.get(edge_key)
-    if edge is None:
-        edge = {
-            "source": src_norm,
-            "target": tgt_norm,
-            "protocol": proto_upper,
-            "framing": framing or proto_upper,
-            "active_conns": 1 if conn_delta >= 0 else 0,
-            "total_frames": 0,
-            "total_bytes": 0,
-            "total_errors": 0,
-            "last_seen": now_iso,
-            "is_external": bool(is_external),
-            "channels": {},
-        }
-        _edges[edge_key] = edge
-    else:
-        if framing:
-            edge["framing"] = framing
-        if is_external:
-            edge["is_external"] = True
-        if conn_delta != 0:
-            edge["active_conns"] = max(0, int(edge.get("active_conns", 0)) + conn_delta)
-        elif int(edge.get("active_conns", 0)) == 0:
-            edge["active_conns"] = 1
+    with _lock:
+        edge = _edges.get(edge_key)
+        if edge is None:
+            edge = {
+                "source": src_norm,
+                "target": tgt_norm,
+                "protocol": proto_upper,
+                "framing": frame_val,
+                "active_conns": max(0, conn_delta) if conn_delta != 0 else 1,
+                "total_frames": 0,
+                "total_bytes": 0,
+                "total_errors": 0,
+                "last_seen": now_iso,
+                "is_external": bool(is_external),
+                "channels": {},
+            }
+            _edges[edge_key] = edge
+        else:
+            if framing:
+                edge["framing"] = framing
+            if is_external:
+                edge["is_external"] = True
+            if conn_delta != 0:
+                edge["active_conns"] = max(0, int(edge.get("active_conns", 0)) + conn_delta)
+            elif int(edge.get("active_conns", 0)) == 0:
+                edge["active_conns"] = 1
 
-    edge["total_frames"] = int(edge.get("total_frames", 0)) + 1
-    if bytes_count > 0:
-        edge["total_bytes"] = int(edge.get("total_bytes", 0)) + int(bytes_count)
-    if is_err:
-        edge["total_errors"] = int(edge.get("total_errors", 0)) + 1
-    edge["last_seen"] = now_iso
+        edge["total_frames"] = int(edge.get("total_frames", 0)) + 1
+        if bytes_count > 0:
+            edge["total_bytes"] = int(edge.get("total_bytes", 0)) + int(bytes_count)
+        if is_err:
+            edge["total_errors"] = int(edge.get("total_errors", 0)) + 1
+        edge["last_seen"] = now_iso
 
-    channels_map: Dict[str, Dict[str, Any]] = edge["channels"]
-    ch_entry = channels_map.get(ch_name)
-    if ch_entry is None:
-        ch_entry = {
-            "channel": ch_name,
-            "category": category or "data",
-            "direction": direction or "outbound",
-            "frames": 0,
-            "bytes": 0,
-            "errors": 0,
-            "total_lat_ms": 0.0,
-            "lat_samples": 0,
-            "avg_latency_ms": 0.0,
-            "last_seen": now_iso,
-            "last_payload": "",
-        }
-        channels_map[ch_name] = ch_entry
+        channels_map: Dict[str, Dict[str, Any]] = edge["channels"]
+        ch_entry = channels_map.get(ch_name)
+        if ch_entry is None:
+            ch_entry = {
+                "channel": ch_name,
+                "category": category or "data",
+                "direction": direction or "outbound",
+                "frames": 0,
+                "bytes": 0,
+                "errors": 0,
+                "total_lat_ms": 0.0,
+                "lat_samples": 0,
+                "avg_latency_ms": 0.0,
+                "last_seen": now_iso,
+                "last_payload": "",
+            }
+            channels_map[ch_name] = ch_entry
 
-    ch_entry["frames"] = int(ch_entry["frames"]) + 1
-    if bytes_count > 0:
-        ch_entry["bytes"] = int(ch_entry["bytes"]) + int(bytes_count)
-    if is_err:
-        ch_entry["errors"] = int(ch_entry["errors"]) + 1
-    if latency_ms > 0:
-        ch_entry["total_lat_ms"] = float(ch_entry["total_lat_ms"]) + float(latency_ms)
-        ch_entry["lat_samples"] = int(ch_entry["lat_samples"]) + 1
-        ch_entry["avg_latency_ms"] = round(
-            ch_entry["total_lat_ms"] / max(1, ch_entry["lat_samples"]), 3
-        )
-    ch_entry["last_seen"] = now_iso
-    if payload_summary:
-        ch_entry["last_payload"] = str(payload_summary)[:160]
+        ch_entry["frames"] = int(ch_entry["frames"]) + 1
+        if bytes_count > 0:
+            ch_entry["bytes"] = int(ch_entry["bytes"]) + int(bytes_count)
+        if is_err:
+            ch_entry["errors"] = int(ch_entry["errors"]) + 1
+        if latency_ms > 0:
+            ch_entry["total_lat_ms"] = float(ch_entry["total_lat_ms"]) + float(latency_ms)
+            ch_entry["lat_samples"] = int(ch_entry["lat_samples"]) + 1
+            ch_entry["avg_latency_ms"] = ch_entry["total_lat_ms"] / max(1, ch_entry["lat_samples"])
+        ch_entry["last_seen"] = now_iso
+        if payload_summary:
+            ch_entry["last_payload"] = str(payload_summary)
+
+
+record_event_with_conn_delta = record_event
 
 
 def snapshot() -> List[Dict[str, Any]]:
     """Returns a serializable list of EdgeReport dicts."""
     out: List[Dict[str, Any]] = []
-    for edge in list(_edges.values()):
-        ch_list = []
-        for ch in list(edge.get("channels", {}).values()):
-            ch_list.append({
-                "channel": ch["channel"],
-                "category": ch["category"],
-                "direction": ch["direction"],
-                "frames": ch["frames"],
-                "bytes": ch["bytes"],
-                "errors": ch["errors"],
-                "avg_latency_ms": ch["avg_latency_ms"],
-                "last_seen": ch["last_seen"],
-                "last_payload": ch["last_payload"],
+    with _lock:
+        edges_copy = list(_edges.values())
+        for edge in edges_copy:
+            ch_list = []
+            for ch in list(edge.get("channels", {}).values()):
+                item: Dict[str, Any] = {
+                    "channel": ch["channel"],
+                    "category": ch["category"],
+                    "direction": ch["direction"],
+                    "frames": ch["frames"],
+                    "bytes": ch["bytes"],
+                    "errors": ch["errors"],
+                    "avg_latency_ms": ch["avg_latency_ms"],
+                    "last_seen": ch["last_seen"],
+                }
+                if ch.get("last_payload"):
+                    item["last_payload"] = ch["last_payload"]
+                ch_list.append(item)
+            ch_list.sort(key=lambda x: x["channel"])
+            out.append({
+                "source": edge["source"],
+                "target": edge["target"],
+                "protocol": edge["protocol"],
+                "framing": edge["framing"],
+                "active_conns": edge["active_conns"],
+                "total_frames": edge["total_frames"],
+                "total_bytes": edge["total_bytes"],
+                "total_errors": edge["total_errors"],
+                "last_seen": edge["last_seen"],
+                "is_external": edge["is_external"],
+                "channels": ch_list,
             })
-        ch_list.sort(key=lambda x: x["channel"])
-        out.append({
-            "source": edge["source"],
-            "target": edge["target"],
-            "protocol": edge["protocol"],
-            "framing": edge["framing"],
-            "active_conns": edge["active_conns"],
-            "total_frames": edge["total_frames"],
-            "total_bytes": edge["total_bytes"],
-            "total_errors": edge["total_errors"],
-            "last_seen": edge["last_seen"],
-            "is_external": edge["is_external"],
-            "channels": ch_list,
-        })
     out.sort(key=lambda x: (x["source"], x["target"], x["protocol"]))
     return out
 
 
+def merge_remote_snapshot(incoming: List[Dict[str, Any]]) -> None:
+    """Merges a batch of remote EdgeReport dicts into the local store."""
+    if not _enabled:
+        return
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with _lock:
+        for rep in incoming or []:
+            src_norm = normalize_service_id(str(rep.get("source", "")))
+            tgt_norm = normalize_service_id(str(rep.get("target", "")))
+            proto_upper = str(rep.get("protocol", "")).strip().upper()
+            if not src_norm or not tgt_norm or not proto_upper:
+                continue
+            edge_key = f"{src_norm}|{tgt_norm}|{proto_upper}"
+            edge = _edges.get(edge_key)
+            if edge is None:
+                edge = {
+                    "source": src_norm,
+                    "target": tgt_norm,
+                    "protocol": proto_upper,
+                    "framing": str(rep.get("framing") or "raw"),
+                    "active_conns": 0,
+                    "total_frames": 0,
+                    "total_bytes": 0,
+                    "total_errors": 0,
+                    "last_seen": now_iso,
+                    "is_external": False,
+                    "channels": {},
+                }
+                _edges[edge_key] = edge
+            if rep.get("framing"):
+                edge["framing"] = str(rep["framing"])
+            if rep.get("is_external"):
+                edge["is_external"] = True
+            if int(rep.get("active_conns") or 0) > 0:
+                edge["active_conns"] = int(rep["active_conns"])
+            if int(rep.get("total_frames") or 0) > int(edge["total_frames"]):
+                edge["total_frames"] = int(rep["total_frames"])
+            if int(rep.get("total_bytes") or 0) >= int(edge["total_bytes"]):
+                edge["total_bytes"] = int(rep["total_bytes"])
+            edge["total_errors"] = int(rep.get("total_errors") or 0)
+            edge["last_seen"] = now_iso
+
+            channels_map: Dict[str, Dict[str, Any]] = edge["channels"]
+            for ch in rep.get("channels") or []:
+                ch_name = str(ch.get("channel", ""))
+                if not ch_name:
+                    continue
+                ch_entry = channels_map.get(ch_name)
+                if ch_entry is None:
+                    ch_entry = {
+                        "channel": ch_name,
+                        "category": str(ch.get("category") or "data"),
+                        "direction": str(ch.get("direction") or "outbound"),
+                        "frames": 0,
+                        "bytes": 0,
+                        "errors": 0,
+                        "total_lat_ms": 0.0,
+                        "lat_samples": 0,
+                        "avg_latency_ms": 0.0,
+                        "last_seen": now_iso,
+                        "last_payload": "",
+                    }
+                    channels_map[ch_name] = ch_entry
+                if int(ch.get("frames") or 0) >= int(ch_entry["frames"]):
+                    ch_entry["frames"] = int(ch.get("frames") or 0)
+                if int(ch.get("bytes") or 0) >= int(ch_entry["bytes"]):
+                    ch_entry["bytes"] = int(ch.get("bytes") or 0)
+                ch_entry["errors"] = int(ch.get("errors") or 0)
+                avg_lat = float(ch.get("avg_latency_ms") or 0.0)
+                if avg_lat > 0:
+                    ch_entry["total_lat_ms"] = avg_lat
+                    ch_entry["lat_samples"] = 1
+                    ch_entry["avg_latency_ms"] = avg_lat
+                ch_entry["last_seen"] = now_iso
+                if ch.get("last_payload"):
+                    ch_entry["last_payload"] = str(ch["last_payload"])
+
+
 def reset() -> None:
     """Clears all recorded edges (useful for unit tests)."""
-    _edges.clear()
+    with _lock:
+        _edges.clear()
 
 
 # -----------------------------------------------------------------------------------------------
@@ -283,10 +399,12 @@ def record_mcp_tool_call(
 def _reporter_loop() -> None:
     while True:
         timeSleep(2.0)
+        if not _web_hub_url:
+            continue
         try:
             edges_data = snapshot() if _enabled else []
             payload = {
-                "reporter": _local_service,
+                "reporter": get_local_service(),
                 "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "enabled": _enabled,
                 "edges": edges_data,
@@ -308,4 +426,3 @@ def _reporter_loop() -> None:
                             set_enabled(remote_enabled)
         except Exception:
             pass
-

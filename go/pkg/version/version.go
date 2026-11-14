@@ -5,7 +5,7 @@
 // adhering to VERSION.txt as the Single Source of Truth.
 //
 // DATA FLOW:
-// LDFLAGS BuildVersion -> Env (APP_VERSION/SERVICE_VERSION) -> Tree Climber (VERSION.txt) -> Fallback (0.0.1)
+// Explicit Hints -> Tree Climber (VERSION.txt) -> BuildVersion (from VERSION.txt via LDFLAGS) -> Panic (FAIL-FAST)
 //
 // KEY PARAMETERS:
 // - BuildVersion: Link-time semver injected via -ldflags -X.
@@ -15,6 +15,7 @@
 package version
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,67 +29,60 @@ import (
 // -ldflags="-X 'github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/version.BuildVersion=$(VERSION)'"
 var BuildVersion string
 
-const DefaultFallbackVersion = "0.0.1"
-
 var (
 	cachedVersion atomic.Pointer[string]
-	resolveOnce   sync.Once
-	testMutex     sync.Mutex
+	resolveMutex  sync.Mutex
 )
 
 // -----------------------------------------------------------------------------
 
 // Get returns the cached semantic version of the running microservice.
-// It resolves the version on first call and caches the result.
+// It resolves the version on first call, caches the result, and panics fail-fast if unresolved.
 func Get() string {
 	if ptr := cachedVersion.Load(); ptr != nil {
 		return *ptr
 	}
 
-	resolveOnce.Do(func() {
-		v := Resolve()
-		cachedVersion.Store(&v)
-	})
+	resolveMutex.Lock()
+	defer resolveMutex.Unlock()
 
 	if ptr := cachedVersion.Load(); ptr != nil {
 		return *ptr
 	}
-	return DefaultFallbackVersion
+
+	v := Resolve()
+	cachedVersion.Store(&v)
+	return v
 }
 
 // -----------------------------------------------------------------------------
 
-// Resolve performs the full hierarchical resolution without caching.
+// Resolve performs the full hierarchical resolution without caching and panics fail-fast if unresolved.
 // Priority:
-// 1. BuildVersion (link-time LDFLAGS injection)
-// 2. Environment variables: APP_VERSION, SERVICE_VERSION
-// 3. User-provided candidate paths
-// 4. Upward directory climber looking for VERSION.txt from base directory
-// 5. DefaultFallbackVersion ("0.0.1")
+// 1. User-provided candidate VERSION.txt paths
+// 2. Upward directory climber looking for VERSION.txt from base directory and cwd
+// 3. BuildVersion (link-time LDFLAGS baked from VERSION.txt in release binaries)
 func Resolve(hints ...string) string {
-	// 1. Link-time injected version
-	if trimmed := strings.TrimSpace(BuildVersion); trimmed != "" {
-		return trimmed
+	v, err := ResolveE(hints...)
+	if err != nil {
+		panic(err)
 	}
+	return v
+}
 
-	// 2. Environment variables
-	for _, envKey := range []string{"APP_VERSION", "SERVICE_VERSION"} {
-		if val := strings.TrimSpace(os.Getenv(envKey)); val != "" {
-			return val
-		}
-	}
-
-	// 3. Explicit candidate hints
+// ResolveE performs VERSION.txt resolution without caching and returns an error if VERSION.txt is absent.
+func ResolveE(hints ...string) (string, error) {
+	// 1. Explicit candidate hints
 	for _, hint := range hints {
 		if hint == "" {
 			continue
 		}
 		if v, ok := readVersionFile(hint); ok {
-			return v
+			return v, nil
 		}
 	}
 
-	// 4. Upward tree climbing starting from base directory and cwd
+	// 2. Upward tree climbing starting from base directory and cwd
 	startDirs := []string{utils.GetBaseDir()}
 	if cwd, err := os.Getwd(); err == nil && cwd != "" {
 		startDirs = append(startDirs, cwd)
@@ -99,7 +93,11 @@ func Resolve(hints ...string) string {
 		for i := 0; i < 12; i++ {
 			candidate := filepath.Join(curr, "VERSION.txt")
 			if v, ok := readVersionFile(candidate); ok {
-				return v
+				return v, nil
+			}
+
+			if _, gitErr := os.Stat(filepath.Join(curr, ".git")); gitErr == nil {
+				break
 			}
 
 			parent := filepath.Dir(curr)
@@ -110,27 +108,31 @@ func Resolve(hints ...string) string {
 		}
 	}
 
-	// 5. Default fallback
-	return DefaultFallbackVersion
+	// 3. Link-time injected version (populated from VERSION.txt via Makefile/Dockerfile)
+	if trimmed := strings.TrimSpace(BuildVersion); trimmed != "" {
+		return trimmed, nil
+	}
+
+	return "", fmt.Errorf("version.Resolve: VERSION.txt not found or empty (FAIL-FAST)")
 }
 
 // -----------------------------------------------------------------------------
 
 // Set overrides the cached version (primarily for testing or dynamic lifecycle hooks).
+// Fails fast on empty input.
 func Set(v string) {
 	trimmed := strings.TrimSpace(v)
 	if trimmed == "" {
-		trimmed = DefaultFallbackVersion
+		panic("version.Set: version string must not be empty (FAIL-FAST)")
 	}
 	cachedVersion.Store(&trimmed)
 }
 
 // Reset clears the cached version so the next Get() will re-resolve. Primarily for testing.
 func Reset() {
-	testMutex.Lock()
-	defer testMutex.Unlock()
+	resolveMutex.Lock()
+	defer resolveMutex.Unlock()
 	cachedVersion.Store(nil)
-	resolveOnce = sync.Once{}
 }
 
 // -----------------------------------------------------------------------------

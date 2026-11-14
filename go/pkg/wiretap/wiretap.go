@@ -130,11 +130,38 @@ var (
 
 	// reporterOnce ensures the background reporter goroutine starts at most once.
 	reporterOnce sync.Once
+
+	// sampleCounter provides lock-free power-of-two sampling state.
+	sampleCounter atomic.Uint32
 )
 
 func init() {
 	defaultSvc := "unknown_service"
 	localService.Store(&defaultSvc)
+	SetEnabled(true)
+}
+
+// ShouldSample returns true on 1-of-(mask+1) calls when mask is a (2^k - 1) bitmask,
+// or always true when mask == 0.
+func ShouldSample(mask uint32) bool {
+	if mask == 0 {
+		return true
+	}
+	return (sampleCounter.Add(1) & mask) == 0
+}
+
+// SetWebHubURL atomically updates the WireTap ingestion hub base URL (e.g. "http://127.0.0.1:5000").
+func SetWebHubURL(url string) {
+	trimmed := strings.TrimRight(strings.TrimSpace(url), "/")
+	webHubURL.Store(&trimmed)
+}
+
+// GetWebHubURL atomically returns the configured WireTap ingestion hub base URL.
+func GetWebHubURL() string {
+	if p := webHubURL.Load(); p != nil {
+		return *p
+	}
+	return ""
 }
 
 // -----------------------------------------------------------------------------
@@ -356,26 +383,31 @@ func RecordEventWithConnDelta(
 	edgeKey := srcNorm + "|" + tgtNorm + "|" + protoUpper
 	nowMs := time.Now().UnixMilli()
 
+	if framing == "" {
+		framing = "raw"
+	}
+
 	var edge *atomicEdgeEntry
 	if val, ok := edges.Load(edgeKey); ok {
 		edge = val.(*atomicEdgeEntry)
+		if framing != "" && framing != "raw" {
+			fCopy := framing
+			edge.framing.Store(&fCopy)
+		}
 	} else {
+		fCopy := framing
 		newEdge := &atomicEdgeEntry{
 			source:   srcNorm,
 			target:   tgtNorm,
 			protocol: protoUpper,
 		}
-		if framing != "" {
-			fCopy := framing
-			newEdge.framing.Store(&fCopy)
-		}
-		actual, _ := edges.LoadOrStore(edgeKey, newEdge)
+		newEdge.framing.Store(&fCopy)
+		actual, loaded := edges.LoadOrStore(edgeKey, newEdge)
 		edge = actual.(*atomicEdgeEntry)
-	}
-
-	if framing != "" {
-		fCopy := framing
-		edge.framing.Store(&fCopy)
+		if loaded && framing != "" && framing != "raw" {
+			fUpdate := framing
+			edge.framing.Store(&fUpdate)
+		}
 	}
 	if isExternal {
 		edge.isExternal.Store(true)

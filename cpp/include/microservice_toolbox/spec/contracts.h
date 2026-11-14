@@ -324,7 +324,7 @@ static inline char* mt_contracts_envelope_to_json(const MtContractsEnvelope* env
     MtStrBuf sb = {NULL, 0, 0, 0};
     char ts_buf[32];
     const char* service = (env && env->service) ? env->service : "";
-    const char* version = (env && env->version && env->version[0] != '\0') ? env->version : "0.0.1";
+    const char* version = (env && env->version) ? env->version : "";
     const char* gen_at = (env && env->generated_at && env->generated_at[0] != '\0') ? env->generated_at : NULL;
     if (!gen_at) {
         if (mt_utc_timestamp_iso8601(ts_buf, sizeof(ts_buf)) == 0) {

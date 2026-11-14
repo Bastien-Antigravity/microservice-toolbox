@@ -22,7 +22,7 @@ from math import pow as mathPow
 from random import uniform as randomUniform
 from threading import Thread as threadingThread
 from time import sleep as timeSleep
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 try:
     from safesocket import safesocket
@@ -31,12 +31,13 @@ except ImportError:
     safesocket = None
 
 from ..logger import Logger, ensure_safe_logger
-from .connection import ManagedConnection
+from .connection import Endpoint, ManagedConnection
 from .errors import MaxRetriesReachedError
 
 # -----------------------------------------------------------------------------------------------
 
 OnErrorHandler = Callable[[int, Exception, str, str], None]
+ReloadHandler = Callable[[int], Tuple[str, str]]
 
 # -----------------------------------------------------------------------------------------------
 
@@ -73,6 +74,8 @@ class NetworkManager:
         jitter: float = 0.0,
         on_error: Optional[OnErrorHandler] = None,
         logger: Optional[Logger] = None,
+        on_reload_config: Optional[Callable[..., Any]] = None,
+        app_config: Optional[Any] = None,
     ):
         self.max_retries = max_retries
         self.base_delay = base_delay_ms / 1000.0
@@ -82,6 +85,8 @@ class NetworkManager:
         self.jitter = jitter
         self.on_error = on_error
         self.logger = ensure_safe_logger(logger)
+        self.on_reload_config = on_reload_config
+        self.app_config = app_config
 
     # -----------------------------------------------------------------------------------------------
 
@@ -100,18 +105,23 @@ class NetworkManager:
 
     # -----------------------------------------------------------------------------------------------
 
-    def establish_connection(self, ip: str, port: str, public_ip: str, profile: str) -> Any:
+    def establish_connection(
+        self, endpoint_or_ip: Any, port: Optional[str] = None, public_ip: str = "", profile: str = ""
+    ) -> Any:
         """
-        Attempts a single connection to the resolved address.
+        Attempts a single connection using immutable Endpoint pointer or raw coordinates.
+        Zero temporary variables, zero defensive nil-checks, and zero string formatting overhead.
         """
         if safesocket is None:
             raise ImportError("{0} : safesocket library not found".format(self.Name))
 
-        clean_ip = ip.strip('"')
-        clean_port = port.strip('"')
-        address = f"{clean_ip}:{clean_port}"
+        if isinstance(endpoint_or_ip, Endpoint):
+            ep = endpoint_or_ip
+            return safesocket.create(ep.profile, ep.address, ep.public_ip, "client", True)
 
-        # In Python safesocket.create returns a SafeSocket object
+        clean_ip = str(endpoint_or_ip).strip('"')
+        clean_port = str(port).strip('"')
+        address = f"{clean_ip}:{clean_port}"
         return safesocket.create(profile, address, public_ip, "client", True)
 
     # -----------------------------------------------------------------------------------------------
@@ -120,36 +130,39 @@ class NetworkManager:
         """
         Attempts to connect and returns a ManagedConnection.
         """
-        mc = ManagedConnection(ip, port, public_ip, profile, self)
-
-        clean_ip = ip.strip('"')
-        clean_port = port.strip('"')
-        address = f"{clean_ip}:{clean_port}"
+        mc = ManagedConnection(ip, port, public_ip, profile, self, self.on_reload_config)
 
         last_err = None
         i = 0
         while self.max_retries == -1 or i < self.max_retries:
+            attempt = i + 1
+            if attempt % 3 == 0:
+                mc._trigger_reload(attempt)
+
+            ep = mc.endpoint
+
             try:
-                conn = self.establish_connection(ip, port, public_ip, profile)
+                conn = self.establish_connection(ep.ip, ep.port, ep.public_ip, ep.profile)
                 mc.current_conn = conn
                 return mc
             except Exception as e:
                 last_err = e
                 # Report failure to the optional on_error hook
                 if self.on_error:
-                    self.on_error(i + 1, e, self.Name, f"Initial connection failure to {address}")
+                    self.on_error(attempt, e, self.Name, f"Initial connection failure to {ep.address}")
 
                 delay = self.get_next_delay(i)
 
                 self.logger.info(
                     "{0} : Initial connection to {1} failed: {2}. Retrying in {3:.2f}s...".format(
-                        self.Name, address, e, delay
+                        self.Name, ep.address, e, delay
                     )
                 )
                 timeSleep(delay)
                 i += 1
 
-        raise MaxRetriesReachedError(f"{self.Name} : {address} after {self.max_retries} attempts (last error: {last_err})")
+        ep = mc.endpoint
+        raise MaxRetriesReachedError(f"{self.Name} : {ep.address} after {self.max_retries} attempts (last error: {last_err})")
 
     # -----------------------------------------------------------------------------------------------
 
@@ -206,11 +219,66 @@ class NetworkManager:
         else:
             return self.connect_blocking(ip, port, public_ip, profile)
 
+    # -----------------------------------------------------------------------------------------------
+
+    def connect_capability(
+        self, capability: str, mode: ConnectionMode = ConnectionMode.BLOCKING
+    ) -> ManagedConnection:
+        """
+        Resolves the target capability from AppConfig, creates a ManagedConnection bound to AppConfig,
+        and establishes a connection using the specified mode. On 3 failed attempts, it automatically syncs AppConfig.
+        """
+        if self.app_config is None:
+            raise ValueError(f"{self.Name} : AppConfig is None, cannot resolve capability '{capability}'")
+
+        addr = self.app_config.get_listen_addr(capability)
+        if ":" not in addr:
+            raise ValueError(f"{self.Name} : invalid address '{addr}' for capability '{capability}'")
+
+        ip, port = addr.rsplit(":", 1)
+        public_ip = ""
+        profile = ""
+        if hasattr(self.app_config, "profile"):
+            profile = getattr(self.app_config, "profile") or ""
+        if hasattr(self.app_config, "config") and hasattr(self.app_config.config, "common"):
+            public_ip = getattr(self.app_config.config.common, "public_ip", "") or ""
+
+        mc = ManagedConnection(
+            ip=ip,
+            port=port,
+            public_ip=public_ip,
+            profile=profile,
+            nm=self,
+            app_config=self.app_config,
+            capability=capability,
+        )
+
+        if mode == ConnectionMode.NON_BLOCKING:
+            def run_reconnect():
+                try:
+                    mc.reconnect()
+                except Exception as e:
+                    if self.on_error:
+                        self.on_error(1, e, self.Name, f"Failed to connect to capability {capability} in background")
+
+            thread = threadingThread(target=run_reconnect, daemon=True)
+            thread.start()
+            return mc
+        else:
+            try:
+                mc.reconnect()
+            except Exception as e:
+                if self.on_error:
+                    self.on_error(1, e, self.Name, f"Failed to connect to capability {capability}")
+            return mc
+
 
 # -----------------------------------------------------------------------------------------------
 
 
 def new_network_manager(
+    app_config: Optional[Any] = None,
+    logger: Optional[Logger] = None,
     max_retries: int = 5,
     base_delay_ms: int = 200,
     max_delay_ms: int = 5000,
@@ -218,9 +286,38 @@ def new_network_manager(
     backoff: float = 2.0,
     jitter: float = 0.0,
     on_error: Optional[OnErrorHandler] = None,
+    on_reload_config: Optional[Callable[..., Any]] = None,
 ) -> NetworkManager:
-    """Semantic helper to match Go NewNetworkManager()."""
-    return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error)
+    """
+    Creates a resilient NetworkManager combining AppConfig and Logger in one function with pointers.
+    """
+    actual_logger = logger
+    if actual_logger is None and app_config is not None:
+        actual_logger = getattr(app_config, "logger", None)
+
+    return NetworkManager(
+        max_retries=max_retries,
+        base_delay_ms=base_delay_ms,
+        max_delay_ms=max_delay_ms,
+        connect_timeout_ms=connect_timeout_ms,
+        backoff=backoff,
+        jitter=jitter,
+        on_error=on_error,
+        logger=actual_logger,
+        on_reload_config=on_reload_config,
+        app_config=app_config,
+    )
+
+
+# -----------------------------------------------------------------------------------------------
+
+
+def new_network_manager_with_config(
+    app_config: Any,
+    logger: Optional[Logger] = None,
+) -> NetworkManager:
+    """Semantic helper to match Go NewNetworkManagerWithConfig()."""
+    return new_network_manager(app_config=app_config, logger=logger)
 
 
 # -----------------------------------------------------------------------------------------------
@@ -235,9 +332,22 @@ def new_network_manager_with_logger(
     jitter: float = 0.0,
     on_error: Optional[OnErrorHandler] = None,
     logger: Optional[Logger] = None,
+    on_reload_config: Optional[Callable[..., Any]] = None,
+    app_config: Optional[Any] = None,
 ) -> NetworkManager:
     """Semantic helper to match Go NewNetworkManagerWithLogger()."""
-    return NetworkManager(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error, logger)
+    return new_network_manager(
+        app_config=app_config,
+        logger=logger,
+        max_retries=max_retries,
+        base_delay_ms=base_delay_ms,
+        max_delay_ms=max_delay_ms,
+        connect_timeout_ms=connect_timeout_ms,
+        backoff=backoff,
+        jitter=jitter,
+        on_error=on_error,
+        on_reload_config=on_reload_config,
+    )
 
 
 # -----------------------------------------------------------------------------------------------

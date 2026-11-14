@@ -1,25 +1,29 @@
 // -----------------------------------------------------------------------------
 // ESSENTIAL PROCESS:
 // Core microservice-toolbox module: LifecycleManager.hpp.
+// Captures OS signals (SIGINT, SIGTERM) and executes cleanup hooks in LIFO order.
 //
 // DATA FLOW:
-// Callers -> LifecycleManager.hpp -> Processed Output
+// OS Signals / RequestShutdown -> LifecycleManager::Wait() -> LIFO ExecuteCleanups()
 //
 // KEY PARAMETERS:
-// - Standard module parameters.
+// - cleanups_: Synchronized hook stack executed in reverse registration order.
+// - shutdown_requested_: Per-instance atomic wakeup flag.
 // -----------------------------------------------------------------------------
 
 #ifndef MICROSERVICE_TOOLBOX_LIFECYCLE_MANAGER_HPP
 #define MICROSERVICE_TOOLBOX_LIFECYCLE_MANAGER_HPP
 
-#include <vector>
-#include <string>
-#include <functional>
-#include <csignal>
 #include <atomic>
-#include <iostream>
+#include <chrono>
+#include <condition_variable>
+#include <csignal>
+#include <functional>
+#include <memory>
 #include <mutex>
-#include <thread>
+#include <string>
+#include <utility>
+#include <vector>
 #include "../utils/Logger.hpp"
 
 namespace microservice_toolbox {
@@ -32,37 +36,69 @@ struct CleanupEntry {
     ShutdownFunc func;
 };
 
+namespace detail {
+
+inline std::atomic<int>& PendingSignalFlag() noexcept {
+    static std::atomic<int> sig{0};
+    return sig;
+}
+
+inline std::atomic<bool>& GlobalShutdownFlag() noexcept {
+    static std::atomic<bool> flag{false};
+    return flag;
+}
+
+} // namespace detail
+
 class LifecycleManager {
 public:
-    LifecycleManager(std::shared_ptr<utils::Logger> logger = nullptr)
-        : logger_(utils::EnsureSafeLogger(logger)), shutdown_requested(false) {
-        instance_ = this;
-    }
-
-    ~LifecycleManager() {
-        if (instance_ == this) instance_ = nullptr;
-    }
+    explicit LifecycleManager(std::shared_ptr<utils::Logger> logger = nullptr)
+        : logger_(utils::EnsureSafeLogger(logger)), shutdown_requested_(false) {}
 
     void Register(const std::string& name, ShutdownFunc fn) {
         std::lock_guard<std::mutex> lock(mutex_);
-        cleanups_.push_back({name, fn});
+        cleanups_.push_back({name, std::move(fn)});
+    }
+
+    void register_hook(const std::string& name, ShutdownFunc fn) {
+        Register(name, std::move(fn));
     }
 
     void Wait() {
+        detail::PendingSignalFlag().store(0, std::memory_order_relaxed);
+        detail::GlobalShutdownFlag().store(false, std::memory_order_relaxed);
         std::signal(SIGINT, SignalHandler);
         std::signal(SIGTERM, SignalHandler);
 
-        while (!shutdown_requested.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        {
+            std::unique_lock<std::mutex> lock(cv_mutex_);
+            while (!shutdown_requested_.load(std::memory_order_relaxed) &&
+                   !detail::GlobalShutdownFlag().load(std::memory_order_relaxed) &&
+                   detail::PendingSignalFlag().load(std::memory_order_relaxed) == 0) {
+                cv_.wait_for(lock, std::chrono::milliseconds(50));
+            }
+        }
+
+        int sig = detail::PendingSignalFlag().load(std::memory_order_relaxed);
+        if (sig != 0) {
+            logger_->Info("Lifecycle: Received signal " + std::to_string(sig) + ". Initiating graceful shutdown...");
+        } else {
+            logger_->Info("Lifecycle: Shutdown requested. Initiating graceful shutdown...");
         }
 
         ExecuteCleanups();
     }
 
+    void wait() { Wait(); }
+
     void ExecuteCleanups() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::vector<CleanupEntry> hooks;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            hooks.swap(cleanups_);
+        }
         // Execute cleanups in reverse order (LIFO)
-        for (auto it = cleanups_.rbegin(); it != cleanups_.rend(); ++it) {
+        for (auto it = hooks.rbegin(); it != hooks.rend(); ++it) {
             try {
                 logger_->Info("Lifecycle: Running cleanup '" + it->name + "'...");
                 it->func();
@@ -75,26 +111,47 @@ public:
         logger_->Info("Lifecycle: Clean shutdown completed.");
     }
 
+    void execute_cleanups() { ExecuteCleanups(); }
+
+    void RequestInstanceShutdown() {
+        shutdown_requested_.store(true, std::memory_order_relaxed);
+        cv_.notify_all();
+    }
+
     static void RequestShutdown() {
-        if (instance_) {
-            instance_->shutdown_requested.store(true);
-        }
+        detail::GlobalShutdownFlag().store(true, std::memory_order_relaxed);
     }
 
 private:
     static void SignalHandler(int sig) {
-        if (instance_) {
-            instance_->logger_->Info("Lifecycle: Received signal " + std::to_string(sig) + ". Initiating graceful shutdown...");
-            instance_->shutdown_requested.store(true);
-        }
+        detail::PendingSignalFlag().store(sig, std::memory_order_relaxed);
     }
 
-    inline static LifecycleManager* instance_ = nullptr;
     std::shared_ptr<utils::Logger> logger_;
     std::vector<CleanupEntry> cleanups_;
-    std::atomic<bool> shutdown_requested;
+    std::atomic<bool> shutdown_requested_;
     std::mutex mutex_;
+    std::mutex cv_mutex_;
+    std::condition_variable cv_;
 };
+
+// -----------------------------------------------------------------------------
+
+inline std::shared_ptr<LifecycleManager> NewManager() {
+    return std::make_shared<LifecycleManager>(nullptr);
+}
+
+inline std::shared_ptr<LifecycleManager> NewManagerWithLogger(std::shared_ptr<utils::Logger> logger) {
+    return std::make_shared<LifecycleManager>(std::move(logger));
+}
+
+inline std::shared_ptr<LifecycleManager> new_manager() {
+    return NewManager();
+}
+
+inline std::shared_ptr<LifecycleManager> new_manager_with_logger(std::shared_ptr<utils::Logger> logger) {
+    return NewManagerWithLogger(std::move(logger));
+}
 
 } // namespace lifecycle
 } // namespace microservice_toolbox

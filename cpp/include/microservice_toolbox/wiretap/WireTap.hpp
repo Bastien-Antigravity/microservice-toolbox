@@ -2,37 +2,51 @@
 // ESSENTIAL PROCESS:
 // High-performance lock-free transport telemetry aggregator (WireTap) in C++17.
 // Aggregates inter-service network connections and segregated information channels
-// with 64-byte cache-line alignment to eliminate False Sharing and power-of-two sampling.
+// with 64-byte cache-line alignment, power-of-two sampling, and periodic HTTP hub sync.
 //
 // DATA FLOW:
-// Hot path packet -> relaxed atomic check -> bitmask sampling -> relaxed fetch_add -> snapshot
+// Hot path packet -> relaxed atomic check -> bitmask sampling -> relaxed fetch_add -> background HTTP flush
 //
 // KEY PARAMETERS:
-// - GlobalEnabled(): std::atomic<bool>
+// - GlobalEnabled(): std::atomic<bool> (default true, configurable via AppConfig)
 // -----------------------------------------------------------------------------
 
 #pragma once
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <ctime>
 #include <iomanip>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
+#if defined(_WIN32)
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
+
+#include "../config/AppConfig.hpp"
 #include "../config/json.hpp"
 
 namespace microservice_toolbox {
 namespace wiretap {
 
 // -----------------------------------------------------------------------------
-// Wire Data Contracts (100% parity with Go, Python, and Rust)
+// Wire Data Contracts (100% parity with Go, Python & Rust)
 // -----------------------------------------------------------------------------
 
 struct ChannelMetric {
@@ -62,6 +76,24 @@ struct ChannelMetric {
         }
         return j;
     }
+
+    nlohmann::json ToJson() const { return to_json(); }
+
+    static ChannelMetric from_json(const nlohmann::json& j) {
+        ChannelMetric c;
+        c.channel = j.value("channel", "");
+        c.category = j.value("category", "");
+        c.direction = j.value("direction", "");
+        c.frames = j.value("frames", uint64_t{0});
+        c.bytes = j.value("bytes", uint64_t{0});
+        c.errors = j.value("errors", uint64_t{0});
+        c.avg_latency_ms = j.value("avg_latency_ms", 0.0);
+        c.last_seen = j.value("last_seen", "");
+        c.last_payload = j.value("last_payload", "");
+        return c;
+    }
+
+    static ChannelMetric FromJson(const nlohmann::json& j) { return from_json(j); }
 };
 
 struct EdgeReport {
@@ -96,13 +128,96 @@ struct EdgeReport {
             {"channels", ch_arr}
         };
     }
+
+    nlohmann::json ToJson() const { return to_json(); }
+
+    static EdgeReport from_json(const nlohmann::json& j) {
+        EdgeReport r;
+        r.source = j.value("source", "");
+        r.target = j.value("target", "");
+        r.protocol = j.value("protocol", "");
+        r.framing = j.value("framing", "");
+        r.active_conns = j.value("active_conns", int64_t{0});
+        r.total_frames = j.value("total_frames", uint64_t{0});
+        r.total_bytes = j.value("total_bytes", uint64_t{0});
+        r.total_errors = j.value("total_errors", uint64_t{0});
+        r.last_seen = j.value("last_seen", "");
+        r.is_external = j.value("is_external", false);
+        if (j.contains("channels") && j["channels"].is_array()) {
+            for (const auto& item : j["channels"]) {
+                r.channels.push_back(ChannelMetric::from_json(item));
+            }
+        }
+        return r;
+    }
+
+    static EdgeReport FromJson(const nlohmann::json& j) { return from_json(j); }
+};
+
+struct IngestPayload {
+    std::string reporter;
+    std::string timestamp;
+    bool enabled{true};
+    std::vector<EdgeReport> edges;
+
+    nlohmann::json to_json() const {
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& e : edges) {
+            arr.push_back(e.to_json());
+        }
+        return {
+            {"reporter", reporter},
+            {"timestamp", timestamp},
+            {"enabled", enabled},
+            {"edges", arr}
+        };
+    }
+
+    nlohmann::json ToJson() const { return to_json(); }
+
+    static IngestPayload from_json(const nlohmann::json& j) {
+        IngestPayload p;
+        p.reporter = j.value("reporter", "");
+        p.timestamp = j.value("timestamp", "");
+        p.enabled = j.value("enabled", true);
+        if (j.contains("edges") && j["edges"].is_array()) {
+            for (const auto& item : j["edges"]) {
+                p.edges.push_back(EdgeReport::from_json(item));
+            }
+        }
+        return p;
+    }
+
+    static IngestPayload FromJson(const nlohmann::json& j) { return from_json(j); }
+};
+
+struct IngestResponse {
+    std::string status;
+    bool enabled{true};
+
+    nlohmann::json to_json() const {
+        return {
+            {"status", status},
+            {"enabled", enabled}
+        };
+    }
+
+    nlohmann::json ToJson() const { return to_json(); }
+
+    static IngestResponse from_json(const nlohmann::json& j) {
+        IngestResponse r;
+        r.status = j.value("status", "");
+        r.enabled = j.value("enabled", true);
+        return r;
+    }
+
+    static IngestResponse FromJson(const nlohmann::json& j) { return from_json(j); }
 };
 
 // -----------------------------------------------------------------------------
 // Lock-Free Cache-Padded Atomic Structures
 // -----------------------------------------------------------------------------
 
-// Aligned to 64 bytes to prevent False Sharing across CPU cores on multi-threaded execution
 struct alignas(64) AtomicChannelEntry {
     std::string channel;
     std::string category;
@@ -146,6 +261,8 @@ struct alignas(64) AtomicEdgeEntry {
     std::string source;
     std::string target;
     std::string protocol;
+
+    mutable std::shared_mutex framing_mutex;
     std::string framing;
 
     std::atomic<bool>     is_external{false};
@@ -175,19 +292,34 @@ inline bool IsEnabled() noexcept {
     return GlobalEnabled().load(std::memory_order_relaxed);
 }
 
+inline bool is_enabled() noexcept {
+    return IsEnabled();
+}
+
 inline void SetEnabled(bool on) noexcept {
     GlobalEnabled().store(on, std::memory_order_relaxed);
 }
 
-// Power-of-two sampling check (thread-local counter, zero mutex)
+inline void set_enabled(bool on) noexcept {
+    SetEnabled(on);
+}
+
 inline bool ShouldSample(uint32_t mask) noexcept {
     if (mask == 0) return true;
     thread_local uint32_t counter = 0;
     return (++counter & mask) == 0;
 }
 
+inline bool should_sample(uint32_t mask = 0) noexcept {
+    return ShouldSample(mask);
+}
+
 inline std::string NormalizeServiceID(const std::string& raw) {
-    std::string s = raw;
+    size_t start = 0;
+    while (start < raw.size() && std::isspace(static_cast<unsigned char>(raw[start]))) ++start;
+    size_t end = raw.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(raw[end - 1]))) --end;
+    std::string s = raw.substr(start, end - start);
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
         return c == '-' ? '_' : static_cast<char>(std::tolower(c));
     });
@@ -197,6 +329,75 @@ inline std::string NormalizeServiceID(const std::string& raw) {
     if (s == "postgres" || s == "postgresql" || s == "timescaledb") return "timescale_db";
     if (s == "vector_db") return "chromadb";
     return s;
+}
+
+inline std::string normalize_service_id(const std::string& raw) {
+    return NormalizeServiceID(raw);
+}
+
+namespace detail {
+
+inline std::shared_mutex& GetStateMutex() noexcept {
+    static std::shared_mutex m;
+    return m;
+}
+
+inline std::string& GetLocalServiceRef() {
+    static std::string svc = "unknown_service";
+    return svc;
+}
+
+inline std::string& GetWebHubURLRef() {
+    static std::string url;
+    return url;
+}
+
+inline std::once_flag& GetReporterOnceFlag() noexcept {
+    static std::once_flag flag;
+    return flag;
+}
+
+} // namespace detail
+
+inline void SetLocalService(const std::string& serviceName) {
+    std::string norm = NormalizeServiceID(serviceName);
+    std::unique_lock<std::shared_mutex> lock(detail::GetStateMutex());
+    detail::GetLocalServiceRef() = norm.empty() ? "unknown_service" : norm;
+}
+
+inline void set_local_service(const std::string& serviceName) {
+    SetLocalService(serviceName);
+}
+
+inline std::string GetLocalService() {
+    std::shared_lock<std::shared_mutex> lock(detail::GetStateMutex());
+    const std::string& s = detail::GetLocalServiceRef();
+    return s.empty() ? "unknown_service" : s;
+}
+
+inline std::string get_local_service() {
+    return GetLocalService();
+}
+
+inline void SetWebHubURL(const std::string& url) {
+    std::string clean = url;
+    while (!clean.empty() && std::isspace(static_cast<unsigned char>(clean.back()))) clean.pop_back();
+    while (!clean.empty() && clean.back() == '/') clean.pop_back();
+    std::unique_lock<std::shared_mutex> lock(detail::GetStateMutex());
+    detail::GetWebHubURLRef() = std::move(clean);
+}
+
+inline void set_web_hub_url(const std::string& url) {
+    SetWebHubURL(url);
+}
+
+inline std::string GetWebHubURL() {
+    std::shared_lock<std::shared_mutex> lock(detail::GetStateMutex());
+    return detail::GetWebHubURLRef();
+}
+
+inline std::string get_web_hub_url() {
+    return GetWebHubURL();
 }
 
 inline std::shared_mutex& GetRegistryMutex() noexcept {
@@ -213,7 +414,7 @@ inline std::unordered_map<std::string, std::shared_ptr<AtomicEdgeEntry>>& GetEdg
 // Hot-Path Event Recording
 // -----------------------------------------------------------------------------
 
-inline void RecordEvent(
+inline void RecordEventWithConnDelta(
     const std::string& source,
     const std::string& target,
     const std::string& protocol = "TCP",
@@ -239,13 +440,17 @@ inline void RecordEvent(
     }
 
     std::string proto_upper = protocol;
-    std::transform(proto_upper.begin(), proto_upper.end(), proto_upper.begin(), ::toupper);
+    std::transform(proto_upper.begin(), proto_upper.end(), proto_upper.begin(), [](unsigned char c) {
+        return static_cast<char>(std::toupper(c));
+    });
     if (proto_upper.empty()) proto_upper = "TCP";
 
     std::string ch_name = channel;
     if (ch_name.empty()) {
         std::string p_lower = proto_upper;
-        std::transform(p_lower.begin(), p_lower.end(), p_lower.begin(), ::tolower);
+        std::transform(p_lower.begin(), p_lower.end(), p_lower.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
         ch_name = p_lower + ":default";
     }
 
@@ -270,6 +475,13 @@ inline void RecordEvent(
         edge_ptr = slot;
     }
 
+    if (!framing.empty()) {
+        std::unique_lock<std::shared_mutex> flock(edge_ptr->framing_mutex);
+        if (edge_ptr->framing != framing) {
+            edge_ptr->framing = framing;
+        }
+    }
+
     if (is_external) {
         edge_ptr->is_external.store(true, std::memory_order_relaxed);
     }
@@ -289,7 +501,6 @@ inline void RecordEvent(
     }
     edge_ptr->last_seen_ms.store(now_ms, std::memory_order_relaxed);
 
-    // Channel entry retrieval/creation
     std::shared_ptr<AtomicChannelEntry> ch_ptr;
     {
         std::shared_lock<std::shared_mutex> rlock(edge_ptr->channels_mutex);
@@ -314,8 +525,50 @@ inline void RecordEvent(
     ch_ptr->Record(bytes_count, latency_ms, is_err, payload_summary, now_ms);
 }
 
+inline void RecordEvent(
+    const std::string& source,
+    const std::string& target,
+    const std::string& protocol = "TCP",
+    const std::string& framing = "raw",
+    const std::string& channel = "",
+    const std::string& category = "data",
+    const std::string& direction = "outbound",
+    const std::string& payload_summary = "",
+    uint64_t bytes_count = 0,
+    double latency_ms = 0.0,
+    bool is_err = false,
+    bool is_external = false,
+    int64_t conn_delta = 0
+) {
+    RecordEventWithConnDelta(
+        source, target, protocol, framing, channel, category, direction,
+        payload_summary, bytes_count, latency_ms, is_err, is_external, conn_delta
+    );
+}
+
+inline void record_event(
+    const std::string& source,
+    const std::string& target,
+    const std::string& protocol = "TCP",
+    const std::string& framing = "raw",
+    const std::string& channel = "",
+    const std::string& category = "data",
+    const std::string& direction = "outbound",
+    const std::string& payload_summary = "",
+    uint64_t bytes_count = 0,
+    double latency_ms = 0.0,
+    bool is_err = false,
+    bool is_external = false,
+    int64_t conn_delta = 0
+) {
+    RecordEventWithConnDelta(
+        source, target, protocol, framing, channel, category, direction,
+        payload_summary, bytes_count, latency_ms, is_err, is_external, conn_delta
+    );
+}
+
 // -----------------------------------------------------------------------------
-// Snapshot Generation
+// Snapshot Generation & Merge
 // -----------------------------------------------------------------------------
 
 inline std::string FormatIso(int64_t ms) {
@@ -343,7 +596,10 @@ inline std::vector<EdgeReport> Snapshot() {
         r.source = edge->source;
         r.target = edge->target;
         r.protocol = edge->protocol;
-        r.framing = edge->framing;
+        {
+            std::shared_lock<std::shared_mutex> flock(edge->framing_mutex);
+            r.framing = edge->framing;
+        }
         r.active_conns = edge->active_conns.load(std::memory_order_relaxed);
         r.total_frames = edge->total_frames.load(std::memory_order_relaxed);
         r.total_bytes = edge->total_bytes.load(std::memory_order_relaxed);
@@ -388,11 +644,272 @@ inline std::vector<EdgeReport> Snapshot() {
     return reports;
 }
 
+inline std::vector<EdgeReport> snapshot() {
+    return Snapshot();
+}
+
+inline void MergeRemoteSnapshot(const std::vector<EdgeReport>& incoming) {
+    if (!IsEnabled()) return;
+    auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    for (const auto& rep : incoming) {
+        std::string src_norm = NormalizeServiceID(rep.source);
+        std::string tgt_norm = NormalizeServiceID(rep.target);
+        std::string proto_upper = rep.protocol;
+        std::transform(proto_upper.begin(), proto_upper.end(), proto_upper.begin(), [](unsigned char c) {
+            return static_cast<char>(std::toupper(c));
+        });
+        if (src_norm.empty() || tgt_norm.empty() || proto_upper.empty()) continue;
+
+        std::string edge_key = src_norm + "|" + tgt_norm + "|" + proto_upper;
+        std::shared_ptr<AtomicEdgeEntry> edge_ptr;
+        {
+            std::shared_lock<std::shared_mutex> rlock(GetRegistryMutex());
+            auto it = GetEdgeRegistry().find(edge_key);
+            if (it != GetEdgeRegistry().end()) edge_ptr = it->second;
+        }
+        if (!edge_ptr) {
+            std::unique_lock<std::shared_mutex> wlock(GetRegistryMutex());
+            auto& slot = GetEdgeRegistry()[edge_key];
+            if (!slot) {
+                slot = std::make_shared<AtomicEdgeEntry>(src_norm, tgt_norm, proto_upper, rep.framing.empty() ? "raw" : rep.framing);
+            }
+            edge_ptr = slot;
+        }
+
+        if (!rep.framing.empty()) {
+            std::unique_lock<std::shared_mutex> flock(edge_ptr->framing_mutex);
+            edge_ptr->framing = rep.framing;
+        }
+        if (rep.is_external) edge_ptr->is_external.store(true, std::memory_order_relaxed);
+        if (rep.active_conns > 0) edge_ptr->active_conns.store(rep.active_conns, std::memory_order_relaxed);
+        if (rep.total_frames > edge_ptr->total_frames.load(std::memory_order_relaxed)) {
+            edge_ptr->total_frames.store(rep.total_frames, std::memory_order_relaxed);
+        }
+        if (rep.total_bytes >= edge_ptr->total_bytes.load(std::memory_order_relaxed)) {
+            edge_ptr->total_bytes.store(rep.total_bytes, std::memory_order_relaxed);
+        }
+        edge_ptr->total_errors.store(rep.total_errors, std::memory_order_relaxed);
+        edge_ptr->last_seen_ms.store(now_ms, std::memory_order_relaxed);
+
+        for (const auto& ch : rep.channels) {
+            if (ch.channel.empty()) continue;
+            std::shared_ptr<AtomicChannelEntry> ch_ptr;
+            {
+                std::shared_lock<std::shared_mutex> rlock(edge_ptr->channels_mutex);
+                auto it = edge_ptr->channels.find(ch.channel);
+                if (it != edge_ptr->channels.end()) ch_ptr = it->second;
+            }
+            if (!ch_ptr) {
+                std::unique_lock<std::shared_mutex> wlock(edge_ptr->channels_mutex);
+                auto& slot = edge_ptr->channels[ch.channel];
+                if (!slot) {
+                    slot = std::make_shared<AtomicChannelEntry>(ch.channel, ch.category, ch.direction);
+                }
+                ch_ptr = slot;
+            }
+            if (ch.frames >= ch_ptr->frames.load(std::memory_order_relaxed)) {
+                ch_ptr->frames.store(ch.frames, std::memory_order_relaxed);
+            }
+            if (ch.bytes >= ch_ptr->bytes.load(std::memory_order_relaxed)) {
+                ch_ptr->bytes.store(ch.bytes, std::memory_order_relaxed);
+            }
+            ch_ptr->errors.store(ch.errors, std::memory_order_relaxed);
+            if (ch.avg_latency_ms > 0.0) {
+                ch_ptr->total_lat_us.store(static_cast<uint64_t>(ch.avg_latency_ms * 1000.0), std::memory_order_relaxed);
+                ch_ptr->lat_samples.store(1, std::memory_order_relaxed);
+            }
+            ch_ptr->last_seen_ms.store(now_ms, std::memory_order_relaxed);
+            if (!ch.last_payload.empty()) {
+                std::unique_lock<std::shared_mutex> plock(ch_ptr->payload_mutex);
+                ch_ptr->last_payload = ch.last_payload;
+            }
+        }
+    }
+}
+
+inline void merge_remote_snapshot(const std::vector<EdgeReport>& incoming) {
+    MergeRemoteSnapshot(incoming);
+}
+
 inline void Reset() {
     std::unique_lock<std::shared_mutex> wlock(GetRegistryMutex());
     GetEdgeRegistry().clear();
 }
 
+inline void reset() {
+    Reset();
+}
+
+// -----------------------------------------------------------------------------
+// Config Initialization & Background Hub Sync (/api/v1/system/wiretap/ingest)
+// -----------------------------------------------------------------------------
+
+namespace detail {
+
+inline bool PostIngestHttp(const std::string& hubUrl, const std::string& payloadJson, IngestResponse& respOut) {
+    std::string target = hubUrl;
+    if (target.rfind("http://", 0) == 0) target = target.substr(7);
+    else if (target.rfind("https://", 0) == 0) target = target.substr(8);
+
+    std::string basePath;
+    auto slashPos = target.find('/');
+    if (slashPos != std::string::npos) {
+        basePath = target.substr(slashPos);
+        target = target.substr(0, slashPos);
+    }
+    while (!basePath.empty() && basePath.back() == '/') basePath.pop_back();
+
+    auto colon = target.rfind(':');
+    if (colon == std::string::npos) return false;
+    std::string host = target.substr(0, colon);
+    if (host.size() >= 2 && host.front() == '[' && host.back() == ']') {
+        host = host.substr(1, host.size() - 2);
+    }
+    std::string portStr = target.substr(colon + 1);
+    if (host.empty() || portStr.empty()) return false;
+
+    struct addrinfo hints{}, *res = nullptr;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(host.c_str(), portStr.c_str(), &hints, &res) != 0 || !res) {
+        return false;
+    }
+
+    int sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (sock < 0) {
+        freeaddrinfo(res);
+        return false;
+    }
+
+#if defined(_WIN32)
+    DWORD tv = 1500;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+#else
+    struct timeval tv{1, 500000};
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#endif
+
+    if (connect(sock, res->ai_addr, res->ai_addrlen) != 0) {
+        freeaddrinfo(res);
+#if defined(_WIN32)
+        closesocket(sock);
+#else
+        close(sock);
+#endif
+        return false;
+    }
+    freeaddrinfo(res);
+
+    std::string path = basePath + "/api/v1/system/wiretap/ingest";
+    std::ostringstream req;
+    req << "POST " << path << " HTTP/1.1\r\n"
+        << "Host: " << target << "\r\n"
+        << "Content-Type: application/json\r\n"
+        << "Content-Length: " << payloadJson.size() << "\r\n"
+        << "Connection: close\r\n\r\n"
+        << payloadJson;
+    std::string reqStr = req.str();
+
+    size_t sent = 0;
+    while (sent < reqStr.size()) {
+        ssize_t n = send(sock, reqStr.c_str() + sent, reqStr.size() - sent, 0);
+        if (n <= 0) break;
+        sent += n;
+    }
+
+    char buf[1024];
+    std::string rawResp;
+    while (true) {
+        ssize_t n = recv(sock, buf, sizeof(buf) - 1, 0);
+        if (n <= 0) break;
+        rawResp.append(buf, n);
+    }
+
+#if defined(_WIN32)
+    closesocket(sock);
+#else
+    close(sock);
+#endif
+
+    auto hdrEnd = rawResp.find("\r\n\r\n");
+    if (hdrEnd == std::string::npos) return false;
+    try {
+        auto parsed = nlohmann::json::parse(rawResp.substr(hdrEnd + 4));
+        respOut = IngestResponse::from_json(parsed);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+inline void ReporterLoop() {
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        std::string hub = GetWebHubURL();
+        if (hub.empty()) continue;
+
+        auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        IngestPayload payload;
+        payload.reporter = GetLocalService();
+        payload.timestamp = FormatIso(now_ms);
+        payload.enabled = IsEnabled();
+        if (payload.enabled) {
+            payload.edges = Snapshot();
+        }
+
+        IngestResponse resp;
+        if (PostIngestHttp(hub, payload.to_json().dump(), resp) && !resp.status.empty()) {
+            if (resp.enabled != IsEnabled()) {
+                SetEnabled(resp.enabled);
+            }
+        }
+    }
+}
+
+} // namespace detail
+
+inline void ConfigureFromConfig(const std::string& serviceName, const config::AppConfig& appConfig) {
+    SetLocalService(serviceName);
+
+    std::string rawEnabled = appConfig.GetLocal("wiretap_enabled");
+    if (rawEnabled.empty()) {
+        auto common = appConfig.GetCommon();
+        if (common.contains("wiretap_enabled")) {
+            const auto& v = common["wiretap_enabled"];
+            if (v.is_string()) rawEnabled = v.get<std::string>();
+            else if (v.is_boolean()) rawEnabled = v.get<bool>() ? "true" : "false";
+        }
+    }
+    std::string low = rawEnabled;
+    std::transform(low.begin(), low.end(), low.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    SetEnabled(low.empty() || low == "true");
+
+    try {
+        std::string webAddr = appConfig.GetListenAddr("web_interface");
+        if (!webAddr.empty()) {
+            SetWebHubURL("http://" + webAddr);
+        }
+    } catch (...) {
+        // Explicit failure to resolve web_interface leaves hub URL unset if omitted in isolated unit tests
+    }
+
+    if (GetLocalService() != "web_interface") {
+        std::call_once(detail::GetReporterOnceFlag(), []() {
+            std::thread(detail::ReporterLoop).detach();
+        });
+    }
+}
+
+inline void configure_from_config(const std::string& serviceName, const config::AppConfig& appConfig) {
+    ConfigureFromConfig(serviceName, appConfig);
+}
+
 } // namespace wiretap
 } // namespace microservice_toolbox
-

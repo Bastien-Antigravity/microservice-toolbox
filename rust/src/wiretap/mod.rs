@@ -3,28 +3,32 @@
 // High-performance, lock-free WireTap transport telemetry engine for Rust.
 // Aggregates inter-service and external network connections and segregated
 // information channels with cache-line padded atomics and branch-free power-of-two sampling.
-// Periodically flushes snapshots to web-interface topology hub.
+// Periodically flushes snapshots to web-interface topology hub and syncs toggle state.
 //
 // DATA FLOW:
 // Hot path packet -> relaxed atomic check -> bitmask sampling -> relaxed fetch_add -> background HTTP flush
 //
 // KEY PARAMETERS:
-// - ENABLED: AtomicBool global switch.
+// - ENABLED: AtomicBool global switch (default true, configurable via AppConfig).
 // - CACHE_LINE: 64 bytes cache-line alignment to eliminate False Sharing.
 // -----------------------------------------------------------------------------
 
+use crate::config::loader::AppConfig;
+use chrono::SecondsFormat;
+use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::{SystemTime, UNIX_EPOCH};
-use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Once, OnceLock, RwLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // -----------------------------------------------------------------------------
-// Wire Data Contracts (100% parity with Go & Python)
+// Wire Data Contracts (100% parity with Go, Python & C++)
 // -----------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChannelMetric {
     pub channel: String,
     pub category: String,
@@ -38,7 +42,7 @@ pub struct ChannelMetric {
     pub last_payload: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EdgeReport {
     pub source: String,
     pub target: String,
@@ -71,7 +75,6 @@ pub struct IngestResponse {
 // Lock-Free Cache-Padded Atomic Structures
 // -----------------------------------------------------------------------------
 
-// Aligned to 64 bytes to prevent False Sharing across CPU cores on multi-threaded execution
 #[repr(align(64))]
 pub struct AtomicChannelEntry {
     pub channel: String,
@@ -118,20 +121,21 @@ impl AtomicChannelEntry {
         self.last_seen_ms.store(now_ms, Ordering::Relaxed);
 
         if let Some(p) = payload {
-            if let Ok(mut lock) = self.last_payload.write() {
-                *lock = Some(p.to_string());
+            if !p.is_empty() {
+                if let Ok(mut lock) = self.last_payload.write() {
+                    *lock = Some(p.to_string());
+                }
             }
         }
     }
 }
 
-// Cache-line aligned edge entry
 #[repr(align(64))]
 pub struct AtomicEdgeEntry {
     pub source: String,
     pub target: String,
     pub protocol: String,
-    pub framing: String,
+    pub framing: RwLock<String>,
     pub is_external: AtomicBool,
     pub active_conns: AtomicI64,
     pub total_frames: AtomicU64,
@@ -147,7 +151,7 @@ impl AtomicEdgeEntry {
             source,
             target,
             protocol,
-            framing,
+            framing: RwLock::new(framing),
             is_external: AtomicBool::new(false),
             active_conns: AtomicI64::new(0),
             total_frames: AtomicU64::new(0),
@@ -164,6 +168,7 @@ impl AtomicEdgeEntry {
 // -----------------------------------------------------------------------------
 
 static ENABLED: AtomicBool = AtomicBool::new(true);
+static REPORTER_ONCE: Once = Once::new();
 
 thread_local! {
     static SAMPLE_COUNTER: Cell<u32> = const { Cell::new(0) };
@@ -191,37 +196,58 @@ pub fn set_enabled(on: bool) {
     ENABLED.store(on, Ordering::Relaxed);
 }
 
-// Global registry singleton
 type EdgeMap = RwLock<HashMap<String, Arc<AtomicEdgeEntry>>>;
 
 fn get_edges_registry() -> &'static EdgeMap {
-    static EDGES: std::sync::OnceLock<EdgeMap> = std::sync::OnceLock::new();
+    static EDGES: OnceLock<EdgeMap> = OnceLock::new();
     EDGES.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 fn get_hub_url() -> &'static RwLock<String> {
-    static HUB_URL: std::sync::OnceLock<RwLock<String>> = std::sync::OnceLock::new();
+    static HUB_URL: OnceLock<RwLock<String>> = OnceLock::new();
     HUB_URL.get_or_init(|| RwLock::new(String::new()))
 }
 
-fn get_local_service() -> &'static RwLock<String> {
-    static LOCAL_SERVICE: std::sync::OnceLock<RwLock<String>> = std::sync::OnceLock::new();
-    LOCAL_SERVICE.get_or_init(|| RwLock::new(String::new()))
+fn get_local_service_lock() -> &'static RwLock<String> {
+    static LOCAL_SERVICE: OnceLock<RwLock<String>> = OnceLock::new();
+    LOCAL_SERVICE.get_or_init(|| RwLock::new("unknown_service".to_string()))
 }
 
 pub fn set_local_service_name(service_name: &str) {
-    if let Ok(mut lock) = get_local_service().write() {
-        *lock = normalize_service_id(service_name);
+    let norm = normalize_service_id(service_name);
+    if let Ok(mut lock) = get_local_service_lock().write() {
+        *lock = if norm.is_empty() {
+            "unknown_service".to_string()
+        } else {
+            norm
+        };
     }
 }
 
+pub fn set_local_service(service_name: &str) {
+    set_local_service_name(service_name);
+}
+
 pub fn get_local_service_name() -> String {
-    get_local_service().read().map(|l| l.clone()).unwrap_or_default()
+    get_local_service_lock()
+        .read()
+        .map(|l| {
+            if l.is_empty() {
+                "unknown_service".to_string()
+            } else {
+                l.clone()
+            }
+        })
+        .unwrap_or_else(|_| "unknown_service".to_string())
+}
+
+pub fn get_local_service() -> String {
+    get_local_service_name()
 }
 
 pub fn set_web_hub_url(url: &str) {
     if let Ok(mut lock) = get_hub_url().write() {
-        *lock = url.trim_end_matches('/').to_string();
+        *lock = url.trim().trim_end_matches('/').to_string();
     }
 }
 
@@ -230,7 +256,115 @@ pub fn get_web_hub_url() -> String {
 }
 
 // -----------------------------------------------------------------------------
-// Canonical Service Normalization (100% parity with Go & Python)
+// Configuration & Background Reporter
+// -----------------------------------------------------------------------------
+
+fn yaml_scalar_to_string(v: &serde_yml::Value) -> String {
+    match v {
+        serde_yml::Value::String(s) => s.trim().to_string(),
+        serde_yml::Value::Bool(b) => b.to_string(),
+        serde_yml::Value::Number(n) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Initializes WireTap from validated AppConfig and starts the 2s background ingestion reporter.
+/// Zero silent fallback: reads web_interface address and wiretap_enabled strictly from AppConfig.
+pub fn configure_from_config(service_name: &str, app_config: &AppConfig) {
+    set_local_service(service_name);
+
+    let raw_enabled = app_config
+        .get_local("wiretap_enabled")
+        .map(yaml_scalar_to_string)
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            app_config
+                .get_value("common.wiretap_enabled")
+                .map(yaml_scalar_to_string)
+                .filter(|s| !s.is_empty())
+        })
+        .unwrap_or_default();
+
+    let initial_enabled = raw_enabled.is_empty() || raw_enabled.eq_ignore_ascii_case("true");
+    set_enabled(initial_enabled);
+
+    if let Ok(web_addr) = app_config.get_listen_addr("web_interface") {
+        if !web_addr.trim().is_empty() {
+            set_web_hub_url(&format!("http://{}", web_addr.trim()));
+        }
+    }
+
+    if get_local_service() != "web_interface" {
+        REPORTER_ONCE.call_once(|| {
+            let _ = std::thread::Builder::new()
+                .name("wiretap-reporter".to_string())
+                .spawn(reporter_loop);
+        });
+    }
+}
+
+fn post_ingest_once(hub_url: &str, body_json: &str) -> Option<IngestResponse> {
+    let trimmed = hub_url.trim().trim_end_matches('/');
+    let rest = trimmed
+        .strip_prefix("http://")
+        .or_else(|| trimmed.strip_prefix("https://"))
+        .unwrap_or(trimmed);
+    let (host_port, base_path) = match rest.find('/') {
+        Some(idx) => (&rest[..idx], &rest[idx..]),
+        None => (rest, ""),
+    };
+    if host_port.is_empty() {
+        return None;
+    }
+
+    let path = format!("{}/api/v1/system/wiretap/ingest", base_path.trim_end_matches('/'));
+    let request = format!(
+        "POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        path,
+        host_port,
+        body_json.len(),
+        body_json
+    );
+
+    let mut stream = TcpStream::connect(host_port).ok()?;
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(1500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(1500)));
+    stream.write_all(request.as_bytes()).ok()?;
+
+    let mut raw_resp = String::new();
+    let _ = stream.read_to_string(&mut raw_resp);
+    let body_start = raw_resp.find("\r\n\r\n").map(|i| i + 4)?;
+    serde_json::from_str::<IngestResponse>(raw_resp[body_start..].trim()).ok()
+}
+
+fn reporter_loop() {
+    loop {
+        std::thread::sleep(Duration::from_secs(2));
+        let hub = get_web_hub_url();
+        if hub.is_empty() {
+            continue;
+        }
+
+        let current_edges = if is_enabled() { snapshot() } else { Vec::new() };
+        let payload = IngestPayload {
+            reporter: get_local_service(),
+            timestamp: chrono::Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+            enabled: is_enabled(),
+            edges: current_edges,
+        };
+
+        if let Ok(body_json) = serde_json::to_string(&payload) {
+            if let Some(resp) = post_ingest_once(&hub, &body_json) {
+                if !resp.status.is_empty() && resp.enabled != is_enabled() {
+                    set_enabled(resp.enabled);
+                }
+            }
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Canonical Service Normalization (100% parity with Go, Python & C++)
 // -----------------------------------------------------------------------------
 
 pub fn normalize_service_id(raw: &str) -> String {
@@ -327,7 +461,6 @@ pub fn record_event_with_conn_delta(
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
 
-    // Fast-path read lock on edges registry
     let edge_arc = {
         let registry = get_edges_registry();
         let read_guard = registry.read().unwrap();
@@ -349,6 +482,14 @@ pub fn record_event_with_conn_delta(
                 .clone()
         }
     };
+
+    if !framing.is_empty() {
+        if let Ok(mut fguard) = edge_arc.framing.write() {
+            if *fguard != framing {
+                *fguard = framing.to_string();
+            }
+        }
+    }
 
     if is_external {
         edge_arc.is_external.store(true, Ordering::Relaxed);
@@ -372,7 +513,6 @@ pub fn record_event_with_conn_delta(
     }
     edge_arc.last_seen_ms.store(now_ms, Ordering::Relaxed);
 
-    // Fast channel entry update
     let ch_arc = {
         let ch_read = edge_arc.channels.read().unwrap();
         if let Some(ch) = ch_read.get(&ch_name) {
@@ -397,7 +537,7 @@ pub fn record_event_with_conn_delta(
 }
 
 // -----------------------------------------------------------------------------
-// Snapshot Generation
+// Snapshot Generation & Merge
 // -----------------------------------------------------------------------------
 
 fn format_iso(ms: i64) -> String {
@@ -405,9 +545,8 @@ fn format_iso(ms: i64) -> String {
         return String::new();
     }
     let secs = ms / 1000;
-    let nsecs = ((ms % 1000) * 1_000_000) as u32;
-    if let Some(dt) = chrono::DateTime::from_timestamp(secs, nsecs) {
-        dt.to_rfc3339()
+    if let Some(dt) = chrono::DateTime::from_timestamp(secs, 0) {
+        dt.to_rfc3339_opts(SecondsFormat::Secs, true)
     } else {
         String::new()
     }
@@ -430,7 +569,12 @@ pub fn snapshot() -> Vec<EdgeReport> {
                 0.0
             };
 
-            let last_p = ce.last_payload.read().ok().and_then(|p| p.clone());
+            let last_p = ce
+                .last_payload
+                .read()
+                .ok()
+                .and_then(|p| p.clone())
+                .filter(|s| !s.is_empty());
 
             ch_list.push(ChannelMetric {
                 channel: ce.channel.clone(),
@@ -446,12 +590,13 @@ pub fn snapshot() -> Vec<EdgeReport> {
         }
 
         ch_list.sort_by(|a, b| a.channel.cmp(&b.channel));
+        let framing = edge.framing.read().map(|f| f.clone()).unwrap_or_default();
 
         reports.push(EdgeReport {
             source: edge.source.clone(),
             target: edge.target.clone(),
             protocol: edge.protocol.clone(),
-            framing: edge.framing.clone(),
+            framing,
             active_conns: edge.active_conns.load(Ordering::Relaxed),
             total_frames: edge.total_frames.load(Ordering::Relaxed),
             total_bytes: edge.total_bytes.load(Ordering::Relaxed),
@@ -472,9 +617,121 @@ pub fn snapshot() -> Vec<EdgeReport> {
     reports
 }
 
+/// Merges a batch of remote EdgeReports pushed from a microservice into the local store.
+pub fn merge_remote_snapshot(incoming: &[EdgeReport]) {
+    if !is_enabled() {
+        return;
+    }
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    for rep in incoming {
+        let src_norm = normalize_service_id(&rep.source);
+        let tgt_norm = normalize_service_id(&rep.target);
+        let proto_upper = rep.protocol.trim().to_uppercase();
+        if src_norm.is_empty() || tgt_norm.is_empty() || proto_upper.is_empty() {
+            continue;
+        }
+        let edge_key = format!("{}|{}|{}", src_norm, tgt_norm, proto_upper);
+
+        let edge_arc = {
+            let registry = get_edges_registry();
+            let read_guard = registry.read().unwrap();
+            if let Some(edge) = read_guard.get(&edge_key) {
+                edge.clone()
+            } else {
+                drop(read_guard);
+                let mut write_guard = registry.write().unwrap();
+                write_guard
+                    .entry(edge_key)
+                    .or_insert_with(|| {
+                        Arc::new(AtomicEdgeEntry::new(
+                            src_norm,
+                            tgt_norm,
+                            proto_upper,
+                            if rep.framing.is_empty() {
+                                "raw".to_string()
+                            } else {
+                                rep.framing.clone()
+                            },
+                        ))
+                    })
+                    .clone()
+            }
+        };
+
+        if !rep.framing.is_empty() {
+            if let Ok(mut fguard) = edge_arc.framing.write() {
+                *fguard = rep.framing.clone();
+            }
+        }
+        if rep.is_external {
+            edge_arc.is_external.store(true, Ordering::Relaxed);
+        }
+        if rep.active_conns > 0 {
+            edge_arc.active_conns.store(rep.active_conns, Ordering::Relaxed);
+        }
+        if rep.total_frames > edge_arc.total_frames.load(Ordering::Relaxed) {
+            edge_arc.total_frames.store(rep.total_frames, Ordering::Relaxed);
+        }
+        if rep.total_bytes >= edge_arc.total_bytes.load(Ordering::Relaxed) {
+            edge_arc.total_bytes.store(rep.total_bytes, Ordering::Relaxed);
+        }
+        edge_arc.total_errors.store(rep.total_errors, Ordering::Relaxed);
+        edge_arc.last_seen_ms.store(now_ms, Ordering::Relaxed);
+
+        for ch in &rep.channels {
+            if ch.channel.is_empty() {
+                continue;
+            }
+            let ch_arc = {
+                let ch_read = edge_arc.channels.read().unwrap();
+                if let Some(existing) = ch_read.get(&ch.channel) {
+                    existing.clone()
+                } else {
+                    drop(ch_read);
+                    let mut ch_write = edge_arc.channels.write().unwrap();
+                    ch_write
+                        .entry(ch.channel.clone())
+                        .or_insert_with(|| {
+                            Arc::new(AtomicChannelEntry::new(
+                                ch.channel.clone(),
+                                ch.category.clone(),
+                                ch.direction.clone(),
+                            ))
+                        })
+                        .clone()
+                }
+            };
+            if ch.frames >= ch_arc.frames.load(Ordering::Relaxed) {
+                ch_arc.frames.store(ch.frames, Ordering::Relaxed);
+            }
+            if ch.bytes >= ch_arc.bytes.load(Ordering::Relaxed) {
+                ch_arc.bytes.store(ch.bytes, Ordering::Relaxed);
+            }
+            ch_arc.errors.store(ch.errors, Ordering::Relaxed);
+            if ch.avg_latency_ms > 0.0 {
+                ch_arc
+                    .total_lat_us
+                    .store((ch.avg_latency_ms * 1000.0) as u64, Ordering::Relaxed);
+                ch_arc.lat_samples.store(1, Ordering::Relaxed);
+            }
+            ch_arc.last_seen_ms.store(now_ms, Ordering::Relaxed);
+            if let Some(ref lp) = ch.last_payload {
+                if !lp.is_empty() {
+                    if let Ok(mut guard) = ch_arc.last_payload.write() {
+                        *guard = Some(lp.clone());
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub fn reset() {
     let registry = get_edges_registry();
     let mut write_guard = registry.write().unwrap();
     write_guard.clear();
 }
-

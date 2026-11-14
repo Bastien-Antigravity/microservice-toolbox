@@ -20,32 +20,45 @@ import (
 )
 
 func TestResolver_ResolveBindAddr(t *testing.T) {
-	// Test Case 1: Native Mode (Not Docker)
+	// Test Case 1: Native Mode relies strictly on configured IP
 	r := &Resolver{IsDocker: false}
 	addr, err := r.ResolveBindAddr("127.0.0.1")
 	assert.NoError(t, err)
-	assert.Equal(t, "127.0.0.1", addr, "Native mode should allow loopback")
+	assert.Equal(t, "127.0.0.1", addr)
 
 	addr, err = r.ResolveBindAddr("1.2.3.4")
 	assert.NoError(t, err)
-	assert.Equal(t, "1.2.3.4", addr, "Native mode should allow external IP")
+	assert.Equal(t, "1.2.3.4", addr)
 
-	// Test Case 2: Docker Mode + Loopback
+	// Test Case 2: Docker Mode ALSO honors config address (no hardcoded 0.0.0.0 override)
 	r = &Resolver{IsDocker: true}
-	// Note: Mocking getPrimaryInterfaceIP is hard without refactoring to interface,
-	// but we can check if it attempts to resolve loopback.
-	// Since we can't easily mock network interfaces in unit tests, we'll check the logic flow.
-
-	addr, err = r.ResolveBindAddr("1.2.3.4")
+	addr, err = r.ResolveBindAddr("10.1.2.3")
 	assert.NoError(t, err)
-	assert.Equal(t, "0.0.0.0", addr, "Docker mode should force 0.0.0.0 to allow orchestrated networking")
+	assert.Equal(t, "10.1.2.3", addr)
 
-	// Test Case 3: isLoopback
-	assert.True(t, r.isLoopback("127.0.0.1"))
+	fullDocker, err := r.ResolveFullBindAddr("[::1]:8080")
+	assert.NoError(t, err)
+	assert.Equal(t, "[::1]:8080", fullDocker)
+
+	// Test Case 3: Fail-fast on empty IP / empty host / empty port
+	_, err = r.ResolveBindAddr("")
+	assert.Error(t, err)
+	_, err = r.ResolveFullBindAddr(":8080")
+	assert.Error(t, err)
+	_, err = r.ResolveFullBindAddr("127.0.0.1:")
+	assert.Error(t, err)
+
+	// Test Case 4: isLoopback / IsLoopback & IPv6 parity
+	assert.True(t, r.IsLoopback("127.0.0.1"))
 	assert.True(t, r.isLoopback("127.255.255.255"))
 	assert.True(t, r.isLoopback("::1"))
-	assert.True(t, r.isLoopback("localhost"))
+	assert.True(t, r.isLoopback("LocalHost"))
 	assert.False(t, r.isLoopback("8.8.8.8"))
+
+	native := &Resolver{IsDocker: false}
+	bareV6, err := native.ResolveFullBindAddr("::1")
+	assert.NoError(t, err)
+	assert.Equal(t, "::1", bareV6)
 }
 
 func TestNewResolver(t *testing.T) {

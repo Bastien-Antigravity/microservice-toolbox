@@ -438,6 +438,20 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
+    def sync(self) -> bool:
+        """Synchronizes configuration state with the remote Config Server via the bridge."""
+        if not self._handle:
+            return False
+        try:
+            res = lib.DistConf_Sync(self._handle) != 0
+            self._sync_from_bridge()
+            return res
+        except Exception as e:
+            self.logger.warning(f"{self.Name} : sync failed: {e}")
+            return False
+
+    # -----------------------------------------------------------------------------------------------
+
     def get_config(self, section: str, key: str, default: Any = None) -> Any:
         """Retrieves a value from the bridge or local data."""
         if self._handle:

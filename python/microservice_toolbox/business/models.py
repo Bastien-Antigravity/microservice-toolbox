@@ -32,6 +32,7 @@ class MarketEventType(str, Enum):
     ORDERBOOK_SNAPSHOT = "orderbookSnapshot"
     ORDERBOOK_UPDATE = "orderbookUpdate"
     HEARTBEAT = "heartbeat"
+    CONTROL = "control"
 
 
 # -----------------------------------------------------------------------------------------------

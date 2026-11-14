@@ -8,8 +8,8 @@ Captures OS signals and executes registered cleanup handlers in reverse order (L
 
 DATA FLOW:
 1. Components register cleanup functions with the manager.
-2. Manager blocks until a termination signal (SIGINT, SIGTERM) is received.
-3. Registered handlers are executed, ensuring resources are released cleanly.
+2. Manager blocks until a termination signal (SIGINT, SIGTERM) or shutdown request.
+3. Registered handlers are executed in LIFO order, ensuring resources are released cleanly.
 
 KEY PARAMETERS:
 - ShutdownFunc: A callable that returns None, used for cleanup operations.
@@ -21,8 +21,8 @@ from signal import (
     Signals as sigSignals,
     signal as sigSignal,
 )
-from threading import Event as threadingEvent
-from typing import Callable, List, Optional
+from threading import Event as threadingEvent, Lock as threadingLock
+from typing import Callable, List, Optional, Tuple
 
 from ..logger import Logger, ensure_safe_logger
 
@@ -36,7 +36,7 @@ ShutdownFunc = Callable[[], None]
 class LifecycleManager:
     """
     LifecycleManager handles application lifecycle and graceful shutdown.
-    Capture signals (SIGINT, SIGTERM) and execute registered cleanup functions.
+    Captures signals (SIGINT, SIGTERM) and executes registered cleanup functions in LIFO order.
     """
 
     Name = "LifecycleManager"
@@ -44,20 +44,28 @@ class LifecycleManager:
     # -----------------------------------------------------------------------------------------------
 
     def __init__(self, logger: Optional[Logger] = None):
-        self._cleanups: List[tuple[str, ShutdownFunc]] = []
+        self._lock = threadingLock()
+        self._cleanups: List[Tuple[str, ShutdownFunc]] = []
         self.logger = ensure_safe_logger(logger)
         self._shutdown_event = threadingEvent()
 
     # -----------------------------------------------------------------------------------------------
 
     def register(self, name: str, fn: ShutdownFunc) -> None:
-        """Adds a cleanup function to the list."""
-        self._cleanups.append((name, fn))
+        """Adds a cleanup function to the shutdown list safely under lock."""
+        with self._lock:
+            self._cleanups.append((name, fn))
+
+    # -----------------------------------------------------------------------------------------------
+
+    def request_shutdown(self) -> None:
+        """Signals Wait() to wake up and execute registered cleanups."""
+        self._shutdown_event.set()
 
     # -----------------------------------------------------------------------------------------------
 
     def wait(self) -> None:
-        """Blocks until a SIGINT or SIGTERM is received, then executes cleanups."""
+        """Blocks until SIGINT, SIGTERM, or request_shutdown(), then executes cleanups."""
 
         def signal_handler(sig, frame):
             sig_name = sigSignals(sig).name
@@ -67,20 +75,23 @@ class LifecycleManager:
         sigSignal(sigSIGINT, signal_handler)
         sigSignal(sigSIGTERM, signal_handler)
 
-        # Block until event is set
         try:
             while not self._shutdown_event.is_set():
                 self._shutdown_event.wait(timeout=1.0)
         except (KeyboardInterrupt, SystemExit):
             pass
 
-        self._execute_cleanups()
+        self.execute_cleanups()
 
     # -----------------------------------------------------------------------------------------------
 
-    def _execute_cleanups(self) -> None:
-        """Execute cleanups in reverse order (LIFO)."""
-        for name, fn in reversed(self._cleanups):
+    def execute_cleanups(self) -> None:
+        """Executes registered cleanups in reverse order (LIFO) and drains the hook list."""
+        with self._lock:
+            hooks = list(self._cleanups)
+            self._cleanups.clear()
+
+        for name, fn in reversed(hooks):
             try:
                 self.logger.info("{0} : Running cleanup '{1}'...".format(self.Name, name))
                 fn()
@@ -88,6 +99,8 @@ class LifecycleManager:
                 self.logger.error("{0} : Cleanup '{1}' failed: {2}".format(self.Name, name, e))
 
         self.logger.info("{0} : Clean shutdown completed.".format(self.Name))
+
+    _execute_cleanups = execute_cleanups
 
 
 # -----------------------------------------------------------------------------------------------

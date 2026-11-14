@@ -24,8 +24,8 @@ Ensures reference logic correctness for the core engine:
 ### 2. Python Unit Testing
 Validates wrapper logic and pythonic type conversions using `pytest`:
 - **Framework**: `pytest`.
-- **Command**: `cd python && pytest`
-- **Key Focus**: Type-hint validation, `input_args` decoupling, and async-compatible connection logic.
+- **Command**: `cd python && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest` (or `pytest tests`)
+- **Key Focus**: Type-hint validation, `input_args` decoupling, `ExchangeContract` extractors, `WireTap`, `version` fail-fast checks, and async connection logic.
 
 ### 3. Rust Unit Testing
 Verifies memory-safe Cargo compilation and unit coverage:
@@ -34,10 +34,10 @@ Verifies memory-safe Cargo compilation and unit coverage:
 - **Key Focus**: Thread-safety (`Arc/Mutex`), `tokio` async task management, and `serde` compatibility.
 - **On-Demand RSA**: Verified explicit decryption parity with Go and Python.
 
-### 4. C++ Parity Testing
-Validates C++ headers and dynamic link capabilities:
+### 4. C++17 & C11 Parity Testing
+Validates C++17 headers, pure C11 contract headers, and `libdistconf`/`libnotif` FFI links:
 - **Command**: `cd cpp && make test`
-- **Key Focus**: Parity with Go-bridge expansion logic and JSON mirroring.
+- **Key Focus**: `test_config`, `test_modules` (Connectivity, Lifecycle, Business, Serializers, Logger, WireTap), `test_notification`, `test_version`, `test_spec`, and `test_contracts_c` (`-std=c11 -Werror`).
 
 ### 5. Multi-Language Serialization Integration Matrix
 This suite validates cross-language roundtrip capability. The generator-consumer matrix (Go ⇄ Python ⇄ Rust) tests serialization using both JSON and MessagePack.

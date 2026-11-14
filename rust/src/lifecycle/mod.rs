@@ -11,4 +11,4 @@
 
 pub mod manager;
 
-pub use manager::{LifecycleManager, new_manager};
+pub use manager::{LifecycleManager, new_manager, new_manager_with_logger};

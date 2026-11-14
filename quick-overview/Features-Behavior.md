@@ -29,10 +29,10 @@ graph TD
 - **Universal Override Policy**: The local file override acts as an authoritative, unconditional override across all profiles (including production and staging environments) to ensure absolute alignment.
 - **UnmarshalLocal Mapping**: Maps raw local sections directly into native structures in Go, Python, and Rust.
 
-### 2. The Docker Guard (Networking)
-To prevent hardcoded networking from breaking automated container orchestration, the toolbox implements a strict Docker Guard:
-- **Loopback Translation**: If a service requests a bind to `127.0.0.1` inside a container, the toolbox automatically resolves this to the container's primary network interface IP.
-- **Override Suppression**: CLI flags for networking (`--host`, `--port`, etc.) are **strictly ignored** when `/.dockerenv` is detected. This ensures that only the orchestrated container network is used for inter-service communication.
+### 2. The CLI Docker Guard & Config-Only Bindings (Networking)
+To prevent CLI overrides from breaking automated container orchestration while preserving explicit YAML configuration:
+- **Override Suppression (CLI Docker Guard)**: CLI flags for networking (`--host`, `--port`, `--grpc_host`, `--grpc_port`) are **strictly ignored** when `DOCKER_ENV=true` or `/.dockerenv` is detected, preserving the container YAML DNS configuration.
+- **Verbatim Config Binding (`connectivity.Resolver`)**: Resolvers preserve the configured `AppConfig` IP, hostname, and port **verbatim** (no automatic `0.0.0.0` or interface-IP rewriting) and fail fast on empty values.
 
 ### 3. Hardened RSA Secret Management (v0.0.1+)
 To prevent secret exposure, secrets remain in-memory as `ENC(...)` values. Decryption is performed on-demand via the centralized Go engine.
@@ -95,6 +95,21 @@ func SerializeMarketEvent(evt business.MarketEvent) ([]byte, error) {
 
 ### 6. Resilient Connection Manager (conn_manager)
 The `conn_manager` provides polyglot connection resilience (Go, Python, Rust, C++) with automatic reconnection, backoff, and error reporting.
+
+#### Unified NetworkManager & AppConfig Integration
+- **Unified Constructor**: Initialized via `NewNetworkManager(appConfig, logger)` (Go), `new_network_manager(app_config, logger)` (Python), `NetworkManager::New(app_config, logger)` (C++), and `new_network_manager(app_config, logger)` (Rust).
+- **Automated Capability Resolution**: `ConnectCapability(capabilityName, mode)` resolves downstream target coordinates from `AppConfig` and binds dynamic self-healing directly to the connection.
+
+#### Lock-Free Atomic Endpoint Pointer Architecture
+- **Immutable Precalculated `Endpoint`**: Target coordinates (`IP`, `Port`, `PublicIP`, `Profile`, and `Address`) are encapsulated into an immutable `Endpoint` pointer structure constructed once on the cold path.
+- **Zero Hot-Path Overhead & Paranoia**: Eliminates all defensive nil-checks (`if mc.publicIP != nil`), string formatting (`fmt.Sprintf`), and string trims on hot paths.
+- **Lock-Free Hot-Path Execution**: Active transmission loops (`Write()`, `send()`, coordinate reads) load endpoints and sockets via atomic pointer loads (`atomic.Pointer[Endpoint]` and `atomic.Pointer[io.WriteCloser]` in Go, `std::shared_ptr<const Endpoint>` in C++, GIL-atomic reference assignment in Python, `Arc<RwLock<Endpoint>>` in Rust) with **zero mutex locks** on active paths.
+
+#### 3-Try Configuration Dynamic Reload Contract
+- When an active connection drops or fails, `ManagedConnection` clears the severed socket and initiates reconnection with exponential backoff and randomized jitter.
+- **Dynamic 3-Try Sync**: On the 3rd consecutive failed attempt (and every 3 attempts thereafter), `ManagedConnection` automatically queries `AppConfig` (or invokes `OnReloadConfig`) to reload downstream capability coordinates.
+- If the target service crashed and restarted on a new port or an emergency fallback registered its new address, `ManagedConnection` atomically swaps its `Endpoint` pointer to the new address and seamlessly reconnects without requiring microservice restarts.
+- **Canonical Logging**: Emits canonical `WARNING` level on the 3rd reload attempt and `INFO` upon successful reconnection.
 
 #### Connection Modes
 - **Blocking**: The connection manager blocks the initiating thread until a connection is established or `max_retries` is reached.

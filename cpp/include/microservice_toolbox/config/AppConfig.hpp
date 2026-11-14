@@ -78,6 +78,21 @@ public:
     return logger_;
   }
 
+  bool Sync() {
+    bool ok = config_->Sync();
+    if (ok) {
+      SyncFromBridge();
+    }
+    return ok;
+  }
+
+  std::string GetPublicIP() const {
+    if (data_.contains("common") && data_["common"].contains("public_ip")) {
+      return data_["common"]["public_ip"].get<std::string>();
+    }
+    return "";
+  }
+
   std::string GetServiceName() const {
     if (data_.contains("common") && data_["common"].contains("name")) {
         return data_["common"]["name"].get<std::string>();
@@ -98,31 +113,34 @@ public:
   }
 
   std::string GetListenAddr(const std::string &capability) const {
-    std::string addr = config_->GetAddress(capability);
-    if (addr.empty()) {
-      std::string err = config_->GetLastError();
-      throw std::runtime_error(err.empty() ? ("Capability not found or address resolution failed: " + capability) : err);
-    }
-    return addr;
+    return validateResolvedAddr(config_->GetAddress(capability), "Capability", capability);
   }
 
   std::string GetGRPCListenAddr(const std::string &capability) const {
-    std::string addr = config_->GetGRPCAddress(capability);
-    if (addr.empty()) {
-      std::string err = config_->GetLastError();
-      throw std::runtime_error(err.empty() ? ("gRPC capability not found: " + capability) : err);
-    }
-    return addr;
+    return validateResolvedAddr(config_->GetGRPCAddress(capability), "gRPC capability", capability);
   }
 
   std::string GetRESTAddr(const std::string &capability) const {
-    std::string addr = config_->GetRESTAddress(capability);
-    if (addr.empty()) {
-      std::string err = config_->GetLastError();
-      throw std::runtime_error(err.empty() ? ("REST capability not found: " + capability) : err);
-    }
-    return addr;
+    return validateResolvedAddr(config_->GetRESTAddress(capability), "REST capability", capability);
   }
+
+private:
+  std::string validateResolvedAddr(const std::string &addr, const std::string &label,
+                                   const std::string &capability) const {
+    if (!addr.empty()) {
+      return addr;
+    }
+    std::string err = config_->GetLastError();
+    if (err.empty()) {
+      throw std::runtime_error(label + " not found or address resolution failed: " + capability);
+    }
+    if (err.find(capability) == std::string::npos) {
+      throw std::runtime_error(label + " '" + capability + "' resolution failed: " + err);
+    }
+    throw std::runtime_error(err);
+  }
+
+public:
 
 
   /**

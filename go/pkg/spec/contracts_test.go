@@ -11,6 +11,7 @@ func TestExtractProtoTextAndCapnpAndRenderProtoIDL(t *testing.T) {
 	sampleProto := `syntax = "proto3";
 package demo;
 service DemoService {
+  option (google.api.default_host) = { host: "localhost" };
   rpc Ping (PingReq) returns (PingResp);
   rpc StreamData (stream Req) returns (stream Resp);
 }`

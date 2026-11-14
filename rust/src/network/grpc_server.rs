@@ -23,19 +23,16 @@ pub struct GrpcServer {
 }
 
 impl GrpcServer {
-    /// Creates a new GrpcServer, resolving the address using Docker Guard logic.
+    /// Creates a new GrpcServer validating the configured bind address strictly (fail-fast).
     pub fn new(addr: &str) -> Self {
         let resolver = new_resolver();
-        
-        // Apply Docker Guard Suppression
-        let resolved_addr_str = resolver.resolve_full_bind_addr(addr).unwrap_or_else(|_| addr.to_string());
-        
-        if resolved_addr_str != addr {
-            println!("Toolbox: Docker Guard suppressed bind address {} -> {}", addr, resolved_addr_str);
-        }
+
+        let resolved_addr_str = resolver
+            .resolve_full_bind_addr(addr)
+            .unwrap_or_else(|e| panic!("GrpcServer: invalid configured bind address '{}': {}", addr, e));
 
         let addr_parsed = SocketAddr::from_str(&resolved_addr_str)
-            .unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap());
+            .unwrap_or_else(|e| panic!("GrpcServer: failed to parse configured SocketAddr '{}': {}", resolved_addr_str, e));
 
         // Initialize with a simple "base" router.
         let reflection_service = Builder::configure()

@@ -120,9 +120,7 @@ func NewContractsEnvelope(service, version, source string, contracts []ExchangeC
 	if contracts == nil {
 		contracts = []ExchangeContract{}
 	}
-	if strings.TrimSpace(version) == "" {
-		version = "0.0.1"
-	}
+	version = strings.TrimSpace(version)
 	if strings.TrimSpace(source) == "" {
 		source = fmt.Sprintf("%s runtime", service)
 	}
@@ -141,11 +139,29 @@ func NewContractsEnvelope(service, version, source string, contracts []ExchangeC
 
 var (
 	protoPkgRE     = regexp.MustCompile(`(?m)^\s*package\s+([A-Za-z0-9_.]+)\s*;`)
-	protoServiceRE = regexp.MustCompile(`(?s)service\s+([A-Za-z0-9_]+)\s*\{([^}]*)\}`)
+	protoSvcHeadRE = regexp.MustCompile(`(?s)\bservice\s+([A-Za-z0-9_]+)\s*\{`)
 	protoRPCRE     = regexp.MustCompile(`rpc\s+([A-Za-z0-9_]+)\s*\(\s*(stream\s+)?([A-Za-z0-9_.]+)\s*\)\s+returns\s*\(\s*(stream\s+)?([A-Za-z0-9_.]+)\s*\)`)
 	capnpStructRE  = regexp.MustCompile(`(?s)struct\s+([A-Za-z0-9_]+)\s*\{([^}]*)\}`)
 	capnpEnumRE    = regexp.MustCompile(`(?s)enum\s+([A-Za-z0-9_]+)\s*\{([^}]*)\}`)
 )
+
+func extractMatchingBraceBody(text string, openBraceIdx int) (string, int, bool) {
+	if openBraceIdx < 0 || openBraceIdx >= len(text) || text[openBraceIdx] != '{' {
+		return "", 0, false
+	}
+	depth := 0
+	for i := openBraceIdx; i < len(text); i++ {
+		if text[i] == '{' {
+			depth++
+		} else if text[i] == '}' {
+			depth--
+			if depth == 0 {
+				return text[openBraceIdx+1 : i], i, true
+			}
+		}
+	}
+	return "", 0, false
+}
 
 // ExtractProtoTextOperations parses RPC declarations directly from an embedded .proto file.
 func ExtractProtoTextOperations(protoText string) []ContractOperation {
@@ -154,9 +170,18 @@ func ExtractProtoTextOperations(protoText string) []ContractOperation {
 	if m := protoPkgRE.FindStringSubmatch(protoText); len(m) == 2 {
 		pkgPrefix = m[1] + "."
 	}
-	for _, svcMatch := range protoServiceRE.FindAllStringSubmatch(protoText, -1) {
-		svcName := svcMatch[1]
-		body := svcMatch[2]
+	pos := 0
+	for pos < len(protoText) {
+		loc := protoSvcHeadRE.FindStringSubmatchIndex(protoText[pos:])
+		if loc == nil {
+			break
+		}
+		svcName := protoText[pos+loc[2] : pos+loc[3]]
+		openBrace := pos + loc[1] - 1
+		body, closeBrace, ok := extractMatchingBraceBody(protoText, openBrace)
+		if !ok {
+			break
+		}
 		for _, rpcMatch := range protoRPCRE.FindAllStringSubmatch(body, -1) {
 			rpcName := rpcMatch[1]
 			inStream := strings.TrimSpace(rpcMatch[2]) != ""
@@ -188,6 +213,7 @@ func ExtractProtoTextOperations(protoText string) []ContractOperation {
 				Description: svcName + "." + rpcName,
 			})
 		}
+		pos = closeBrace + 1
 	}
 	return ops
 }

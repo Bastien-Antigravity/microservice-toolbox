@@ -108,4 +108,12 @@ func TestSignalSerialization(t *testing.T) {
 	if decodedSignal.Type != SignalBuy {
 		t.Errorf("Expected type buy, got %s", decodedSignal.Type)
 	}
+
+	ctrlEv, err := WrapMarketEvent("SOL/USD", "Binance", TypeControl, map[string]string{"action": "halt"})
+	if err != nil {
+		t.Fatalf("Failed to wrap control event: %v", err)
+	}
+	if ctrlEv.Type != TypeControl {
+		t.Errorf("Expected type control, got %s", ctrlEv.Type)
+	}
 }

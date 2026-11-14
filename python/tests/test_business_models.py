@@ -6,6 +6,8 @@ from microservice_toolbox.business import (
     Aggressor,
     MarketEvent,
     MarketEventType,
+    OrderBook,
+    OrderBookLevel,
     Signal,
     SignalType,
     Trade,
@@ -36,6 +38,20 @@ class TestBusinessModels(unittest.TestCase):
         decoded_trade = deserialize(decoded_event.payload, Trade)
         self.assertEqual(decoded_trade.price, 100.50)
         self.assertEqual(decoded_trade.aggressor, Aggressor.BUY)
+
+    def test_control_and_orderbook_nested_deserialize(self):
+        ob = OrderBook(
+            bids=[OrderBookLevel(price=100.0, size=2.5)],
+            asks=[OrderBookLevel(price=101.0, size=1.5)],
+        )
+        ev = wrap_market_event("ETH/USD", "Coinbase", MarketEventType.CONTROL, ob)
+        raw = serialize(ev)
+        dec_ev = deserialize(raw, MarketEvent)
+        self.assertEqual(dec_ev.type, MarketEventType.CONTROL)
+        dec_ob = deserialize(dec_ev.payload, OrderBook)
+        self.assertIsInstance(dec_ob.bids[0], OrderBookLevel)
+        self.assertEqual(dec_ob.bids[0].price, 100.0)
+        self.assertEqual(dec_ob.asks[0].size, 1.5)
 
     def test_ohlcv_serialization(self):
         bar = OHLCV(

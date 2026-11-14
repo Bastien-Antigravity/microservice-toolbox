@@ -47,33 +47,40 @@ graph TD
 ```
 
 ## Core Component Pillars
-The toolbox consolidates foundational utilities into five critical pillars:
+The toolbox consolidates shared infrastructure into reusable polyglot modules so microservices never reimplement common plumbing:
 
-1.  **Configuration (`config`)**: Implements the "Hierarchy of Truth" and the `local:` private namespace.
-2.  **Secret Management**: Standardized on-demand RSA decryption engine; secrets remain encrypted as `ENC(...)` in memory.
-3.  **Connectivity**: Networking primitives for service lookups, IP resolution, and gRPC server builders.
-4.  **Connection Manager (`conn_manager`)**: Resilient TCP connection wrapper with multiplicative backoff and randomized jitter.
-5.  **Serialization (`serializers`)**: Cross-language abstractions for JSON and MessagePack round-trips.
+1. **Configuration & Bootstrap (`config`, `bootstrap`)**: Implements the "Hierarchy of Truth", `local:` private namespace, CLI Docker Guard, and single-call service initialization.
+2. **Versioning (`version` via `AppConfig.GetVersion()`)**: Dedicated `AppConfig` method resolving `VERSION.txt` strictly (fail-fast if absent; zero `"0.0.1"` fallbacks or runtime env overrides).
+3. **Secret Management**: Standardized on-demand RSA decryption via `libdistconf`; secrets remain encrypted as `ENC(...)` in memory.
+4. **Connectivity & Lifecycle (`connectivity`, `conn_manager`, `lifecycle`, `network`)**: Config-verbatim `Resolver`, infinite-retry `conn_manager`, LIFO `LifecycleManager`, and gRPC server builders.
+5. **Declarative Specs, Contracts & WireTap (`spec`, `wiretap`)**: Auto-enriched OpenMFE `ServiceSpec` registration, `ExchangeContract`/IDL extractors (including pure C11 `contracts.h`), and lock-free `WireTap` telemetry.
+6. **Direct Alerts, Bot Control & Messaging (`notification`, `teleremote`, `messaging`, `business`, `serializers`)**: Multi-channel `notif-server` client, Telegram menu streams, NATS connectors, canonical domain models, and JSON/MsgPack serializers.
 
 ## Repository Anatomy
-The repository follows a clean, standardized modular design:
+The repository follows a standardized modular design:
 
 ```text
 microservice-toolbox/
-├── go/                   # Go Reference Implementation
-│   ├── pkg/
-│   │   ├── business/     # MarketEvent, OHLCV, Signal models
-│   │   ├── config/       # Hierarchy of Truth loader & overrides
-│   │   ├── conn_manager/ # Reconnection loops with jitter & backoff
-│   │   ├── connectivity/ # Loopback and Docker address resolvers
-│   │   ├── lifecycle/    # Startup & LIFO cleanups
-│   │   ├── network/      # gRPC server builders & guards
-│   │   ├── serializers/  # JSON and MessagePack handlers
-│   │   └── utils/        # UTCTime logger & TUI modules
-├── python/               # Python SDK wrapper
-├── rust/                 # Type-safe Rust SDK
-├── cpp/                  # High-performance C++ header wrapper
-├── vba/                  # COM-compatible Excel modules
+├── go/pkg/               # Go Reference Implementation
+│   ├── bootstrap/        # BootstrapService / BootstrapServiceSafe
+│   ├── business/         # MarketEvent, OHLCV, Signal models & helpers
+│   ├── config/           # AppConfig (LoadConfig, GetVersion, GetListenAddr...)
+│   ├── conn_manager/     # Reconnection loops with jitter & backoff
+│   ├── connectivity/     # Config-verbatim address Resolver
+│   ├── lifecycle/        # LIFO cleanup Manager & signal trapping
+│   ├── messaging/        # Resilient NATS Core / JetStream connector
+│   ├── network/          # gRPC server builder & WireTap interceptors
+│   ├── notification/     # Direct multi-channel alert client (notif-server)
+│   ├── serializers/      # JSON and MessagePack handlers
+│   ├── spec/             # ServiceSpec, BuildSpecFromConfig & contracts.go
+│   ├── teleremote/       # TeleRemote bi-di gRPC client
+│   ├── utils/            # Logger, TUI helpers
+│   ├── version/          # Internal VERSION.txt engine backing AppConfig.GetVersion()
+│   └── wiretap/          # Lock-free real-time transport telemetry aggregator
+├── python/               # Python SDK (incl. contracts.py, spec.py, wiretap.py)
+├── rust/                 # Rust SDK (incl. spec.rs, contracts re-export, wiretap)
+├── cpp/                  # C++17 header SDK & pure C11 spec/contracts.h
+├── vba/                  # COM-compatible Excel modules (AppConfig, NotificationClient)
 ├── schemas/              # Unified Cap'n Proto definitions
 └── integration/          # Multi-language matrix verification suite
 ```

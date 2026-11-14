@@ -16,7 +16,10 @@ A COM-compatible wrapper for the Bastien-Antigravity ecosystem, enabling Excel a
 Dim ac As New AppConfig
 ac.LoadConfig "standalone"
 
-' Access network addresses (Docker Guard aware)
+' Access dynamic version from AppConfig (VERSION.txt only, fail-fast)
+Debug.Print ac.GetVersion
+
+' Access network addresses verbatim from AppConfig
 Debug.Print ac.GetListenAddr("market-observer")
 
 ' Access local settings from [profile].yaml

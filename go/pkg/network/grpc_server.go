@@ -39,16 +39,12 @@ func NewGRPCServer(addr string, opts ...grpc.ServerOption) *GRPCServer {
 func NewGRPCServerWithLogger(addr string, l logger.Logger, opts ...grpc.ServerOption) *GRPCServer {
 	safeLogger := logger.EnsureSafeLogger(l)
 
-	// Apply Docker Guard Suppression
+	// Validate and preserve configured bind address (no silent fallback)
 	resolver := connectivity.NewResolver()
 	resolvedAddr, err := resolver.ResolveFullBindAddr(addr)
 	if err != nil {
-		safeLogger.Error("Toolbox: Failed to resolve gRPC bind address: %v", err)
-		resolvedAddr = addr // Fallback to original
-	}
-
-	if resolvedAddr != addr {
-		safeLogger.Info("Toolbox: Docker Guard suppressed bind address %s -> %s", addr, resolvedAddr)
+		safeLogger.Error("Toolbox: Invalid gRPC bind address %q: %v", addr, err)
+		panic(fmt.Sprintf("network.NewGRPCServerWithLogger: invalid configured gRPC bind address %q: %v", addr, err))
 	}
 
 	allOpts := append(wiretap.ServerOptions(), opts...)

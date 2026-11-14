@@ -2,9 +2,11 @@ CXX = g++
 CC = cc
 DISTCONF_DIR ?= ../../distributed-config/distconf/libdistconf
 NOTIF_DIR ?= ../../notif-server/notif/libnotif
+SAFESOCKET_DIR ?= ../../safe-socket/safesock/libsafesocket
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -I$(DISTCONF_DIR)
 CFLAGS = -std=c11 -Wall -Wextra -Werror -Iinclude
 LDFLAGS = -L$(DISTCONF_DIR) -ldistconf -Wl,-rpath,$(DISTCONF_DIR)
+SAFESOCKET_LDFLAGS = -L$(SAFESOCKET_DIR) -lsafesocket -Wl,-rpath,$(SAFESOCKET_DIR)
 
 TEST_SRC = tests/test_config.cpp
 TEST_BIN = bin/test_config
@@ -30,7 +32,7 @@ $(TEST_BIN): $(TEST_SRC)
 
 $(MODULES_BIN): $(MODULES_SRC)
 	mkdir -p bin
-	$(CXX) $(CXXFLAGS) $(MODULES_SRC) -o $(MODULES_BIN)
+	$(CXX) $(CXXFLAGS) $(MODULES_SRC) -o $(MODULES_BIN) $(SAFESOCKET_LDFLAGS) $(LDFLAGS)
 
 $(NOTIF_BIN): $(NOTIF_SRC)
 	mkdir -p bin
@@ -54,7 +56,7 @@ $(EXPANSION_BIN): ../integration/expansion_check.cpp
 
 test: $(TEST_BIN) $(MODULES_BIN) $(NOTIF_BIN) $(VERSION_BIN) $(SPEC_BIN) $(CONTRACTS_C_BIN)
 	DYLD_LIBRARY_PATH="$(DISTCONF_DIR):$$DYLD_LIBRARY_PATH" TEST_HOST=127.0.0.5 ./$(TEST_BIN)
-	./$(MODULES_BIN)
+	DYLD_LIBRARY_PATH="$(DISTCONF_DIR):$(SAFESOCKET_DIR):$$DYLD_LIBRARY_PATH" ./$(MODULES_BIN)
 	DYLD_LIBRARY_PATH="$(DISTCONF_DIR):$(NOTIF_DIR):$$DYLD_LIBRARY_PATH" ./$(NOTIF_BIN)
 	./$(VERSION_BIN)
 	DYLD_LIBRARY_PATH="$(DISTCONF_DIR):$$DYLD_LIBRARY_PATH" ./$(SPEC_BIN)

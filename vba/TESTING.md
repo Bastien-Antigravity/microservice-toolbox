@@ -7,8 +7,9 @@ Testing in VBA is performed via the Immediate Window and specialized test proced
 2.  **Immediate Window**:
     ```vba
     Set ac = New AppConfig
-    ac.Init "standalone"
-    ? ac.GetProfile  ' Should return "standalone"
+    ac.LoadConfig "standalone"
+    ? ac.Profile     ' Should return "standalone"
+    ? ac.GetVersion  ' Should return VERSION.txt semver
     ```
 
 ## Key Test Areas

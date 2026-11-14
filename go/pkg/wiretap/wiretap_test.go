@@ -115,5 +115,23 @@ func TestWireTapAtomicSwitchAndSegregatedChannels(t *testing.T) {
 	if snap[1].Channels[0].Channel != "teleremote:registration" || snap[1].Channels[1].Channel != "teleremote:telemetry" {
 		t.Errorf("unexpected segregated channels: %+v", snap[1].Channels)
 	}
+
+	// Verify ShouldSample and SetWebHubURL parity
+	SetWebHubURL("http://127.0.0.1:5000/")
+	if got := GetWebHubURL(); got != "http://127.0.0.1:5000" {
+		t.Fatalf("expected trimmed hub URL, got %q", got)
+	}
+	if !ShouldSample(0) {
+		t.Fatalf("expected ShouldSample(0) == true")
+	}
+	sampled := 0
+	for i := 0; i < 16; i++ {
+		if ShouldSample(0x3) {
+			sampled++
+		}
+	}
+	if sampled != 4 {
+		t.Fatalf("expected 4 samples for mask 0x3 over 16 calls, got %d", sampled)
+	}
 }
 

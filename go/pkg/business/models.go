@@ -25,6 +25,7 @@ const (
 	TypeOrderBookSnapshot MarketEventType = "orderbookSnapshot"
 	TypeOrderBookUpdate   MarketEventType = "orderbookUpdate"
 	TypeHeartbeat         MarketEventType = "heartbeat"
+	TypeControl           MarketEventType = "control"
 )
 
 type MarketEvent struct {

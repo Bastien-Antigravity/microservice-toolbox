@@ -138,23 +138,9 @@ End Function
 ' Dynamic Version Resolution Helper
 ' -----------------------------------------------------------------------------------------------
 
-' GetVersion returns the dynamic semantic version resolved from VERSION.txt or environment overrides.
+' GetVersion returns the dynamic semantic version resolved strictly from VERSION.txt.
 Public Function GetVersion(Optional ByVal startPath As String = "") As String
-    ' 1. Check environment variable overrides
-    Dim envVer As String
-    envVer = Trim$(Environ$("APP_VERSION"))
-    If Len(envVer) > 0 Then
-        GetVersion = envVer
-        Exit Function
-    End If
-    
-    envVer = Trim$(Environ$("SERVICE_VERSION"))
-    If Len(envVer) > 0 Then
-        GetVersion = envVer
-        Exit Function
-    End If
-    
-    ' 2. Determine initial search folder
+    ' 1. Determine initial search folder
     Dim currentFolder As String
     currentFolder = startPath
     If Len(currentFolder) = 0 Then
@@ -166,7 +152,7 @@ Public Function GetVersion(Optional ByVal startPath As String = "") As String
         End If
     End If
     
-    ' 3. Climb parent directories searching for VERSION.txt
+    ' 2. Climb parent directories searching for VERSION.txt
     Dim fso As Object
     On Error Resume Next
     Set fso = CreateObject("Scripting.FileSystemObject")
@@ -174,8 +160,10 @@ Public Function GetVersion(Optional ByVal startPath As String = "") As String
     
     If Not fso Is Nothing Then
         Dim dirPath As String
+        Dim depth As Long
         dirPath = currentFolder
-        Do While Len(dirPath) > 0 And fso.FolderExists(dirPath)
+        depth = 0
+        Do While Len(dirPath) > 0 And fso.FolderExists(dirPath) And depth < 12
             Dim candidate As String
             candidate = fso.BuildPath(dirPath, "VERSION.txt")
             If fso.FileExists(candidate) Then
@@ -192,15 +180,17 @@ Public Function GetVersion(Optional ByVal startPath As String = "") As String
                     End If
                 End If
             End If
+            If fso.FolderExists(fso.BuildPath(dirPath, ".git")) Or fso.FileExists(fso.BuildPath(dirPath, ".git")) Then Exit Do
             Dim parentFolder As Object
             Set parentFolder = fso.GetFolder(dirPath).ParentFolder
             If parentFolder Is Nothing Then Exit Do
             If parentFolder.Path = dirPath Then Exit Do
             dirPath = parentFolder.Path
+            depth = depth + 1
         Loop
     End If
     
-    ' 4. Canonical ecosystem fallback
-    GetVersion = "0.0.1"
+    ' 3. Fail-fast when VERSION.txt is absent or empty
+    Err.Raise vbObjectError + 513, "Toolbox.GetVersion", "VERSION.txt not found or empty (FAIL-FAST)"
 End Function
 

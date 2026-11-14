@@ -32,5 +32,7 @@ RUST_LOG=info cargo test -- --nocapture
 - **`test_unified_connect`**: Verifies resilient connection establishment using `tokio` async tasks.
 - **`test_on_error_unified_hook`**: Validates the error tracking and reporting logic.
 
-### 4. Lifecycle
-- **`test_lifecycle_lifo_order`**: Confirms that cleanup handlers are executed in LIFO (Last-In-First-Out) order.
+### 4. Lifecycle, Connectivity, Versioning, Spec/Contracts & WireTap
+- **`test_lifecycle.rs`**: Confirms LIFO cleanup order.
+- **`test_version.rs`**: Validates `VERSION.txt`-only fail-fast resolution via `AppConfig::get_version()` (ignoring runtime env vars).
+- **`test_spec.rs`**, **`test_wiretap.rs`**: Validates `build_spec_from_config` auto-enrichment, `ExchangeContract` / `.proto` / `.capnp` extractors, and lock-free `WireTap` telemetry.

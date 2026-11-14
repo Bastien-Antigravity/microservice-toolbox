@@ -31,7 +31,7 @@ from dataclasses import asdict as dcAsdict, dataclass as dcDataclass, field as d
 from json import dumps as jsonDumps
 from random import uniform as rndUniform
 from socket import gethostname as sockGetHostname
-from threading import Thread as thThread, Event as thEvent
+from threading import Event as thEvent, Thread as thThread
 from time import sleep as timeSleep
 from typing import Any as typeAny, Dict as typeDict, List as typeList, Optional as typeOptional, Union as typeUnion
 from urllib.request import Request as urlRequest, urlopen as urlOpen
@@ -57,6 +57,17 @@ class ProtocolSpec:
 
     toDict = to_dict
 
+    @classmethod
+    def from_dict(cls, data: typeDict[str, typeAny]) -> "ProtocolSpec":
+        return cls(
+            type=str(data.get("type", "")),
+            port=int(data.get("port") or 0),
+            framing=str(data.get("framing", "")),
+            description=str(data.get("description", "")),
+        )
+
+    fromDict = from_dict
+
 
 # -----------------------------------------------------------------------------------------------
 @dcDataclass
@@ -81,6 +92,18 @@ class DependencySpec:
 
     toDict = to_dict
 
+    @classmethod
+    def from_dict(cls, data: typeDict[str, typeAny]) -> "DependencySpec":
+        return cls(
+            target=str(data.get("target", "")),
+            proto=str(data.get("proto", "")),
+            label=str(data.get("label", "")),
+            exchange_id=str(data.get("exchangeId") or data.get("exchange_id") or ""),
+            description=str(data.get("description", "")),
+        )
+
+    fromDict = from_dict
+
 
 # -----------------------------------------------------------------------------------------------
 @dcDataclass
@@ -91,7 +114,7 @@ class HealthSpec:
     timeout_ms: int = 350
 
     def to_dict(self) -> typeDict[str, typeAny]:
-        d = {
+        d: typeDict[str, typeAny] = {
             "type": self.type,
             "timeoutMs": self.timeout_ms,
         }
@@ -102,6 +125,17 @@ class HealthSpec:
         return d
 
     toDict = to_dict
+
+    @classmethod
+    def from_dict(cls, data: typeDict[str, typeAny]) -> "HealthSpec":
+        return cls(
+            type=str(data.get("type") or "tcp"),
+            port=int(data.get("port") or 0),
+            path=str(data.get("path", "")),
+            timeout_ms=int(data.get("timeoutMs") or data.get("timeout_ms") or 350),
+        )
+
+    fromDict = from_dict
 
 
 # -----------------------------------------------------------------------------------------------
@@ -115,7 +149,7 @@ class CanvasSpec:
     particle_proto: typeList[str] = dcField(default_factory=list)
 
     def to_dict(self) -> typeDict[str, typeAny]:
-        d = {}
+        d: typeDict[str, typeAny] = {}
         if self.icon:
             d["icon"] = self.icon
         if self.color:
@@ -131,6 +165,19 @@ class CanvasSpec:
         return d
 
     toDict = to_dict
+
+    @classmethod
+    def from_dict(cls, data: typeDict[str, typeAny]) -> "CanvasSpec":
+        return cls(
+            icon=str(data.get("icon", "")),
+            color=str(data.get("color", "")),
+            preferred_slot=str(data.get("preferredSlot") or data.get("preferred_slot") or ""),
+            preferred_x=float(data.get("preferredX") or data.get("preferred_x") or 0.0),
+            preferred_y=float(data.get("preferredY") or data.get("preferred_y") or 0.0),
+            particle_proto=list(data.get("particleProto") or data.get("particle_proto") or []),
+        )
+
+    fromDict = from_dict
 
 
 # -----------------------------------------------------------------------------------------------
@@ -163,7 +210,7 @@ class ServiceSpec:
     source_code: str = ""
 
     def to_dict(self) -> typeDict[str, typeAny]:
-        d = {
+        d: typeDict[str, typeAny] = {
             "name": self.name,
             "tag": self.tag,
             "url": self.url,
@@ -206,6 +253,40 @@ class ServiceSpec:
         return d
 
     toDict = to_dict
+
+    @classmethod
+    def from_dict(cls, data: typeDict[str, typeAny]) -> "ServiceSpec":
+        raw_health = data.get("health")
+        raw_canvas = data.get("canvas")
+        return cls(
+            name=str(data.get("name", "")),
+            tag=str(data.get("tag", "")),
+            url=str(data.get("url", "")),
+            nav_title=str(data.get("navTitle") or data.get("nav_title") or ""),
+            layer=str(data.get("layer", "")),
+            category=str(data.get("category", "")),
+            priority=int(data.get("priority", 100)),
+            icon=str(data.get("icon") or "fa-cubes"),
+            color=str(data.get("color", "")),
+            requires_auth=bool(data.get("requiresAuth", data.get("requires_auth", False))),
+            capability=str(data.get("capability", "")),
+            description=str(data.get("desc") or data.get("description") or ""),
+            protocol=str(data.get("protocol", "")),
+            framing=str(data.get("framing", "")),
+            doc_link=str(data.get("docLink") or data.get("doc_link") or ""),
+            nav_route=str(data.get("navRoute") or data.get("nav_route") or ""),
+            health=raw_health if isinstance(raw_health, HealthSpec) else (HealthSpec.from_dict(raw_health) if isinstance(raw_health, dict) else None),
+            canvas=raw_canvas if isinstance(raw_canvas, CanvasSpec) else (CanvasSpec.from_dict(raw_canvas) if isinstance(raw_canvas, dict) else None),
+            dependencies=[d if isinstance(d, DependencySpec) else DependencySpec.from_dict(d) for d in (data.get("dependencies") or [])],
+            protocols=[p if isinstance(p, ProtocolSpec) else ProtocolSpec.from_dict(p) for p in (data.get("protocols") or [])],
+            contracts=[c if isinstance(c, ExchangeContract) else ExchangeContract.from_dict(c) for c in (data.get("contracts") or [])],
+            flow_diagram=list(data.get("flowDiagram") or data.get("flow_diagram") or []),
+            data_structure=dict(data.get("dataStructure") or data.get("data_structure") or {}),
+            sdk_lang=str(data.get("sdkLang") or data.get("sdk_lang") or "language-python"),
+            source_code=str(data.get("sourceCode") or data.get("source_code") or ""),
+        )
+
+    fromDict = from_dict
 
 
 # -----------------------------------------------------------------------------------------------
@@ -337,20 +418,16 @@ def build_spec_from_config(app_config: typeAny, capability: str, **overrides: ty
         ports["grpc"] = grpc_port
 
     # 7. Dynamic Semver Resolution (FAIL-FAST)
-    version = ""
-    if hasattr(app_config, "get_version"):
-        try:
-            version = app_config.get_version() or ""
-        except Exception:
-            pass
-    if not version.strip():
+    version = app_config.get_version()
+    if not version or not version.strip():
         raise RuntimeError("spec.build_spec_from_config: dynamic version resolution returned empty string (FAIL-FAST)")
 
     # 8. Populate DataStructure dynamically
     ds = dict(overrides.get("data_structure") or {})
     ds["version"] = version
     ds["capability"] = capability
-    ds["ports"] = ports
+    if ports:
+        ds["ports"] = ports
     try:
         ds["node"] = sockGetHostname()
     except Exception:
@@ -360,21 +437,30 @@ def build_spec_from_config(app_config: typeAny, capability: str, **overrides: ty
     # 9. Auto-populate NavRoute, Canvas, and Health defaults if not explicitly set
     if not getattr(spec, "nav_route", ""):
         spec.nav_route = f"/mfe/{spec.name}"
-    if getattr(spec, "color", "") and spec.canvas and not spec.canvas.color:
-        spec.canvas.color = spec.color
-    elif spec.canvas and spec.canvas.color and not getattr(spec, "color", ""):
+    if spec.canvas is None:
+        spec.canvas = CanvasSpec()
+    if not spec.color and spec.canvas.color:
         spec.color = spec.canvas.color
+    if not spec.canvas.color and spec.color:
+        spec.canvas.color = spec.color
+    if not spec.canvas.icon and spec.icon:
+        spec.canvas.icon = spec.icon
 
     if not spec.health:
-        probe_port = 0
+        spec.health = HealthSpec(type="tcp", port=0, timeout_ms=350)
+    if not spec.health.type:
+        spec.health.type = "tcp"
+    if not spec.health.port:
         for p_cand in (rest_port, tcp_port, grpc_port):
             try:
                 probe_port = int(p_cand)
                 if probe_port > 0:
+                    spec.health.port = probe_port
                     break
             except Exception:
                 pass
-        spec.health = HealthSpec(type="tcp", port=probe_port, timeout_ms=350)
+    if not spec.health.timeout_ms:
+        spec.health.timeout_ms = 350
 
     return spec
 

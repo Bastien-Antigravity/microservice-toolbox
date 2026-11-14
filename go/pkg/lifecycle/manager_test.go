@@ -48,4 +48,14 @@ func TestManager_Lifecycle(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("Shutdown timed out")
 	}
+
+	// Verify explicit ExecuteCleanups runs LIFO and drains hooks
+	m2 := NewManager()
+	var order []string
+	m2.Register("first", func() error { order = append(order, "first"); return nil })
+	m2.Register("second", func() error { order = append(order, "second"); return nil })
+	m2.ExecuteCleanups()
+	assert.Equal(t, []string{"second", "first"}, order)
+	m2.ExecuteCleanups()
+	assert.Equal(t, []string{"second", "first"}, order)
 }

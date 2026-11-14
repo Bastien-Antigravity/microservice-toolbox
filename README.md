@@ -62,17 +62,18 @@ Centralized NATS connection factories and configuration schemas to eliminate boi
 - **Observability**: Automatically logs connection loss and recovery events, prefixed with the connection's `ClientID` for easy debugging.
 - **SDK Parity**: Implemented natively in Go (`pkg/messaging`), Python (`microservice_toolbox/messaging`), and Rust (`src/messaging`).
 
-### 6. Declarative `ServiceSpec` & Authoritative Exchange Contracts (`spec`)
-Unified service registration and live Exchange Contract descriptors published to `web-interface` (`POST /api/v1/register`) and exposed directly by microservices (`GET /api/v1/contracts`):
+### 6. Declarative `ServiceSpec` & Authoritative Exchange Contracts (`spec` & `contracts`)
+Unified OpenMFE service registration and microservice-owned Exchange Contract descriptors published to `web-interface` (`POST /api/v1/register`) and exposed over HTTP (`GET /api/v1/contracts`) — never hand-rolled in microservices or fabricated in `web-interface`:
+- **Auto-Enrichment via `BuildSpecFromConfig` / `PublishWithLifecycle`**: Automatically validates required metadata fail-fast and derives `URL` (from `rest_addr`/`listen_addr`), `%s` port interpolation in `Framing`, `DataStructure` (`version` via `appConfig.GetVersion()`, `capability`, `ports`, `node`), `NavRoute`, `Canvas`, and `Health` directly from `AppConfig`.
 - **Typed Contract Model**: `ExchangeContract`, `ContractPeer`, `ContractOperation`, and `ContractsEnvelope` (`reliable`, `exhaustive`, `generatedAt` UTC, `contracts[]`).
-- **Schema Introspection**: Built-in extractors for raw `.proto` IDLs (`ExtractProtoTextOperations` / `extract_proto_operations`), Cap'n Proto wire specs (`ExtractCapnpOperations`), and live FastAPI routes (`extract_fastapi_operations`).
-- **Polyglot Support**: Go (`go/pkg/spec`), Python (`microservice_toolbox/contracts.py`), Rust (`rust/src/spec.rs`), C++17 (`cpp/include/microservice_toolbox/spec/contracts.hpp` & `spec.hpp`), and pure C11/C99 (`cpp/include/microservice_toolbox/spec/contracts.h`).
+- **Built-In Schema & Route Extractors**: Built-in extractors for raw `.proto` IDLs (`ExtractProtoTextOperations` / `extract_proto_operations`), Cap'n Proto wire specs (`ExtractCapnpOperations` / `extract_capnp_operations`), compiled `protoreflect` descriptors (`RenderProtoIDL` in Go), live FastAPI routes (`extract_fastapi_operations` in Python), plus `DisplayAddress`, `ResolveContractPort`, and `NewContractsEnvelope`.
+- **Polyglot Support**: Go (`go/pkg/spec`), Python (`microservice_toolbox.contracts` / `spec`), Rust (`rust/src/spec.rs` + `rust/src/lib.rs::contracts`), C++17 (`cpp/include/microservice_toolbox/spec/contracts.hpp` & `spec.hpp`), and pure C11/C99 (`cpp/include/microservice_toolbox/spec/contracts.h`).
 
 ### 7. Real-Time Transport WireTap (`wiretap`)
-Lock-free, real-time inter-service connection and segregated channel telemetry across **SafeSocket TCP**, **gRPC**, **NATS**, **HTTP REST**, and **External Gateways/MCP Clients**:
-- **Atomic Switch**: Controlled via `common.wiretap_enabled` in `AppConfig` (`wiretap.SetEnabled(bool)` / `set_enabled(bool)`) with zero mutexes on the hot path and live runtime hot-reload.
-- **Segregated Channel Tracking**: Captures per-edge logical sub-channels (e.g., `RegisterService`, `SendEvent`, `DispatchNotification`, `mcp:tool:query_brain`, `SYNC_CONFIG`, NATS subjects) with live frame and byte counters.
-- **Zero-Touch Mesh Integration**: Automatically initialized by `BootstrapService` (Go) and `init_microservice` / `configure_from_config` (Python), streaming `EdgeReport` snapshots to `web-interface` (`/api/v1/system/wiretap/ingest`) to dynamically synthesize `L1–L3`, `> L3` (`L4+`), and `EXT` nodes and links.
+Lock-free, real-time inter-service connection and segregated channel telemetry across **SafeSocket TCP**, **gRPC**, **NATS**, **HTTP REST**, and **External Gateways/MCP Clients** in **Go, Python, Rust, and C++17**:
+- **Atomic Switch**: Controlled via `common.wiretap_enabled` (or `local.wiretap_enabled`) in `AppConfig` (`SetEnabled(bool)` / `set_enabled(bool)`) with zero mutexes on the hot path and live runtime hot-reload.
+- **Segregated Channel Tracking**: Captures per-edge logical sub-channels (`RegisterService`, `SendEvent`, `DispatchNotification`, `mcp:tool:*`, NATS subjects) with live frame and byte counters (`EdgeReport`, `ChannelMetric` / `ChannelStat`).
+- **Zero-Touch Mesh Integration**: Automatically initialized by `BootstrapService` (Go) and `init_microservice` (Python), or configured via `ConfigureFromConfig` / `configure_from_config` in C++ and Rust, streaming `EdgeReport` snapshots to `web-interface` (`/api/v1/system/wiretap/ingest`).
 
 ---
 
@@ -80,18 +81,21 @@ Lock-free, real-time inter-service connection and segregated channel telemetry a
 
 | Feature | Go | Python | Rust | C/C++ | VBA |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| Layered YAML Loading | ✅ | ✅ | ✅ | ✅ | ✅ |
-| CLI Flag Overrides (`--key`) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Environment Var Expansion | ✅ | ✅ | ✅ | ✅ | ✅ |
-| RSA Secret Decryption | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Error Transparency** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **In-Memory Mirroring** | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **UnmarshalLocal** | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Business Data Models**| ✅ | ✅ | ✅ | ✅ | ❌ |
-| Connection Manager | ✅ | ✅ | ✅ | ✅ | ❌ |
-| NATS Standard Connector | ✅ | ✅ | ✅ | ❌ | ❌ |
-| `ServiceSpec` / OpenMFE Registration | ✅ | ✅ | ✅ | ✅ | ❌ |
-| `ExchangeContract` & IDL Extractors | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Layered YAML Loading & `AppConfig` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Dedicated Version (`appConfig.GetVersion()` / `get_version()`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| CLI Flag Overrides & Docker Guard (`config`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Environment Var Expansion & RSA Decryption | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **Error Transparency (`GetLastError`)** | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **In-Memory Mirroring & `UnmarshalLocal`** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Config-Verbatim Connectivity (`Resolver`)** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **LIFO Graceful Shutdown (`LifecycleManager`)** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Business Data Models & Helpers (`WrapMarketEvent`)** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Connection Manager (`conn_manager`) | ✅ | ✅ | ✅ | ✅ | ❌ |
+| NATS Standard Connector (`messaging`) | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Direct Alerting Client (`notification` via `libnotif`) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `ServiceSpec` & `PublishWithLifecycle` (`spec`) | ✅ | ✅ | ✅ | ✅ | ❌ |
+| `ExchangeContract` & IDL Extractors (`contracts`) | ✅ | ✅ | ✅ | ✅ (`C++17 + C11`) | ❌ |
+| `Real-Time WireTap` Telemetry (`wiretap`) | ✅ | ✅ | ✅ | ✅ | ❌ |
 
 ---
 
@@ -107,9 +111,10 @@ To ensure the ecosystem remains unified, all contributions to this toolbox must 
 ## Language Support
 
 ### C++
-Located in `/cpp`. Uses `nlohmann/json` for high-speed mirroring.
+Located in `/cpp` (C++17 headers + pure C11 `contracts.h`). Uses `nlohmann/json` for high-speed mirroring.
 ```cpp
 auto ac = LoadConfig("standalone");
+std::string ver  = ac->GetVersion();
 std::string addr = ac->GetListenAddr("svc");
 std::string secret = ac->DecryptSecret("ENC(...)");
 ```
@@ -118,7 +123,8 @@ std::string secret = ac->DecryptSecret("ENC(...)");
 Located in `/vba`. Enabling Excel/Access integration.
 ```vba
 Dim ac As New AppConfig
-ac.Init "standalone"
+ac.LoadConfig "standalone"
+Debug.Print ac.GetVersion()
 Debug.Print ac.GetListenAddr("svc")
 ```
 
@@ -126,6 +132,7 @@ Debug.Print ac.GetListenAddr("svc")
 Located in `/rust`. Type-safe configuration via `serde`.
 ```rust
 let ac = AppConfig::load_config("standalone", None)?;
+let ver = ac.get_version();
 let cfg: MyLocalConfig = ac.unmarshal_local()?;
 ```
 
@@ -133,17 +140,19 @@ let cfg: MyLocalConfig = ac.unmarshal_local()?;
 Located in `/python`. Pythonic wrappers with `ctypes` FFI.
 ```python
 cfg = load_config("standalone")
+ver = cfg.get_version()
 secret = cfg.decrypt_secret("ENC(...)")
 ```
 
 ### Go
 Located in `/go`. The reference implementation.
 ```go
-cfg, err := config.LoadConfig("standalone")
+cfg, err := config.LoadConfig("standalone", nil)
 if err != nil {
     log.Fatalf("Failed to load config: %v", err)
 }
-addr := cfg.GetListenAddr("svc")
+ver := cfg.GetVersion()
+addr, _ := cfg.GetListenAddr("svc")
 ```
 
 ---

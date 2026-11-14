@@ -10,7 +10,7 @@ Execute from the `python/` root directory:
 
 ```bash
 cd python
-pytest
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 pytest
 ```
 
 ## Zero Warning Standard
@@ -30,5 +30,7 @@ The Python implementation is strictly audited for **Zero Warnings**.
 ### 3. Business Models
 - **`test_business_models.py`**: Validates that Python `dataclasses` produce the exact `snake_case` JSON fields expected by Go and Rust.
 
-### 4. Connection Management
+### 4. Connection Management, Spec/Contracts, Connectivity, Lifecycle & WireTap
 - **`test_conn_manager.py`**: Verifies resilient TCP wrappers and automated reconnection logic.
+- **`test_version.py`**, **`test_connectivity.py`**, **`test_lifecycle.py`**: Validates `VERSION.txt`-only fail-fast resolution (`AppConfig.get_version()`), config-verbatim `Resolver`, and LIFO cleanup hooks.
+- **`test_spec.py`**, **`test_contracts.py`**, **`test_wiretap.py`**: Validates `ServiceSpec` auto-enrichment, `ExchangeContract` / FastAPI / `.proto` / `.capnp` extractors, and lock-free `WireTap` telemetry.

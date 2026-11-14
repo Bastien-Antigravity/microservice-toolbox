@@ -1,5 +1,0 @@
-common:
-  name: test-app
-capabilities:
-  log_server: {ip: '127.0.0.2', port: '9998'}
-  config_server: {ip: '127.0.0.2', port: '9999'}

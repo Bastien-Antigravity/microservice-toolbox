@@ -17,6 +17,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
@@ -32,6 +33,7 @@ type cleanupHook struct {
 
 // Manager handles application lifecycle and graceful shutdown.
 type Manager struct {
+	mu       sync.Mutex
 	cleanups []cleanupHook
 	Logger   logger.Logger
 }
@@ -49,9 +51,28 @@ func NewManagerWithLogger(l logger.Logger) *Manager {
 	}
 }
 
-// Register adds a named cleanup function to the shutdown sequence.
+// Register adds a named cleanup function to the shutdown sequence safely under mutex.
 func (m *Manager) Register(name string, fn ShutdownFunc) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.cleanups = append(m.cleanups, cleanupHook{name: name, fn: fn})
+}
+
+// ExecuteCleanups runs all registered cleanup hooks in LIFO order and drains the hook list.
+func (m *Manager) ExecuteCleanups() {
+	m.mu.Lock()
+	hooks := m.cleanups
+	m.cleanups = nil
+	m.mu.Unlock()
+
+	for i := len(hooks) - 1; i >= 0; i-- {
+		hook := hooks[i]
+		m.Logger.Info("Lifecycle: Executing cleanup hook [%s]...", hook.name)
+		if err := hook.fn(); err != nil {
+			m.Logger.Error("Lifecycle: Cleanup hook [%s] failed: %v", hook.name, err)
+		}
+	}
+	m.Logger.Info("Lifecycle: Clean shutdown completed.")
 }
 
 // Wait blocks until a SIGINT or SIGTERM is received or context is cancelled,
@@ -59,6 +80,7 @@ func (m *Manager) Register(name string, fn ShutdownFunc) {
 func (m *Manager) Wait(ctx context.Context) {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(stop)
 
 	select {
 	case sig := <-stop:
@@ -67,13 +89,5 @@ func (m *Manager) Wait(ctx context.Context) {
 		m.Logger.Info("Lifecycle: Context canceled. Initiating graceful shutdown...")
 	}
 
-	// Execute cleanups in reverse order (LIFO)
-	for i := len(m.cleanups) - 1; i >= 0; i-- {
-		hook := m.cleanups[i]
-		m.Logger.Info("Lifecycle: Executing cleanup hook [%s]...", hook.name)
-		if err := hook.fn(); err != nil {
-			m.Logger.Error("Lifecycle: Cleanup hook [%s] failed: %v", hook.name, err)
-		}
-	}
-	m.Logger.Info("Lifecycle: Clean shutdown completed.")
+	m.ExecuteCleanups()
 }

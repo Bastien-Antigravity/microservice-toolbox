@@ -1,6 +1,6 @@
-# Microservice Toolbox - C++ Module
+# Microservice Toolbox - C++ Module (C++17 & C11)
 
-A high-performance C++14 infrastructure library for the Bastien-Antigravity ecosystem, providing 1:1 behavioral parity with the Go reference implementation.
+A high-performance header-only C++17 infrastructure library (plus zero-dependency C11/C99 contract headers) for the Bastien-Antigravity ecosystem, providing 1:1 behavioral parity with the Go reference implementation.
 
 ## Features
 - **In-memory Mirroring**: Full state sync from the Go CGO Bridge (`libdistconf`) for sub-millisecond lookups.
@@ -21,7 +21,10 @@ using namespace microservice_toolbox::config;
 // Initialize session (standalone or fleet)
 auto ac = LoadConfig("standalone");
 
-// High-level resolution (Docker Guard aware)
+// Resolve version directly from AppConfig (VERSION.txt only, fail-fast)
+std::string ver = ac->GetVersion();
+
+// High-level config-verbatim address resolution (from AppConfig)
 std::string addr = ac->GetListenAddr("market-observer");
 
 // Decrypt secrets just-in-time
@@ -99,13 +102,19 @@ ExchangeContract grpcContract{
 auto envelope = NewContractsEnvelope("my_cpp_service", ac->GetVersion(), "my.proto", {grpcContract});
 std::string httpBody = envelope.ToJson().dump();
 
+// 5. Spec & Contracts auto-enrich URL, ports, node, and version (via ac->GetVersion())
 ServiceSpec spec;
 spec.contracts = {grpcContract};
 // Populate name, tag, layer, category, description, docLink, protocol, framing...
 SpecPublisher::PublishWithLifecycle(*ac, logger, &lm, "my_cpp_service", spec);
 ```
 
-For pure **C11/C99** services or CGO/FFI wrappers, include `microservice_toolbox/spec/contracts.h` (`MtExchangeContract`, `MtContractsEnvelope`, `mt_contracts_envelope_to_json`, `mt_spec_free_string`).
+For pure **C11/C99** services or CGO/FFI wrappers, include `microservice_toolbox/spec/contracts.h` (`MtExchangeContract`, `MtContractsEnvelope`, `mt_exchange_contract_to_json`, `mt_contracts_envelope_to_json`, `mt_spec_free_string`).
+
+### 6. Real-Time Transport WireTap (`WireTap.hpp`), `LifecycleManager` & `Connectivity::Resolver`
+- **WireTap**: Lock-free telemetry aggregator (`wiretap::ConfigureFromConfig`, `SetEnabled`/`IsEnabled`, `RecordEvent`, `Snapshot`).
+- **Lifecycle**: `lifecycle::LifecycleManager` for SIGINT/SIGTERM handling and LIFO shutdown hooks.
+- **Connectivity**: `connectivity::Resolver` for config-verbatim IP/host/port validation (fail-fast on empty).
 
 ## Build Requirements
 - **C++17** compatible compiler (Clang/GCC) and **C11** compiler (`cc`) for pure C contract headers.

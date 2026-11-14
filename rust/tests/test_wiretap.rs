@@ -6,15 +6,19 @@
 // Test -> Record Events -> Verify Snapshot & Sampling
 //
 // KEY PARAMETERS:
-// - None (Unit Test Suite).
+// - TEST_MUTEX: Serializes tests mutating global WireTap singleton state.
 // -----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use microservice_toolbox::wiretap::*;
+    use std::sync::Mutex;
+
+    static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_wiretap_basic_recording_and_snapshot() {
+        let _guard = TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         set_enabled(true);
         assert!(is_enabled());
@@ -66,16 +70,16 @@ mod tests {
             false,
         );
         let snap2 = snapshot();
-        assert_eq!(snap2[0].total_frames, 1); // Frame count should not have increased
+        assert_eq!(snap2[0].total_frames, 1);
+        set_enabled(true);
+        reset();
     }
 
     #[test]
     fn test_wiretap_power_of_two_sampling() {
-        // Test mask 0 (always true)
         assert!(should_sample(0));
         assert!(should_sample(0));
 
-        // Test mask 3 (sample every 4th item: 0b11)
         let mask = 0x3;
         let mut sampled_count = 0;
         for _ in 0..16 {
@@ -85,5 +89,42 @@ mod tests {
         }
         assert_eq!(sampled_count, 4);
     }
-}
 
+    #[test]
+    fn test_wiretap_merge_and_framing_parity() {
+        let _guard = TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        assert!(is_enabled());
+        set_local_service("test-svc");
+        assert_eq!(get_local_service(), "test_svc");
+        set_web_hub_url("http://127.0.0.1:5000/");
+        assert_eq!(get_web_hub_url(), "http://127.0.0.1:5000");
+
+        record_event("a", "b", "TCP", "raw", "ch1", "data", "outbound", None, 10, 0.5, false, false);
+        record_event("a", "b", "TCP", "SafeSocket/TCP", "ch1", "data", "outbound", None, 20, 0.5, false, false);
+        let snap = snapshot();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap[0].framing, "SafeSocket/TCP");
+        assert!(snap[0].last_seen.ends_with('Z'));
+        assert!(!snap[0].last_seen.contains('.'));
+
+        merge_remote_snapshot(&[EdgeReport {
+            source: "svc-x".to_string(),
+            target: "nats_server".to_string(),
+            protocol: "NATS".to_string(),
+            framing: "NATS JetStream".to_string(),
+            active_conns: 1,
+            total_frames: 5,
+            total_bytes: 500,
+            total_errors: 0,
+            last_seen: "2026-11-10T00:00:00Z".to_string(),
+            is_external: false,
+            channels: vec![],
+        }]);
+        let merged = snapshot();
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[1].source, "svc_x");
+        assert_eq!(merged[1].target, "nats");
+        reset();
+    }
+}

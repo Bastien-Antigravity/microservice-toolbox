@@ -265,10 +265,16 @@ void test_exchange_contracts_and_extractors() {
     base.docLink = "obsidian-brain/06-Microservices/Config-Server-Hub.md";
     base.protocols = {ProtocolSpec{"gRPC", 9021, "Protobuf", "gRPC control"}};
     base.contracts = {grpcContract};
+    base.color = "#38bdf8";
+    base.dependencies = {DependencySpec{"notif_server", "grpc", "Alerts", "", ""}};
+    base.canvas = CanvasSpec{"", "", "domain", 0.0, 0.0, {}};
 
     ServiceSpec enriched = SpecPublisher::BuildSpecFromConfig(cfg, "config_server", base);
     auto specJson = enriched.ToJson();
     assert(specJson["navRoute"] == "/mfe/Config Server");
+    assert(specJson["canvas"]["color"] == "#38bdf8");
+    assert(specJson["health"]["timeoutMs"] == 350);
+    assert(specJson["dependencies"].size() == 1);
     assert(specJson["protocols"].size() == 1);
     assert(specJson["contracts"].size() == 1);
     assert(specJson["contracts"][0]["schemaFormat"] == "proto3");

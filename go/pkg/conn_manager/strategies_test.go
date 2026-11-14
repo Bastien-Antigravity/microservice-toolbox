@@ -44,7 +44,7 @@ func TestUnifiedConnect(t *testing.T) {
 	profile := "test"
 
 	// 1. Test NonBlocking: should return immediately
-	nm1 := NewNetworkManager(2, 10, 50, 50, 1.0, 0.0)
+	nm1 := NewNetworkManagerWithPolicy(2, 10, 50, 50, 1.0, 0.0)
 	start := time.Now()
 	mc1 := nm1.Connect(&ip, &port, &publicIP, profile, ModeNonBlocking)
 	elapsed := time.Since(start)
@@ -54,7 +54,7 @@ func TestUnifiedConnect(t *testing.T) {
 	_ = mc1.Close()
 
 	// 2. Test Blocking with limited retries: should error out and return mc with nil conn
-	nm2 := NewNetworkManager(2, 10, 50, 50, 1.0, 0.0)
+	nm2 := NewNetworkManagerWithPolicy(2, 10, 50, 50, 1.0, 0.0)
 	var errorCount2 atomic.Int32
 	nm2.OnError = func(attempt int, err error, source string, msg string) {
 		errorCount2.Add(1)
@@ -67,7 +67,7 @@ func TestUnifiedConnect(t *testing.T) {
 	_ = mc2.Close()
 
 	// 3. Test Indefinite: should continue retrying.
-	nm3 := NewNetworkManager(2, 10, 50, 50, 1.0, 0.0)
+	nm3 := NewNetworkManagerWithPolicy(2, 10, 50, 50, 1.0, 0.0)
 	var errorCount3 atomic.Int32
 	nm3.OnError = func(attempt int, err error, source string, msg string) {
 		errorCount3.Add(1)

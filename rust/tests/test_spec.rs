@@ -181,3 +181,99 @@ fn test_exchange_contract_serialization() {
     assert!(json.contains("\"tabLabel\":\"Protobuf API Spec\""));
     assert!(json.contains("\"schemaFormat\":\"proto3\""));
 }
+
+//-----------------------------------------------------------------------------------------------
+#[test]
+fn test_contracts_envelope_and_extractors_parity() {
+    use microservice_toolbox::contracts::*;
+
+    let proto = r#"
+syntax = "proto3";
+package demo.v1;
+service DemoControl {
+  option (google.api.default_host) = { host: "localhost" };
+  rpc Ping (PingReq) returns (PingResp);
+  rpc StreamEvents (stream EventReq) returns (stream EventResp);
+}
+"#;
+    let ops = extract_proto_operations(proto);
+    assert_eq!(ops.len(), 2);
+    assert_eq!(ops[0].kind, "RPC");
+    assert_eq!(ops[0].target, "demo.v1.DemoControl/Ping");
+    assert_eq!(ops[1].kind, "BIDI_STREAM");
+
+    let capnp = r#"
+enum Level {
+  info @0; # info level
+  error @1;
+}
+struct Packet {
+  id @0 :Text;
+  payload @1 :Data;
+}
+"#;
+    let cap_ops = extract_capnp_operations(capnp);
+    assert_eq!(cap_ops.len(), 2);
+    assert_eq!(cap_ops[0].kind, "ENUM");
+    assert_eq!(cap_ops[1].kind, "STRUCT");
+
+    assert_eq!(resolve_contract_port("0.0.0.0:9021"), 9021);
+    assert_eq!(display_address(":3308"), "127.0.0.1:3308");
+    assert_eq!(display_address(""), "dynamic");
+
+    let env = new_contracts_envelope(
+        "rust_svc",
+        "1.0.0",
+        "unit test",
+        vec![ExchangeContract {
+            id: "grpc".to_string(),
+            r#type: "gRPC".to_string(),
+            operations: ops,
+            ..Default::default()
+        }],
+    );
+    assert!(env.reliable && env.exhaustive);
+    assert_eq!(env.contracts.len(), 1);
+}
+
+#[test]
+fn test_spec_enhanced_metadata_and_node() {
+    use microservice_toolbox::spec::{CanvasSpec, DependencySpec};
+
+    let yaml_str = r#"
+capabilities:
+  pay_gw:
+    ip: "127.0.0.1"
+    rest_port: "8099"
+"#;
+    let data: serde_yml::Value = serde_yml::from_str(yaml_str).unwrap();
+    let app_config = AppConfig::from_value(data);
+    let base = ServiceSpec {
+        name: "Payment Gateway".to_string(),
+        tag: "payment-gateway-mfe".to_string(),
+        layer: "L2".to_string(),
+        category: "Domain Services".to_string(),
+        color: "#38bdf8".to_string(),
+        description: "Handles payments.".to_string(),
+        doc_link: "doc.md".to_string(),
+        protocol: "REST".to_string(),
+        framing: "Port %s REST".to_string(),
+        dependencies: vec![DependencySpec {
+            target: "notif_server".to_string(),
+            proto: "grpc".to_string(),
+            label: "Alerts".to_string(),
+            ..Default::default()
+        }],
+        canvas: Some(CanvasSpec {
+            preferred_slot: "domain".to_string(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let spec = build_spec_from_config(&app_config, "pay_gw", base).unwrap();
+    assert_eq!(spec.nav_route, "/mfe/Payment Gateway");
+    assert_eq!(spec.canvas.as_ref().unwrap().color, "#38bdf8");
+    assert_eq!(spec.health.as_ref().unwrap().port, 8099);
+    assert!(spec.data_structure.get("node").is_some());
+}
