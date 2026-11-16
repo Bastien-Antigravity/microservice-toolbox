@@ -13,9 +13,9 @@
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::time::sleep;
-use crate::conn_manager::manager::{NetworkManager, ReloadHandler};
+use crate::conn_manager::manager::NetworkManager;
 use crate::conn_manager::errors::Error;
 
 #[derive(Clone, Debug)]
@@ -29,14 +29,12 @@ pub struct Endpoint {
 
 impl Endpoint {
     pub fn new(ip: String, port: String, public_ip: String, profile: String) -> Self {
-        let clean_ip = ip.trim_matches('"').to_string();
-        let clean_port = port.trim_matches('"').to_string();
-        let address = format!("{}:{}", clean_ip, clean_port);
+        let address = format!("{}:{}", ip, port);
         Self {
-            ip: clean_ip,
-            port: clean_port,
-            public_ip: public_ip.trim_matches('"').to_string(),
-            profile: profile.trim_matches('"').to_string(),
+            ip,
+            port,
+            public_ip,
+            profile,
             address,
         }
     }
@@ -48,9 +46,8 @@ impl Endpoint {
 /// It provides a 'self-healing' interface that automatically triggers 
 /// background reconnections if a network failure is detected during use.
 pub struct ManagedConnection {
-    pub endpoint: Arc<tokio::sync::RwLock<Endpoint>>,
+    pub endpoint: Arc<RwLock<Arc<Endpoint>>>,
     pub nm: Arc<NetworkManager>,
-    pub on_reload: Arc<Mutex<Option<ReloadHandler>>>,
     pub app_config: Option<Arc<std::sync::Mutex<crate::config::loader::AppConfig>>>,
     pub capability: Option<String>,
     pub current_conn: Arc<Mutex<Option<TcpStream>>>,
@@ -62,12 +59,10 @@ impl ManagedConnection {
     }
 
     pub fn new_with_endpoint(ep: Endpoint, nm: Arc<NetworkManager>) -> Self {
-        let reload = nm.on_reload_config.clone();
         let app_config = nm.app_config.clone();
         Self {
-            endpoint: Arc::new(tokio::sync::RwLock::new(ep)),
+            endpoint: Arc::new(RwLock::new(Arc::new(ep))),
             nm,
-            on_reload: Arc::new(Mutex::new(reload)),
             app_config,
             capability: None,
             current_conn: Arc::new(Mutex::new(None)),
@@ -75,85 +70,38 @@ impl ManagedConnection {
     }
 
     pub async fn update_endpoint(&self, new_ip: String, new_port: String) {
-        let mut ep_lock = self.endpoint.write().await;
-        *ep_lock = Endpoint::new(new_ip, new_port, ep_lock.public_ip.clone(), ep_lock.profile.clone());
+        self.swap_endpoint(new_ip, new_port);
+    }
+
+    pub fn swap_endpoint(&self, new_ip: String, new_port: String) {
+        let mut ep_guard = self.endpoint.write().unwrap();
+        let next = Endpoint::new(new_ip, new_port, ep_guard.public_ip.clone(), ep_guard.profile.clone());
+        *ep_guard = Arc::new(next);
     }
 
     pub async fn get_endpoint(&self) -> (String, String) {
-        let ep = self.endpoint.read().await;
+        let ep = self.endpoint.read().unwrap().clone();
         (ep.ip.clone(), ep.port.clone())
     }
 
     pub async fn endpoint(&self) -> Endpoint {
-        self.endpoint.read().await.clone()
+        (**self.endpoint.read().unwrap()).clone()
     }
 
-    pub async fn set_reload_handler(&self, handler: ReloadHandler) {
-        let mut h_lock = self.on_reload.lock().await;
-        *h_lock = Some(handler);
-    }
-
-    pub async fn trigger_reload(&self, attempt: isize) {
-        if let (Some(ac), Some(cap)) = (&self.app_config, &self.capability) {
-            self.nm.logger.warning(&format!(
-                "ManagedConnection: 3 failed connection attempts reached (attempt {}). Synchronizing config from server...",
-                attempt
-            ));
-            let new_addr_res = {
-                let mut guard = ac.lock().unwrap();
-                let _ = guard.sync();
-                guard.get_listen_addr(cap)
-            };
-            match new_addr_res {
-                Ok(addr) => {
-                    let parts: Vec<&str> = addr.rsplitn(2, ':').collect();
-                    if parts.len() == 2 {
-                        let new_ip = parts[1].to_string();
-                        let new_port = parts[0].to_string();
-                        self.update_endpoint(new_ip.clone(), new_port.clone()).await;
-                        self.nm.logger.info(&format!(
-                            "ManagedConnection: Target address for capability {} updated to {}:{} following config sync",
-                            cap, new_ip, new_port
-                        ));
-                        return;
-                    }
+    pub fn current_endpoint(&self) -> Arc<Endpoint> {
+        let mut ep = self.endpoint.read().unwrap().clone();
+        if let (Some(ac), Some(cap)) = (&self.app_config, &self.capability)
+            && let Ok(guard) = ac.lock()
+            && let Ok(new_addr) = guard.get_listen_addr(cap)
+            && new_addr != ep.address {
+                let parts: Vec<&str> = new_addr.rsplitn(2, ':').collect();
+                if parts.len() == 2 {
+                    drop(guard);
+                    self.swap_endpoint(parts[1].to_string(), parts[0].to_string());
+                    ep = self.endpoint.read().unwrap().clone();
                 }
-                Err(e) => {
-                    self.nm.logger.warning(&format!(
-                        "ManagedConnection: Config sync for capability {} failed: {}",
-                        cap, e
-                    ));
-                    return;
-                }
-            }
         }
-
-        let reload_fn = {
-            let h_lock = self.on_reload.lock().await;
-            h_lock.clone().or_else(|| self.nm.on_reload_config.clone())
-        };
-
-        if let Some(handler) = reload_fn {
-            self.nm.logger.warning(&format!(
-                "ManagedConnection: 3 failed connection attempts reached (attempt {}). Reloading configuration...",
-                attempt
-            ));
-            match handler(attempt) {
-                Ok((new_ip, new_port)) => {
-                    self.update_endpoint(new_ip.clone(), new_port.clone()).await;
-                    self.nm.logger.info(&format!(
-                        "ManagedConnection: Target address updated to {}:{} following config reload",
-                        new_ip, new_port
-                    ));
-                }
-                Err(e) => {
-                    self.nm.logger.warning(&format!(
-                        "ManagedConnection: Configuration reload returned error: {:?}",
-                        e
-                    ));
-                }
-            }
-        }
+        ep
     }
 
     pub async fn set_stream(&mut self, stream: TcpStream) {
@@ -201,11 +149,7 @@ impl ManagedConnection {
 
         loop {
             let attempt = i + 1;
-            if attempt % 3 == 0 {
-                self.trigger_reload(attempt).await;
-            }
-
-            let ep = self.endpoint().await;
+            let ep = self.current_endpoint();
 
             match self.nm.establish_connection(&ep.address).await {
                 Ok(stream) => {

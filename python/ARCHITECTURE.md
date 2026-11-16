@@ -26,5 +26,5 @@ To minimize FFI overhead, the Python toolbox performs a **Full Sync** on startup
 ## 5. Resilient Connection Manager (`conn_manager`)
 - **Unified Constructor**: `new_network_manager(app_config=..., logger=...)` binds `AppConfig` and logger pointers directly.
 - **Lock-Free Atomic Endpoint Pointer Architecture**: Coordinates are encapsulated in an immutable `Endpoint` instance (`ip`, `port`, `public_ip`, `profile`, `address`). Hot-path reads access `self.endpoint.address` directly without temporary local string variables. Reference assignments under the Python GIL guarantee atomic coordinate swaps.
-- **Dynamic 3-Try Config Reload**: Reconnection loops handle severed sockets. Every 3 failed attempts, `ManagedConnection` queries `app_config.sync()` and `get_listen_addr(capability)`. Target coordinate changes dynamically re-bind the connection without requiring microservice restarts.
+- **Direct `AppConfig` Resolution on Reconnect**: Reconnection loops handle severed sockets by querying `app_config.get_listen_addr(capability)` directly. Target coordinate changes dynamically swap the `Endpoint` pointer without requiring microservice restarts.
 - **Write Recovery**: On broken socket write errors (`send`), the severed socket is closed and cleared, inline reconnection is triggered, and the pending write retries once on the restored connection.

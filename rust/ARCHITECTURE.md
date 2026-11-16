@@ -24,5 +24,5 @@ Similar to Python, Rust performs a **Full Sync** on initialization:
 
 ## 5. Resilient Connection Manager (`conn_manager`)
 - **Unified Constructor**: `new_network_manager(app_config, logger)` creates the manager with pointer-based config and logger binding.
-- **Lock-Free Atomic Endpoint Pointer Architecture**: Coordinates are stored in `Arc<tokio::sync::RwLock<Endpoint>>` with precomputed `address` (`host:port`). Hot-path reconnection reads from `ep.address` directly without copying to loose temporary string variables.
-- **Dynamic 3-Try Config Reload**: Reconnection loops handle severed sockets. Every 3 failed attempts, `trigger_reload` executes `app_config.sync()` and re-evaluates `get_listen_addr(capability)`. Target coordinate updates swap the endpoint atomically without requiring microservice restarts.
+- **Lock-Free Atomic Endpoint Pointer Architecture**: Coordinates are stored in `Arc<std::sync::RwLock<Arc<Endpoint>>>` with precomputed `address` (`host:port`). Hot-path reconnection reads from `ep.address` directly without async locks or loose temporary string variables.
+- **Direct `AppConfig` Resolution on Reconnect**: Reconnection loops handle severed sockets by evaluating `get_listen_addr(capability)` directly from `AppConfig`. Target coordinate updates swap the `Arc<Endpoint>` pointer atomically without requiring microservice restarts.

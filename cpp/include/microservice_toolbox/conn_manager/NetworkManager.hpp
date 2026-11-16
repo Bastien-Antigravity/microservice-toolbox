@@ -42,7 +42,6 @@ struct Endpoint {
 };
 
 using OnErrorHandler = std::function<void(int attempt, const std::string& error, const std::string& source, const std::string& msg)>;
-using ReloadHandler = std::function<std::pair<std::string, std::string>(int attempt)>;
 
 enum class ConnectionMode {
     Blocking,
@@ -64,10 +63,9 @@ public:
     double jitter;
     OnErrorHandler on_error;
     std::shared_ptr<utils::Logger> logger;
-    ReloadHandler on_reload_config;
     std::shared_ptr<config::AppConfig> app_config;
 
-    NetworkManager(int max_retries, int base_delay_ms, int max_delay_ms, int connect_timeout_ms, double backoff, double jitter, std::shared_ptr<utils::Logger> logger = nullptr, ReloadHandler on_reload = nullptr, std::shared_ptr<config::AppConfig> app_config = nullptr)
+    NetworkManager(int max_retries, int base_delay_ms, int max_delay_ms, int connect_timeout_ms, double backoff, double jitter, std::shared_ptr<utils::Logger> logger = nullptr, std::shared_ptr<config::AppConfig> app_config = nullptr)
         : max_retries(max_retries),
           base_delay(base_delay_ms),
           max_delay(max_delay_ms),
@@ -76,7 +74,6 @@ public:
           jitter(jitter),
           on_error(nullptr),
           logger(utils::EnsureSafeLogger(logger)),
-          on_reload_config(std::move(on_reload)),
           app_config(std::move(app_config)) {}
 
     std::chrono::milliseconds GetNextDelay(int attempt) {
@@ -109,7 +106,7 @@ public:
 
     // Unified Factory Method combining AppConfig and Logger in one function with pointers
     static std::shared_ptr<NetworkManager> New(std::shared_ptr<config::AppConfig> ac = nullptr, std::shared_ptr<utils::Logger> logger = nullptr) {
-        return std::make_shared<NetworkManager>(5, 200, 5000, 2000, 2.0, 0.0, logger, nullptr, ac);
+        return std::make_shared<NetworkManager>(5, 200, 5000, 2000, 2.0, 0.0, logger, ac);
     }
 
     // Static Factory Methods for Strategies

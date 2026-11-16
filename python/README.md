@@ -32,15 +32,15 @@ pwd = cfg.decrypt_secret("ENC(...)")
 ```
 
 ### 2. Connection Manager (`conn_manager`)
-Provides a resilient TCP wrapper around `safesocket` with multiplicative backoff and randomized jitter.
+Provides a resilient TCP wrapper around `safesocket` with multiplicative backoff, randomized jitter, lock-free `Endpoint` references, and live `AppConfig` capability resolution.
 
 ```python
 from microservice_toolbox.conn_manager import new_network_manager
 
-nm = new_network_manager(max_retries=5)
+nm = new_network_manager(cfg, logger)
 
-# Non-blocking connection: returns immediate wrapper, connects in background
-mc = nm.connect_non_blocking("127.0.0.1", "8080", "1.2.3.4", "raw")
+# Resolve capability directly from AppConfig (LiveConfig + Capabilities)
+mc = nm.connect_capability("log_server", "tcp-hello:my-service")
 
 # ManagedConnection handles reconnection during write failures automatically
 mc.write(b"hello world")

@@ -237,27 +237,21 @@ void test_wiretap() {
 }
 
 void test_conn_manager_reload() {
-    std::cout << "Testing ConnManager 3-try reload..." << std::endl;
-    bool reload_triggered = false;
-    auto reload_fn = [&reload_triggered](int attempt) -> std::pair<std::string, std::string> {
-        if (attempt == 3) {
-            reload_triggered = true;
-        }
-        return {"127.0.0.1", "9999"};
-    };
+    std::cout << "Testing ConnManager lock-free Endpoint atomic swap..." << std::endl;
+    auto nm = std::make_shared<conn_manager::NetworkManager>(3, 5, 20, 10, 1.5, 0.0, nullptr);
 
-    auto nm = std::make_shared<conn_manager::NetworkManager>(3, 5, 20, 10, 1.5, 0.0, nullptr, reload_fn);
-    assert(nm->on_reload_config != nullptr);
-
-    conn_manager::ManagedConnection mc("127.0.0.1", "8080", "", "test", nm);
+    conn_manager::ManagedConnection mc("127.0.0.1", "8080", "1.2.3.4", "test", nm);
     assert(mc.GetEndpoint().first == "127.0.0.1");
     assert(mc.GetEndpoint().second == "8080");
+    assert(mc.GetEndpointPtr()->address == "127.0.0.1:8080");
 
     mc.UpdateEndpoint("10.0.0.1", "5000");
     assert(mc.GetEndpoint().first == "10.0.0.1");
     assert(mc.GetEndpoint().second == "5000");
+    assert(mc.GetEndpointPtr()->address == "10.0.0.1:5000");
+    assert(mc.GetEndpointPtr()->public_ip == "1.2.3.4");
 
-    std::cout << "  Passed (ConnManager reload handler verified)." << std::endl;
+    std::cout << "  Passed (ConnManager lock-free Endpoint atomic swap verified)." << std::endl;
 }
 
 void test_conn_manager_app_config_binding() {

@@ -24,7 +24,7 @@ type NatsConfig struct {
 	// Connection tuning
 	ConnectTimeout time.Duration `yaml:"connect_timeout" json:"connect_timeout"`
 	ReconnectWait  time.Duration `yaml:"reconnect_wait" json:"reconnect_wait"`
-	MaxReconnects  int           `yaml:"max_reconnects" json:"max_reconnects"`
+	MaxReconnects  int           `yaml:"max_reconnects" json:"max_reconnects,string"`
 	FlushTimeout   time.Duration `yaml:"flush_timeout" json:"flush_timeout"`
 
 	SubjectPrefix string `yaml:"subject_prefix" json:"subject_prefix"`
@@ -55,11 +55,11 @@ type JetStreamConfig struct {
 	Subjects        []string      `yaml:"subjects" json:"subjects"`
 	RetentionPolicy string        `yaml:"retention" json:"retention"`
 	Storage         string        `yaml:"storage" json:"storage"`
-	Replicas        int           `yaml:"replicas" json:"replicas"`
+	Replicas        int           `yaml:"replicas" json:"replicas,string"`
 	MaxAge          time.Duration `yaml:"max_age" json:"max_age"`
-	MaxMsgs         int64         `yaml:"max_msgs" json:"max_msgs"`
-	MaxBytes        int64         `yaml:"max_bytes" json:"max_bytes"`
-	MaxMsgSize      int32         `yaml:"max_msg_size" json:"max_msg_size"`
+	MaxMsgs         int64         `yaml:"max_msgs" json:"max_msgs,string"`
+	MaxBytes        int64         `yaml:"max_bytes" json:"max_bytes,string"`
+	MaxMsgSize      int32         `yaml:"max_msg_size" json:"max_msg_size,string"`
 
 	// Consumer configuration
 	DurableConsumer string        `yaml:"durable_consumer" json:"durable_consumer"`

@@ -169,98 +169,6 @@ def test_managed_connection_reconnect_max_retries():
     assert nm.establish_connection.call_count == 6
 
 
-def test_managed_connection_3_try_reload_triggered():
-    reload_invocations = []
-
-    def on_reload(attempt: int):
-        reload_invocations.append(attempt)
-        return "10.0.0.99", "9999"
-
-    nm = new_network_manager(max_retries=4, base_delay_ms=5, on_reload_config=on_reload)
-
-    dialed_addresses = []
-    mock_conn = MagicMock()
-
-    def mock_establish(ip, port, _pub, _prof):
-        clean_addr = f"{ip}:{port}"
-        dialed_addresses.append(clean_addr)
-        if clean_addr == "10.0.0.99:9999":
-            return mock_conn
-        raise Exception(f"Connection refused at {clean_addr}")
-
-    nm.establish_connection = MagicMock(side_effect=mock_establish)
-
-    mc = nm.connect_with_retry("127.0.0.1", "8080", "1.2.3.4", "test")
-
-    assert mc.current_conn == mock_conn
-    # Attempt 1 (127.0.0.1:8080 fail)
-    # Attempt 2 (127.0.0.1:8080 fail)
-    # Attempt 3: trigger reload -> updates to 10.0.0.99:9999 -> connect succeeds
-    assert reload_invocations == [3]
-    assert mc.get_endpoint() == ("10.0.0.99", "9999")
-    assert dialed_addresses == ["127.0.0.1:8080", "127.0.0.1:8080", "10.0.0.99:9999"]
-
-
-def test_managed_connection_3_try_reload_error_graceful():
-    reload_called = False
-
-    def on_reload(_attempt: int):
-        nonlocal reload_called
-        reload_called = True
-        raise RuntimeError("Config server unavailable")
-
-    nm = new_network_manager(max_retries=3, base_delay_ms=5, on_reload_config=on_reload)
-
-    mock_conn = MagicMock()
-    dialed = []
-
-    def mock_establish(ip, port, _pub, _prof):
-        dialed.append(f"{ip}:{port}")
-        if len(dialed) == 3:
-            return mock_conn
-        raise Exception("Failed dial")
-
-    nm.establish_connection = MagicMock(side_effect=mock_establish)
-
-    mc = nm.connect_with_retry("127.0.0.1", "8080", "1.2.3.4", "test")
-
-    assert reload_called is True
-    assert mc.current_conn == mock_conn
-    assert mc.get_endpoint() == ("127.0.0.1", "8080")
-
-
-def test_managed_connection_reconnect_3_try_reload():
-    reload_attempts = []
-
-    def on_reload(attempt: int):
-        reload_attempts.append(attempt)
-        return ("192.168.1.50", "9090")
-
-    nm = new_network_manager(max_retries=4, base_delay_ms=5)
-    nm.on_reload_config = on_reload
-
-    mock_conn = MagicMock()
-    dialed = []
-
-    def mock_establish(ip, port, _pub, _prof):
-        addr = f"{ip}:{port}"
-        dialed.append(addr)
-        if addr == "192.168.1.50:9090":
-            return mock_conn
-        raise Exception("down")
-
-    nm.establish_connection = MagicMock(side_effect=mock_establish)
-
-    from microservice_toolbox.conn_manager.connection import ManagedConnection
-
-    mc = ManagedConnection("127.0.0.1", "5000", "1.2.3.4", "test", nm)
-    mc.reconnect()
-
-    assert mc.current_conn == mock_conn
-    assert reload_attempts == [3]
-    assert dialed == ["127.0.0.1:5000", "127.0.0.1:5000", "192.168.1.50:9090"]
-
-
 def test_network_manager_connect_capability_resolution():
     mock_ac = MagicMock()
     mock_ac.profile = "prod"
@@ -282,24 +190,19 @@ def test_network_manager_connect_capability_resolution():
     nm.establish_connection.assert_called_once_with("10.0.0.15", "7070", "198.51.100.1", "prod")
 
 
-def test_network_manager_connect_capability_3_try_reload():
-    sync_called = False
-    current_addr = "10.0.0.15:7070"
+def test_network_manager_connect_capability_live_config_refresh():
+    addresses = ["10.0.0.15:7070", "10.0.0.15:7070", "10.0.0.25:8080"]
+    call_idx = 0
+
+    def mock_get_listen_addr(_cap):
+        nonlocal call_idx
+        addr = addresses[min(call_idx, len(addresses) - 1)]
+        call_idx += 1
+        return addr
 
     mock_ac = MagicMock()
     mock_ac.profile = "test"
     mock_ac.config.common.public_ip = "1.2.3.4"
-
-    def mock_sync():
-        nonlocal sync_called, current_addr
-        sync_called = True
-        current_addr = "10.0.0.25:8080"
-        return True
-
-    def mock_get_listen_addr(cap):
-        return current_addr
-
-    mock_ac.sync = MagicMock(side_effect=mock_sync)
     mock_ac.get_listen_addr = MagicMock(side_effect=mock_get_listen_addr)
 
     from microservice_toolbox.conn_manager.manager import new_network_manager
@@ -320,12 +223,11 @@ def test_network_manager_connect_capability_3_try_reload():
 
     mc = nm.connect_capability("log-server")
     assert mc.current_conn == mock_conn
-    assert sync_called is True
     assert mc.get_endpoint() == ("10.0.0.25", "8080")
-    assert dialed == ["10.0.0.15:7070", "10.0.0.15:7070", "10.0.0.25:8080"]
+    assert dialed == ["10.0.0.15:7070", "10.0.0.25:8080"]
 
 
-def test_realworld_dynamic_failover_and_3try_reload():
+def test_realworld_dynamic_failover():
     from microservice_toolbox.conn_manager.manager import new_network_manager
 
     server1_alive = True
@@ -355,23 +257,12 @@ def test_realworld_dynamic_failover_and_3try_reload():
     mock_ac = MagicMock()
     mock_ac.profile = "tcp"
     mock_ac.config.common.public_ip = ""
-
-    def mock_sync():
-        nonlocal current_cap_addr
-        # Simulate config-server sync picking up dynamic fallback registration
-        current_cap_addr = "127.0.0.1:9002"
-        return True
-
-    mock_ac.sync = MagicMock(side_effect=mock_sync)
     mock_ac.get_listen_addr = MagicMock(side_effect=lambda cap: current_cap_addr)
 
     nm = new_network_manager(max_retries=10, base_delay_ms=5, max_delay_ms=20, app_config=mock_ac)
 
     def mock_establish(ip_or_ep, port=None, _pub="", _prof=""):
-        if hasattr(ip_or_ep, "port"):
-            p = ip_or_ep.port
-        else:
-            p = port
+        p = ip_or_ep.port if hasattr(ip_or_ep, "port") else port
         if p == "9001":
             if not server1_alive:
                 raise Exception("Connection refused: server1 is dead")
@@ -390,15 +281,11 @@ def test_realworld_dynamic_failover_and_3try_reload():
     mc.write(b"order-1")
     assert server1_payloads == [b"order-1"]
 
-    # 3. Kill Server 1
+    # 3. Kill Server 1 and update LiveConfig in AppConfig
     server1_alive = False
+    current_cap_addr = "127.0.0.1:9002"
 
-    # 4. Write order-2 to the same ManagedConnection.
-    # Initial send fails with Broken pipe -> triggers hot-path recovery:
-    # Clears dead socket -> reconnect loop:
-    # Attempt 1 fails -> Attempt 2 fails -> Attempt 3 triggers reload from AppConfig!
-    # AppConfig syncs and resolves 127.0.0.1:9002 -> Endpoint atomically updated ->
-    # Dials Server 2 -> Retries write successfully!
+    # 4. Write order-2 -> write fails -> reconnect immediately reads updated AppConfig -> dials Server 2 -> retries write!
     mc.write(b"order-2")
 
     assert server2_payloads == [b"order-2"]

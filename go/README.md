@@ -39,15 +39,15 @@ secret, _ := cfg.DecryptSecret("ENC(...)")
 ```
 
 ### 2. Connection Manager (`pkg/conn_manager`)
-High-level TCP orchestration with multiplicative backoff and jitter.
+High-level TCP orchestration with multiplicative backoff, jitter, lock-free atomic `Endpoint` pointers, and live `AppConfig` capability resolution.
 
 ```go
 import "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/conn_manager"
 
-nm := conn_manager.NewStandardStrategy(nil)
+nm := conn_manager.NewNetworkManager(cfg, log)
 
-// Self-healing connection
-conn := nm.ConnectBlocking(&ip, &port, &publicIP, "raw")
+// Self-healing connection resolved directly from AppConfig (LiveConfig + Capabilities)
+conn, err := nm.ConnectCapability("log_server", "tcp-hello:my-service")
 ```
 
 ### 3. Business Models (`pkg/business`)

@@ -168,6 +168,12 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
     # 1. Align dynamic library paths using the single source of truth in utils.lib_loader
     osEnviron["GODEBUG"] = "cgocheck=0"
 
+    # 1.1 Prevent multi-threaded fork crashes (gRPC pthread_atfork handlers on macOS/Linux)
+    # Child subprocesses (execve) do not need gRPC thread pools, avoiding macOS SIGILL & Linux fork deadlocks.
+    osEnviron["GRPC_ENABLE_FORK_SUPPORT"] = "0"
+    if sysPlatform == "darwin":
+        osEnviron["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+
     unilog_path = resolve_library_path("libunilog", "LIBUNILOG_PATH")
     if unilog_path:
         osEnviron["LIBUNILOG_PATH"] = unilog_path

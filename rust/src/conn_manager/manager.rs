@@ -25,7 +25,6 @@ use crate::utils::logger::{Logger, ensure_safe_logger};
 /// - source: The component where the error occurred.
 /// - msg: A descriptive message providing additional context.
 pub type OnErrorHandler = Arc<dyn Fn(isize, &(dyn std::error::Error + Send + Sync), &str, &str) + Send + Sync>;
-pub type ReloadHandler = Arc<dyn Fn(isize) -> Result<(String, String), Error> + Send + Sync>;
  
 /// ConnectionMode defines how the manager handles the initial connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,7 +52,6 @@ pub struct NetworkManager {
     pub jitter: f64, // 0.0 to 1.0
     pub on_error: OptionalHandler,
     pub logger: Arc<dyn Logger>,
-    pub on_reload_config: Option<ReloadHandler>,
     pub app_config: Option<Arc<std::sync::Mutex<crate::config::loader::AppConfig>>>,
 }
 
@@ -68,7 +66,7 @@ impl NetworkManager {
         backoff: f64,
         jitter: f64,
     ) -> Self {
-        Self::new_with_all(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, None, None, None)
+        Self::new_with_all(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, None, None)
     }
 
     // NOTE: This constructor exceeds the Clippy limit of 7 arguments.
@@ -85,7 +83,6 @@ impl NetworkManager {
         jitter: f64,
         on_error: Option<OnErrorHandler>,
         logger: Option<Arc<dyn Logger>>,
-        on_reload_config: Option<ReloadHandler>,
     ) -> Self {
         Self {
             max_retries,
@@ -96,7 +93,6 @@ impl NetworkManager {
             jitter,
             on_error: OptionalHandler(on_error),
             logger: ensure_safe_logger(logger),
-            on_reload_config,
             app_config: None,
         }
     }
@@ -110,9 +106,7 @@ impl NetworkManager {
     }
 
     pub async fn establish_connection_raw(&self, ip: &str, port: &str) -> Result<TcpStream, Error> {
-        let clean_ip = ip.trim_matches('"');
-        let clean_port = port.trim_matches('"');
-        let address = format!("{}:{}", clean_ip, clean_port);
+        let address = format!("{}:{}", ip, port);
         self.establish_connection(&address).await
     }
 
@@ -143,11 +137,7 @@ impl NetworkManager {
         let mut i = 0;
         while self.max_retries == -1 || i < self.max_retries {
             let attempt = i + 1;
-            if attempt % 3 == 0 {
-                mc.trigger_reload(attempt).await;
-            }
-
-            let ep = mc.endpoint().await;
+            let ep = mc.current_endpoint();
 
             match self.establish_connection(&ep.address).await {
                 Ok(stream) => {
@@ -172,7 +162,7 @@ impl NetworkManager {
             }
         }
 
-        let ep = mc.endpoint().await;
+        let ep = mc.current_endpoint();
         Err(Error::MaxRetriesReached(format!(
             "Failed to connect to {} after {} attempts. Last error: {:?}",
             ep.address, self.max_retries, last_error
@@ -293,7 +283,6 @@ impl NetworkManager {
             jitter: 0.0,
             on_error: OptionalHandler(None),
             logger: ensure_safe_logger(logger),
-            on_reload_config: None,
             app_config: Some(ac),
         })
     }
@@ -301,19 +290,19 @@ impl NetworkManager {
     /// NewCriticalStrategy creates a manager configured for critical services: 
     /// Infinite retries, aggressive backoff.
     pub fn new_critical(logger: Option<Arc<dyn Logger>>) -> Arc<Self> {
-        new_network_manager_with_all(-1, 200, 10000, 5000, 2.0, 0.2, None, logger, None)
+        new_network_manager_with_all(-1, 200, 10000, 5000, 2.0, 0.2, None, logger)
     }
  
     /// NewStandardStrategy creates a manager for standard services:
     /// Limited retries, moderate backoff.
     pub fn new_standard(logger: Option<Arc<dyn Logger>>) -> Arc<Self> {
-        new_network_manager_with_all(10, 500, 30000, 5000, 1.5, 0.1, None, logger, None)
+        new_network_manager_with_all(10, 500, 30000, 5000, 1.5, 0.1, None, logger)
     }
  
     /// NewPerformanceStrategy creates a manager for high-performance services:
     /// Short timeouts, low delay, background reconnection.
     pub fn new_performance(logger: Option<Arc<dyn Logger>>) -> Arc<Self> {
-        new_network_manager_with_all(-1, 100, 2000, 1000, 1.2, 0.0, None, logger, None)
+        new_network_manager_with_all(-1, 100, 2000, 1000, 1.2, 0.0, None, logger)
     }
 }
 
@@ -346,9 +335,8 @@ pub fn new_network_manager_with_all(
     jitter: f64,
     on_error: Option<OnErrorHandler>,
     logger: Option<Arc<dyn Logger>>,
-    on_reload_config: Option<ReloadHandler>,
 ) -> Arc<NetworkManager> {
-    Arc::new(NetworkManager::new_with_all(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error, logger, on_reload_config))
+    Arc::new(NetworkManager::new_with_all(max_retries, base_delay_ms, max_delay_ms, connect_timeout_ms, backoff, jitter, on_error, logger))
 }
 
 #[cfg(test)]
@@ -380,7 +368,7 @@ mod tests {
         
         let nm = new_network_manager_with_all(
             2, 10, 100, 50, 1.0, 0.0, 
-            Some(on_error), None, None
+            Some(on_error), None
         );
         
         // This will fail (port 9999)
@@ -424,7 +412,7 @@ mod tests {
             ec_clone.fetch_add(1, Ordering::SeqCst);
         });
  
-        let nm_indef = new_network_manager_with_all(2, 10, 50, 50, 1.0, 0.0, Some(on_error), None, None);
+        let nm_indef = new_network_manager_with_all(2, 10, 50, 50, 1.0, 0.0, Some(on_error), None);
         
         // Run in background task
         tokio::spawn(async move {
@@ -447,7 +435,7 @@ mod tests {
 
         let nm = new_network_manager_with_all(
             2, 10, 50, 50, 1.0, 0.0,
-            Some(on_error), None, None
+            Some(on_error), None
         );
 
         let mc = nm.clone().connect(
@@ -464,35 +452,6 @@ mod tests {
         }
 
         assert_eq!(error_count.load(Ordering::SeqCst), 5);
-    }
-
-    #[tokio::test]
-    async fn test_managed_connection_3_try_reload() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        let reload_called = Arc::new(AtomicBool::new(false));
-        let rc_clone = reload_called.clone();
-
-        let reload_handler = Arc::new(move |attempt: isize| {
-            if attempt == 3 {
-                rc_clone.store(true, Ordering::SeqCst);
-                Ok(("127.0.0.1".to_string(), "9999".to_string()))
-            } else {
-                Err(Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "attempt not 3")))
-            }
-        });
-
-        let nm = new_network_manager_with_all(
-            4, 10, 50, 50, 1.0, 0.0,
-            None, None, Some(reload_handler),
-        );
-
-        let mc = ManagedConnection::new("127.0.0.1".to_string(), "8080".to_string(), nm.clone());
-        let _ = mc.reconnect().await;
-
-        assert!(reload_called.load(Ordering::SeqCst));
-        let (ip, port) = mc.get_endpoint().await;
-        assert_eq!(ip, "127.0.0.1");
-        assert_eq!(port, "9999");
     }
 
     #[tokio::test]

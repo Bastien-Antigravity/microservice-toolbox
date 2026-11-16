@@ -33,15 +33,15 @@ let secret = cfg.decrypt_secret("ENC(...)")?;
 ```
 
 ### 2. Connection Manager (`conn_manager`)
-Built on `tokio::net::TcpStream`, providing randomized jitter and backoff for network resilience.
+Built on `tokio::net::TcpStream` with `ArcSwap<Endpoint>` lock-free endpoint snapshots, randomized jitter, backoff, and live `AppConfig` capability resolution.
 
 ```rust
 use microservice_toolbox::conn_manager::new_network_manager;
 
-let nm = new_network_manager(5, 200, 5000, 2000, 2.0, 0.1);
+let nm = new_network_manager(Some(cfg.clone()), None);
 
-// Establish a self-healing connection
-let mc = nm.connect_blocking("127.0.0.1".to_string(), "8080".to_string()).await;
+// Establish a self-healing connection bound to AppConfig capability
+let mc = nm.connect_capability("log_server", "raw").await?;
 ```
 
 ### 3. Business Models

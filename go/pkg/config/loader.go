@@ -88,6 +88,11 @@ func LoadConfigWithLogger(profile string, l logger.Logger, specificFlags []strin
 
 	safeLogger.Info("Initializing Config with Profile: %s", actualProfile)
 
+	// Ensure CLI --name is visible to distributed_config.New during Phase 1 handshake
+	if cliArgs.Name != "" {
+		_ = os.Setenv("NAME", cliArgs.Name)
+	}
+
 	// Phase 1: Base Configuration (Initialize Distributed Config)
 	// This loads the base YAML and performs initial Remote Sync if necessary.
 	dConf := distributed_config.New(actualProfile)
@@ -315,12 +320,17 @@ func (ac *AppConfig) applyCLIOverrides(args *CLIArgs) {
 	if args.Host != "" || args.Port != 0 {
 		ac.ensurePath("capabilities." + target)
 		cap := ac.Config.Capabilities[target].(map[string]interface{})
+		updates := make(map[string]string)
 		if args.Host != "" {
 			cap["ip"] = args.Host
+			updates["ip"] = args.Host
 		}
 		if args.Port != 0 {
-			cap["port"] = fmt.Sprintf("%d", args.Port)
+			portStr := fmt.Sprintf("%d", args.Port)
+			cap["port"] = portStr
+			updates["port"] = portStr
 		}
+		_ = ac.Config.Set(map[string]map[string]string{target: updates})
 	}
 }
 
@@ -336,12 +346,17 @@ func (ac *AppConfig) applyCLIGRPCOverrides(args *CLIArgs) {
 	if args.GRPCHost != "" || args.GRPCPort != 0 {
 		ac.ensurePath("capabilities." + target)
 		cap := ac.Config.Capabilities[target].(map[string]interface{})
+		updates := make(map[string]string)
 		if args.GRPCHost != "" {
 			cap["grpc_ip"] = args.GRPCHost
+			updates["grpc_ip"] = args.GRPCHost
 		}
 		if args.GRPCPort != 0 {
-			cap["grpc_port"] = fmt.Sprintf("%d", args.GRPCPort)
+			portStr := fmt.Sprintf("%d", args.GRPCPort)
+			cap["grpc_port"] = portStr
+			updates["grpc_port"] = portStr
 		}
+		_ = ac.Config.Set(map[string]map[string]string{target: updates})
 	}
 }
 

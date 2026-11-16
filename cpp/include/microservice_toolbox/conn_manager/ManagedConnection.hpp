@@ -37,22 +37,18 @@ public:
     ManagedConnection(const std::string& ip, const std::string& port, 
                       const std::string& public_ip, const std::string& profile,
                       std::shared_ptr<NetworkManager> nm,
-                      ReloadHandler on_reload = nullptr,
                       std::shared_ptr<config::AppConfig> app_config = nullptr,
                       const std::string& capability = "")
         : endpoint_(std::make_shared<const Endpoint>(ip, port, public_ip, profile)), nm_(nm),
-          on_reload_(on_reload ? std::move(on_reload) : (nm ? nm->on_reload_config : nullptr)),
           app_config_(app_config ? std::move(app_config) : (nm ? nm->app_config : nullptr)),
           capability_(capability),
           closed_(false) {}
 
     ManagedConnection(std::shared_ptr<const Endpoint> ep,
                       std::shared_ptr<NetworkManager> nm,
-                      ReloadHandler on_reload = nullptr,
                       std::shared_ptr<config::AppConfig> app_config = nullptr,
                       const std::string& capability = "")
         : endpoint_(std::move(ep)), nm_(nm),
-          on_reload_(on_reload ? std::move(on_reload) : (nm ? nm->on_reload_config : nullptr)),
           app_config_(app_config ? std::move(app_config) : (nm ? nm->app_config : nullptr)),
           capability_(capability),
           closed_(false) {}
@@ -61,25 +57,42 @@ public:
         Close();
     }
 
-    void SetReloadHandler(ReloadHandler handler) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        on_reload_ = std::move(handler);
-    }
-
     void UpdateEndpoint(const std::string& ip, const std::string& port) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        endpoint_ = std::make_shared<const Endpoint>(ip, port, endpoint_ ? endpoint_->public_ip : "", endpoint_ ? endpoint_->profile : "");
+        auto old_ep = std::atomic_load(&endpoint_);
+        auto next_ep = std::make_shared<const Endpoint>(
+            ip, port,
+            old_ep ? old_ep->public_ip : "",
+            old_ep ? old_ep->profile : ""
+        );
+        std::atomic_store(&endpoint_, std::move(next_ep));
     }
 
     std::pair<std::string, std::string> GetEndpoint() const {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!endpoint_) return {"", ""};
-        return {endpoint_->ip, endpoint_->port};
+        auto ep = std::atomic_load(&endpoint_);
+        if (!ep) return {"", ""};
+        return {ep->ip, ep->port};
     }
 
     std::shared_ptr<const Endpoint> GetEndpointPtr() const {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return endpoint_;
+        return std::atomic_load(&endpoint_);
+    }
+
+    std::shared_ptr<const Endpoint> CurrentEndpoint() {
+        auto ep = std::atomic_load(&endpoint_);
+        if (app_config_ && !capability_.empty()) {
+            try {
+                std::string new_addr = app_config_->GetListenAddr(capability_);
+                if (!ep || new_addr != ep->address) {
+                    auto colon_pos = new_addr.rfind(':');
+                    if (colon_pos != std::string::npos) {
+                        UpdateEndpoint(new_addr.substr(0, colon_pos), new_addr.substr(colon_pos + 1));
+                        ep = std::atomic_load(&endpoint_);
+                    }
+                }
+            } catch (...) {
+            }
+        }
+        return ep;
     }
 
     // Send data, reconnecting if necessary
@@ -136,35 +149,8 @@ public:
 
         while (!closed_.load() && (nm_->max_retries == -1 || attempt < nm_->max_retries)) {
             int attempt_num = attempt + 1;
-            if (attempt_num % 3 == 0) {
-                if (app_config_ && !capability_.empty()) {
-                    nm_->logger->Warning("ManagedConnection: 3 failed connection attempts reached (attempt " + std::to_string(attempt_num) + "). Synchronizing config from server...");
-                    try {
-                        app_config_->Sync();
-                        std::string new_addr = app_config_->GetListenAddr(capability_);
-                        auto colon_pos = new_addr.rfind(':');
-                        if (colon_pos != std::string::npos) {
-                            std::string new_ip = new_addr.substr(0, colon_pos);
-                            std::string new_port = new_addr.substr(colon_pos + 1);
-                            UpdateEndpoint(new_ip, new_port);
-                            nm_->logger->Info("ManagedConnection: Target address for capability " + capability_ + " updated to " + new_ip + ":" + new_port + " following config sync");
-                        }
-                    } catch (const std::exception& e) {
-                        nm_->logger->Warning("ManagedConnection: Config sync for capability " + capability_ + " failed: " + std::string(e.what()));
-                    }
-                } else if (on_reload_) {
-                    nm_->logger->Warning("ManagedConnection: 3 failed connection attempts reached (attempt " + std::to_string(attempt_num) + "). Reloading configuration...");
-                    try {
-                        auto [new_ip, new_port] = on_reload_(attempt_num);
-                        UpdateEndpoint(new_ip, new_port);
-                        nm_->logger->Info("ManagedConnection: Target address updated to " + new_ip + ":" + new_port + " following config reload");
-                    } catch (const std::exception& e) {
-                        nm_->logger->Warning("ManagedConnection: Config reload failed: " + std::string(e.what()));
-                    }
-                }
-            }
+            auto ep = CurrentEndpoint();
 
-            auto ep = endpoint_;
             try {
                 if (socket_) socket_->close();
                 socket_ = safesock::create(ep->profile, ep->address, ep->public_ip, "client", true);
@@ -186,7 +172,8 @@ public:
             }
         }
         
-        throw std::runtime_error("ManagedConnection: Max retries reached for " + (endpoint_ ? endpoint_->address : "unknown"));
+        auto ep = CurrentEndpoint();
+        throw std::runtime_error("ManagedConnection: Max retries reached for " + (ep ? ep->address : "unknown"));
     }
 
 private:
@@ -198,7 +185,6 @@ private:
 
     std::shared_ptr<const Endpoint> endpoint_;
     std::shared_ptr<NetworkManager> nm_;
-    ReloadHandler on_reload_;
     std::shared_ptr<config::AppConfig> app_config_;
     std::string capability_;
     std::unique_ptr<safesock::SafeSocket> socket_;
@@ -210,7 +196,7 @@ private:
 inline std::shared_ptr<ManagedConnection> NetworkManager::ConnectBlocking(const std::string& ip, const std::string& port, 
                                                                    const std::string& public_ip, const std::string& profile) {
     auto ep = std::make_shared<const Endpoint>(ip, port, public_ip, profile);
-    auto mc = std::make_shared<ManagedConnection>(ep, shared_from_this(), on_reload_config);
+    auto mc = std::make_shared<ManagedConnection>(ep, shared_from_this());
     try {
         mc->Reconnect();
     } catch (const std::exception& e) {
@@ -224,7 +210,7 @@ inline std::shared_ptr<ManagedConnection> NetworkManager::ConnectBlocking(const 
 inline std::shared_ptr<ManagedConnection> NetworkManager::ConnectNonBlocking(const std::string& ip, const std::string& port, 
                                                                       const std::string& public_ip, const std::string& profile) {
     auto ep = std::make_shared<const Endpoint>(ip, port, public_ip, profile);
-    auto mc = std::make_shared<ManagedConnection>(ep, shared_from_this(), on_reload_config);
+    auto mc = std::make_shared<ManagedConnection>(ep, shared_from_this());
     std::thread([mc]() {
         try {
             mc->Reconnect();
@@ -265,7 +251,7 @@ inline std::shared_ptr<ManagedConnection> NetworkManager::ConnectCapability(cons
     std::string profile = app_config->GetProfile();
 
     auto ep = std::make_shared<const Endpoint>(ip, port, public_ip, profile);
-    auto mc = std::make_shared<ManagedConnection>(ep, shared_from_this(), on_reload_config, app_config, capability);
+    auto mc = std::make_shared<ManagedConnection>(ep, shared_from_this(), app_config, capability);
 
     if (mode == ConnectionMode::NonBlocking) {
         std::thread([mc]() {

@@ -32,11 +32,6 @@ import (
 // msg: a descriptive message providing additional context.
 type OnErrorHandler func(attempt int, err error, source string, msg string)
 
-// ReloadHandler is a callback triggered on error after 3 consecutive failed connection attempts (and every 3 attempts thereafter).
-// attempt: current failure count (e.g. 3, 6, 9...).
-// Returns updated (newIP, newPort) from configuration reload and any error encountered.
-type ReloadHandler func(attempt int) (newIP, newPort string, err error)
-
 // ConnectionMode defines how the manager handles the initial connection behavior.
 type ConnectionMode int
 
@@ -67,8 +62,6 @@ type NetworkManager struct {
 
 	// OnError is an optional hook for fine-grained error reporting and retry logic.
 	OnError OnErrorHandler
-	// OnReloadConfig is an optional hook invoked after 3 consecutive failed attempts to reload destination coordinates.
-	OnReloadConfig ReloadHandler
 	// Logger is the logger instance used for reporting status and errors.
 	Logger logger.Logger
 	// AppConfig is an optional pointer to the ecosystem AppConfig for automatic capability resolution and self-healing.
@@ -173,11 +166,7 @@ func (nm *NetworkManager) ConnectWithRetryEndpoint(ep *Endpoint) (*ManagedConnec
 	var lastErr error
 	for i := 0; (nm.MaxRetries == -1) || (i < nm.MaxRetries); i++ {
 		attempt := i + 1
-		if attempt%3 == 0 {
-			mc.triggerReload(attempt)
-		}
-
-		currentEP := mc.endpoint.Load()
+		currentEP := mc.currentEndpoint()
 		conn, err := nm.EstablishConnection(currentEP)
 		if err == nil {
 			mc.currentConn.Store(&conn)
@@ -198,7 +187,7 @@ func (nm *NetworkManager) ConnectWithRetryEndpoint(ep *Endpoint) (*ManagedConnec
 		}
 	}
 
-	currentEP := mc.endpoint.Load()
+	currentEP := mc.currentEndpoint()
 	return nil, fmt.Errorf("NetworkManager: failed to connect to %s after %d attempts (last error: %w)", currentEP.Address, nm.MaxRetries, lastErr)
 }
 

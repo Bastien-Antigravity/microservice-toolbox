@@ -37,7 +37,6 @@ from .errors import MaxRetriesReachedError
 # -----------------------------------------------------------------------------------------------
 
 OnErrorHandler = Callable[[int, Exception, str, str], None]
-ReloadHandler = Callable[[int], Tuple[str, str]]
 
 # -----------------------------------------------------------------------------------------------
 
@@ -74,7 +73,6 @@ class NetworkManager:
         jitter: float = 0.0,
         on_error: Optional[OnErrorHandler] = None,
         logger: Optional[Logger] = None,
-        on_reload_config: Optional[Callable[..., Any]] = None,
         app_config: Optional[Any] = None,
     ):
         self.max_retries = max_retries
@@ -85,7 +83,6 @@ class NetworkManager:
         self.jitter = jitter
         self.on_error = on_error
         self.logger = ensure_safe_logger(logger)
-        self.on_reload_config = on_reload_config
         self.app_config = app_config
 
     # -----------------------------------------------------------------------------------------------
@@ -119,9 +116,7 @@ class NetworkManager:
             ep = endpoint_or_ip
             return safesocket.create(ep.profile, ep.address, ep.public_ip, "client", True)
 
-        clean_ip = str(endpoint_or_ip).strip('"')
-        clean_port = str(port).strip('"')
-        address = f"{clean_ip}:{clean_port}"
+        address = f"{endpoint_or_ip}:{port}"
         return safesocket.create(profile, address, public_ip, "client", True)
 
     # -----------------------------------------------------------------------------------------------
@@ -130,16 +125,13 @@ class NetworkManager:
         """
         Attempts to connect and returns a ManagedConnection.
         """
-        mc = ManagedConnection(ip, port, public_ip, profile, self, self.on_reload_config)
+        mc = ManagedConnection(ip, port, public_ip, profile, self)
 
         last_err = None
         i = 0
         while self.max_retries == -1 or i < self.max_retries:
             attempt = i + 1
-            if attempt % 3 == 0:
-                mc._trigger_reload(attempt)
-
-            ep = mc.endpoint
+            ep = mc._current_endpoint()
 
             try:
                 conn = self.establish_connection(ep.ip, ep.port, ep.public_ip, ep.profile)
@@ -161,7 +153,7 @@ class NetworkManager:
                 timeSleep(delay)
                 i += 1
 
-        ep = mc.endpoint
+        ep = mc._current_endpoint()
         raise MaxRetriesReachedError(f"{self.Name} : {ep.address} after {self.max_retries} attempts (last error: {last_err})")
 
     # -----------------------------------------------------------------------------------------------
@@ -286,14 +278,13 @@ def new_network_manager(
     backoff: float = 2.0,
     jitter: float = 0.0,
     on_error: Optional[OnErrorHandler] = None,
-    on_reload_config: Optional[Callable[..., Any]] = None,
 ) -> NetworkManager:
     """
     Creates a resilient NetworkManager combining AppConfig and Logger in one function with pointers.
     """
     actual_logger = logger
     if actual_logger is None and app_config is not None:
-        actual_logger = getattr(app_config, "logger", None)
+        actual_logger = app_config.logger
 
     return NetworkManager(
         max_retries=max_retries,
@@ -304,7 +295,6 @@ def new_network_manager(
         jitter=jitter,
         on_error=on_error,
         logger=actual_logger,
-        on_reload_config=on_reload_config,
         app_config=app_config,
     )
 
@@ -332,7 +322,6 @@ def new_network_manager_with_logger(
     jitter: float = 0.0,
     on_error: Optional[OnErrorHandler] = None,
     logger: Optional[Logger] = None,
-    on_reload_config: Optional[Callable[..., Any]] = None,
     app_config: Optional[Any] = None,
 ) -> NetworkManager:
     """Semantic helper to match Go NewNetworkManagerWithLogger()."""
@@ -346,7 +335,6 @@ def new_network_manager_with_logger(
         backoff=backoff,
         jitter=jitter,
         on_error=on_error,
-        on_reload_config=on_reload_config,
     )
 
 

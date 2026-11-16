@@ -32,17 +32,17 @@ std::string dbPwd = ac->DecryptSecret("ENC(...)");
 ```
 
 ### 2. Connection Manager (`conn_manager`)
-Wraps `SafeSocket` to provide self-healing TCP connections.
+Wraps `SafeSocket` to provide self-healing TCP connections with lock-free atomic `Endpoint` snapshots (`std::atomic_load` / `std::atomic_store`) and live `AppConfig` capability resolution.
 
 ```cpp
-#include "microservice_toolbox/conn_manager/ManagedConnection.hpp"
+#include "microservice_toolbox/conn_manager/NetworkManager.hpp"
 
 using namespace microservice_toolbox::conn_manager;
 
-auto nm = NetworkManager::NewStandard();
+auto nm = NetworkManager::New(ac, logger);
 
-// Returns a resilient wrapper that handles reconnects in the background
-auto mc = nm->ConnectNonBlocking("127.0.0.1", "9000", "1.2.3.4", "raw");
+// Returns a resilient wrapper bound directly to AppConfig capability
+auto mc = nm->ConnectCapability("log_server", "tcp-hello:my-service");
 
 mc->Send({0x01, 0x02, 0x03});
 ```

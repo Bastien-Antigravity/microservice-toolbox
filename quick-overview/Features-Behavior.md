@@ -105,11 +105,10 @@ The `conn_manager` provides polyglot connection resilience (Go, Python, Rust, C+
 - **Zero Hot-Path Overhead & Paranoia**: Eliminates all defensive nil-checks (`if mc.publicIP != nil`), string formatting (`fmt.Sprintf`), and string trims on hot paths.
 - **Lock-Free Hot-Path Execution**: Active transmission loops (`Write()`, `send()`, coordinate reads) load endpoints and sockets via atomic pointer loads (`atomic.Pointer[Endpoint]` and `atomic.Pointer[io.WriteCloser]` in Go, `std::shared_ptr<const Endpoint>` in C++, GIL-atomic reference assignment in Python, `Arc<RwLock<Endpoint>>` in Rust) with **zero mutex locks** on active paths.
 
-#### 3-Try Configuration Dynamic Reload Contract
-- When an active connection drops or fails, `ManagedConnection` clears the severed socket and initiates reconnection with exponential backoff and randomized jitter.
-- **Dynamic 3-Try Sync**: On the 3rd consecutive failed attempt (and every 3 attempts thereafter), `ManagedConnection` automatically queries `AppConfig` (or invokes `OnReloadConfig`) to reload downstream capability coordinates.
-- If the target service crashed and restarted on a new port or an emergency fallback registered its new address, `ManagedConnection` atomically swaps its `Endpoint` pointer to the new address and seamlessly reconnects without requiring microservice restarts.
-- **Canonical Logging**: Emits canonical `WARNING` level on the 3rd reload attempt and `INFO` upon successful reconnection.
+#### Direct `AppConfig` Resolution on Reconnect
+- When an active connection drops or fails, `ManagedConnection` clears the severed socket via `CompareAndSwap` and initiates reconnection with exponential backoff and randomized jitter.
+- **Direct Atomic LiveConfig Lookup**: On reconnect, `ManagedConnection` queries `AppConfig` (`GetListenAddr(capability)`), which reads directly from the lock-free `LiveConfig` atomic pointer kept up-to-date by `config-server` broadcasts.
+- If the target service restarted on a new port or a replacement instance registered its new address, `ManagedConnection` atomically swaps its `Endpoint` pointer to the new address and seamlessly reconnects on the very first attempt without requiring microservice restarts.
 
 #### Connection Modes
 - **Blocking**: The connection manager blocks the initiating thread until a connection is established or `max_retries` is reached.

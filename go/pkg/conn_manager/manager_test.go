@@ -77,69 +77,6 @@ func TestOnErrorUnifiedHook(t *testing.T) {
 	}
 }
 
-func TestManagedConnection_3TryReload_Triggered(t *testing.T) {
-	reloadCalls := 0
-	lastReloadAttempt := 0
-
-	nm := NewNetworkManagerWithPolicy(4, 5, 20, 10, 1.0, 0.0)
-	nm.OnReloadConfig = func(attempt int) (string, string, error) {
-		reloadCalls++
-		lastReloadAttempt = attempt
-		return "127.0.0.1", "9998", nil
-	}
-
-	ip := "127.0.0.1"
-	port := "9999"
-	publicIP := ""
-	profile := "test"
-
-	mc := NewManagedConnection(nm, NewEndpoint(ip, port, publicIP, profile))
-	err := mc.reconnect()
-	if err == nil {
-		t.Error("Expected connection failure to non-existent ports")
-	}
-
-	// With max_retries=4:
-	// attempt 1: fail
-	// attempt 2: fail
-	// attempt 3: fail -> triggers reload!
-	// attempt 4: fail
-	if reloadCalls != 1 {
-		t.Errorf("Expected exactly 1 reload call after 4 attempts (at attempt 3), got %d", reloadCalls)
-	}
-	if lastReloadAttempt != 3 {
-		t.Errorf("Expected reload attempt to be 3, got %d", lastReloadAttempt)
-	}
-
-	curIP, curPort := mc.GetEndpoint()
-	if curIP != "127.0.0.1" || curPort != "9998" {
-		t.Errorf("Expected updated endpoint 127.0.0.1:9998, got %s:%s", curIP, curPort)
-	}
-}
-
-func TestManagedConnection_3TryReload_ErrorGraceful(t *testing.T) {
-	reloadCalled := false
-
-	nm := NewNetworkManagerWithPolicy(3, 5, 20, 10, 1.0, 0.0)
-	nm.OnReloadConfig = func(attempt int) (string, string, error) {
-		reloadCalled = true
-		return "", "", fmt.Errorf("simulated config reload failure")
-	}
-
-	ip := "127.0.0.1"
-	port := "9999"
-	publicIP := ""
-	profile := "test"
-
-	_, err := nm.ConnectWithRetry(&ip, &port, &publicIP, profile)
-	if err == nil {
-		t.Error("Expected connection failure")
-	}
-	if !reloadCalled {
-		t.Error("Expected reload handler to be called at attempt 3")
-	}
-}
-
 func TestNetworkManager_ConnectCapability_Resolution(t *testing.T) {
 	dConf := distributed_config.New("test")
 	dConf.Capabilities = map[string]interface{}{
@@ -170,7 +107,7 @@ func TestNetworkManager_ConnectCapability_Resolution(t *testing.T) {
 	}
 }
 
-func TestNetworkManager_ConnectCapability_3TryReload(t *testing.T) {
+func TestNetworkManager_ConnectCapability_LiveConfigRefresh(t *testing.T) {
 	dConf := distributed_config.New("test")
 	dConf.Capabilities = map[string]interface{}{
 		"log-server": map[string]interface{}{
@@ -184,7 +121,7 @@ func TestNetworkManager_ConnectCapability_3TryReload(t *testing.T) {
 	}
 
 	nm := NewNetworkManagerWithConfig(ac)
-	nm.MaxRetries = 4
+	nm.MaxRetries = 1
 	nm.BaseDelay = 5 * time.Millisecond
 
 	mc, err := nm.ConnectCapability("log-server", ModeNonBlocking)
@@ -192,14 +129,16 @@ func TestNetworkManager_ConnectCapability_3TryReload(t *testing.T) {
 		t.Fatalf("ConnectCapability failed: %v", err)
 	}
 
-	// Update capability in AppConfig simulating config-server sync
-	dConf.Capabilities["log-server"] = map[string]interface{}{
-		"ip":   "10.0.0.99",
-		"port": "9999",
-	}
+	// Update capability in LiveConfig simulating config-server broadcast
+	dConf.Set(map[string]map[string]string{
+		"log-server": {
+			"ip":   "10.0.0.99",
+			"port": "9999",
+		},
+	})
 
-	// Trigger reload at attempt 3
-	mc.triggerReload(3)
+	// Next reconnect attempt immediately picks up the updated address from AppConfig
+	_ = mc.reconnect()
 
 	ip, port := mc.GetEndpoint()
 	if ip != "10.0.0.99" || port != "9999" {

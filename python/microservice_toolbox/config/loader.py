@@ -465,6 +465,17 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
+    def get_capability(self, capability: str, default: Any = None) -> Dict[str, Any]:
+        """Returns the dictionary for a named capability from the 'capabilities' section."""
+        caps = self.data.get("capabilities")
+        if isinstance(caps, dict) and capability in caps:
+            val = caps.get(capability)
+            if isinstance(val, dict):
+                return val
+        return default if default is not None else {}
+
+    # -----------------------------------------------------------------------------------------------
+
     def get_local(self, key: str, default: Any = None) -> Any:
         """
         Returns a value from the 'local' configuration section.

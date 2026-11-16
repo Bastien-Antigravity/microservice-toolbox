@@ -17,7 +17,7 @@ To avoid the overhead of crossing the C++/Go bridge for every configuration look
 - **Version (`version/Version.hpp`)**: Exposed via `AppConfig::GetVersion()`, resolving strictly from `VERSION.txt` (or `-DAPP_VERSION` compiled from `VERSION.txt`) with zero runtime env overrides or `"0.0.1"` fallbacks.
 - **Serializers (`serializers/`)**: `JsonSerializer` & MsgPack serializers.
 - **Lifecycle (`lifecycle/LifecycleManager.hpp`)**: Graceful shutdown via signal handling (SIGINT/SIGTERM) and LIFO cleanup execution.
-- **Conn Manager (`conn_manager/`)**: Unified `NetworkManager::New(ac, logger)`, immutable precomputed `Endpoint` pointer structure (`ip`, `port`, `public_ip`, `profile`, `address`), zero-lock hot-path reads via `std::shared_ptr<const Endpoint>`, and dynamic 3-try `AppConfig->Sync()` reload contract.
+- **Conn Manager (`conn_manager/`)**: Unified `NetworkManager::New(ac, logger)`, immutable precomputed `Endpoint` pointer structure (`ip`, `port`, `public_ip`, `profile`, `address`), 100% lock-free endpoint reads/updates via `std::atomic_load` / `std::atomic_store` on `std::shared_ptr<const Endpoint>`, and direct `AppConfig->GetListenAddr(capability)` resolution on reconnect.
 
 ## 3. Decryption Delegation
 While config lookups are mirrored, **Decryption** is always delegated back to the Go core (`DistConf::Decrypt`) so private RSA keys remain isolated inside a single cryptographic boundary.
