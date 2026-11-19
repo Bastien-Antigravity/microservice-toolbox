@@ -17,6 +17,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ecosystem = [
+    "unilog @ git+https://github.com/Bastien-Antigravity/universal-logger.git@develop#subdirectory=unilog/python",
+    "distconf @ git+https://github.com/Bastien-Antigravity/distributed-config.git@develop#subdirectory=distconf/python",
+    "safe-socket @ git+https://github.com/Bastien-Antigravity/safe-socket.git@develop#subdirectory=safesock/python",
+]
 test = [
     "pytest>=7.0",
     "pytest-cov>=4.0",

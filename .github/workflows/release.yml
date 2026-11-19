@@ -38,19 +38,30 @@ jobs:
           fi
 
       - name: Package Python SDK
+        if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
-          # Find all directories containing requirements.txt (excluding hidden ones)
-          PYTHON_DIRS=$(find . -maxdepth 3 -name "requirements.txt" -not -path "*/.*" -exec dirname {} \;)
-          for dir in $PYTHON_DIRS; do
-            if [ -f "$dir/setup.py" ] || [ -f "$dir/pyproject.toml" ]; then
-              echo "--- Packaging Python SDK in $dir ---"
-              cd "$dir"
-              python -m pip install --upgrade pip build setuptools wheel
-              python -m build
-              cd - > /dev/null
-            fi
-          done
+          if [ ! -f VERSION.txt ]; then
+            echo "ERROR: VERSION.txt is missing at repository root" >&2
+            exit 1
+          fi
+          VERSION=$(tr -d '[:space:]' < VERSION.txt)
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: VERSION.txt is empty" >&2
+            exit 1
+          fi
+          if [ ! -f python/pyproject.toml ]; then
+            echo "ERROR: python/pyproject.toml is missing" >&2
+            exit 1
+          fi
+          if ! grep -Eq "^version[[:space:]]*=[[:space:]]*\"${VERSION}\"" python/pyproject.toml; then
+            echo "ERROR: python/pyproject.toml version does not match VERSION.txt (${VERSION})" >&2
+            exit 1
+          fi
+          echo "--- Packaging Python SDK v${VERSION} in python/ ---"
+          cd python
+          python -m pip install --upgrade pip build setuptools wheel
+          python -m build --wheel
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

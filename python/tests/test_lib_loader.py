@@ -151,3 +151,32 @@ def test_bootstrap_microservice_bastien_core_root(tmp_path, monkeypatch):
         assert os.environ.get("LIBUNILOG_PATH") == str(unilog_bin.resolve())
     finally:
         sys.path[:] = orig_sys_path
+
+
+def test_resolve_library_path_bastien_home_lib(tmp_path, monkeypatch):
+    from pathlib import Path as pathPath
+
+    ext = get_platform_extension()
+    fake_home = tmp_path / "home"
+    bastien_lib = fake_home / ".bastien" / "lib"
+    bastien_lib.mkdir(parents=True, exist_ok=True)
+
+    unilog_lib = bastien_lib / f"libunilog{ext}"
+    unilog_lib.write_bytes(b"stub-unilog-home")
+    distconf_lib = bastien_lib / f"libdistconf{ext}"
+    distconf_lib.write_bytes(b"stub-distconf-home")
+
+    monkeypatch.setattr(pathPath, "home", classmethod(lambda cls: fake_home))
+    monkeypatch.setattr("microservice_toolbox.utils.lib_loader.sysPrefix", sys.base_prefix)
+    monkeypatch.delenv("BASTIEN_CORE_ROOT", raising=False)
+    monkeypatch.delenv("LIBUNILOG_PATH", raising=False)
+    monkeypatch.delenv("LIBDISTCONF_PATH", raising=False)
+
+    assert resolve_library_path("libunilog", "LIBUNILOG_PATH") == str(unilog_lib.resolve())
+    assert resolve_library_path("libdistconf", "LIBDISTCONF_PATH") == str(distconf_lib.resolve())
+
+    # Priority 1 explicit override takes precedence over ~/.bastien/lib
+    explicit = tmp_path / f"explicit_libunilog{ext}"
+    explicit.write_bytes(b"explicit-override")
+    monkeypatch.setenv("LIBUNILOG_PATH", str(explicit))
+    assert resolve_library_path("libunilog", "LIBUNILOG_PATH") == str(explicit.resolve())

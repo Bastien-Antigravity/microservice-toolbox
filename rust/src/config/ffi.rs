@@ -39,23 +39,53 @@ pub struct DistConfLib {
 
 static LIB: OnceLock<Option<DistConfLib>> = OnceLock::new();
 
+fn resolve_libdistconf_path() -> String {
+    if let Ok(explicit) = std::env::var("LIBDISTCONF_PATH") {
+        let trimmed = explicit.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    let lib_names = ["libdistconf.dylib", "libdistconf.so", "libdistconf.dll"];
+
+    if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        let home_lib_dir = std::path::Path::new(&home).join(".bastien").join("lib");
+        for name in lib_names {
+            let candidate = home_lib_dir.join(name);
+            if candidate.exists() {
+                return candidate.to_string_lossy().into_owned();
+            }
+        }
+    }
+
+    for name in lib_names {
+        let candidate = std::path::Path::new("/usr/local/lib").join(name);
+        if candidate.exists() {
+            return candidate.to_string_lossy().into_owned();
+        }
+    }
+
+    let paths = [
+        "../../distributed-config/distconf/libdistconf/libdistconf.so",
+        "../../distributed-config/distconf/libdistconf/libdistconf.dylib",
+        "../../distributed-config/distconf/libdistconf/libdistconf.dll",
+        "../../distributed-config/release/libdistconf.so",
+        "./libdistconf.so",
+        "./libdistconf.dylib",
+        "./libdistconf.dll",
+    ];
+    for p in paths {
+        if std::path::Path::new(p).exists() {
+            return p.to_string();
+        }
+    }
+    "../../distributed-config/distconf/libdistconf/libdistconf.so".to_string()
+}
+
 pub fn get_lib() -> Option<&'static DistConfLib> {
     LIB.get_or_init(|| {
-        let lib_path = std::env::var("LIBDISTCONF_PATH")
-            .unwrap_or_else(|_| {
-                let paths = [
-                    "../../distributed-config/distconf/libdistconf/libdistconf.so",
-                    "../../distributed-config/distconf/libdistconf/libdistconf.dylib",
-                    "../../distributed-config/release/libdistconf.so",
-                    "./libdistconf.so",
-                ];
-                for p in paths {
-                    if std::path::Path::new(p).exists() {
-                        return p.to_string();
-                    }
-                }
-                "../../distributed-config/distconf/libdistconf/libdistconf.so".to_string()
-            });
+        let lib_path = resolve_libdistconf_path();
         
         unsafe {
             let lib = Library::new(lib_path).ok()?;

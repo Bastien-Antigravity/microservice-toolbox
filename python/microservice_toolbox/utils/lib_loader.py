@@ -21,7 +21,6 @@ KEY PARAMETERS:
 from ctypes import (
     CDLL as ctypesCDLL,
     CFUNCTYPE,
-    c_bool,
     c_char_p,
     c_double as ctypesC_double,
     c_int,
@@ -32,7 +31,7 @@ from ctypes import (
 from ctypes.util import find_library as ctypesFindLibrary
 from os import environ as osEnviron, getenv as osGetenv
 from os.path import exists as osPathExists
-from pathlib import Path
+from pathlib import Path as pathPath
 from shutil import which as shutilWhich
 from subprocess import run as subprocessRun
 from sys import (
@@ -42,7 +41,7 @@ from sys import (
     stderr as sysStderr,
     version_info as sysVersionInfo,
 )
-from typing import Dict, List, Optional
+from typing import Dict as typeDict, List as typeList, Optional as typeOptional
 
 # -----------------------------------------------------------------------------------------------
 # Callback Types matching C Header Signatures
@@ -62,7 +61,7 @@ CALLBACK_TYPE = CONFIG_CALLBACK_TYPE
 # -----------------------------------------------------------------------------------------------
 
 
-_CORE_REPO_LAYOUTS: Dict[str, tuple] = {
+_CORE_REPO_LAYOUTS: typeDict[str, tuple] = {
     "libunilog": (
         ("universal-logger", "bin"),
         ("universal-logger",),
@@ -100,17 +99,18 @@ def get_platform_extension() -> str:
     return ".so"
 
 
-def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Optional[str]:
+def resolve_library_path(lib_name: str, env_var: typeOptional[str] = None) -> typeOptional[str]:
     """
     Resolves the absolute path to a named dynamic library (e.g. 'libunilog', 'libdistconf').
-    Checks explicit environment overrides first, followed by BASTIEN_CORE_ROOT, workspace roots,
-    virtualenv site-packages, local sibling directories, and OS library search paths.
+    Checks explicit environment overrides first, followed by BASTIEN_CORE_ROOT, package-internal
+    dirs, virtualenv site-packages, ~/.bastien/lib and /usr/local/lib, sibling workspaces,
+    and OS library search paths.
     """
     # 1. Explicit environment variable override
     if env_var:
         env_val = osGetenv(env_var)
         if env_val and osPathExists(env_val):
-            return str(Path(env_val).resolve())
+            return str(pathPath(env_val).resolve())
 
     ext = get_platform_extension()
     filename = f"{lib_name}{ext}"
@@ -118,7 +118,7 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
     # 1.5. External domain service core root override (BASTIEN_CORE_ROOT)
     core_root_env = osEnviron.get("BASTIEN_CORE_ROOT", "").strip()
     if core_root_env:
-        core_root = Path(core_root_env).expanduser().resolve()
+        core_root = pathPath(core_root_env).expanduser().resolve()
         for rel_parts in _CORE_REPO_LAYOUTS.get(lib_name, ()):
             candidate = core_root.joinpath(*rel_parts, filename)
             if candidate.exists():
@@ -129,16 +129,36 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
 
     # 2. Discover workspace root and repository root relative to this file
     # Path: microservice-toolbox/python/microservice_toolbox/utils/lib_loader.py
-    current_dir = Path(__file__).resolve().parent
+    current_dir = pathPath(__file__).resolve().parent
     toolbox_root = current_dir.parent.parent.parent
     workspace_root = toolbox_root.parent
 
-    candidate_paths: List[Path] = [
+    candidate_paths: typeList[pathPath] = [
         # Explicit package-internal vendor directories
         current_dir / filename,
         current_dir.parent / filename,
         current_dir.parent / "lib" / filename,
+    ]
 
+    # Virtualenv site-packages check (active venv or nearest venv)
+    if hasattr(sysPrefix, "lower") and sysPrefix != sysBasePrefix:
+        venv_sp = pathPath(sysPrefix) / "lib" / f"python{sysVersionInfo.major}.{sysVersionInfo.minor}" / "site-packages"
+        if venv_sp.exists():
+            candidate_paths.extend([
+                venv_sp / "unilog" / filename,
+                venv_sp / "distconf" / filename,
+                venv_sp / "safesocket" / filename,
+                venv_sp / "notif" / filename,
+                venv_sp / filename,
+            ])
+
+    # Prebuilt user & system library directories (GitHub Release binary installs)
+    candidate_paths.extend([
+        pathPath.home() / ".bastien" / "lib" / filename,
+        pathPath("/usr/local/lib") / filename,
+    ])
+
+    candidate_paths.extend([
         # Microservice Toolbox root and subdirectories
         toolbox_root / filename,
         toolbox_root / "lib" / filename,
@@ -155,7 +175,7 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
         workspace_root / "notif-server" / "notif" / "libnotif" / filename,
         workspace_root / "notif-server" / "notif" / "python" / "notif" / filename,
         workspace_root / "notif-server" / "bin" / filename,
-    ]
+    ])
 
     # Check parent directories for monolithic or umbrella checkouts
     for parent in [current_dir] + list(current_dir.parents):
@@ -172,17 +192,6 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
                 candidate_paths.append(parent / "notif-server" / "notif" / "python" / "notif" / filename)
             break
 
-    # Virtualenv site-packages check (active venv or nearest venv)
-    if hasattr(sysPrefix, "lower") and sysPrefix != sysBasePrefix:
-        venv_sp = Path(sysPrefix) / "lib" / f"python{sysVersionInfo.major}.{sysVersionInfo.minor}" / "site-packages"
-        if venv_sp.exists():
-            candidate_paths.extend([
-                venv_sp / "unilog" / filename,
-                venv_sp / "distconf" / filename,
-                venv_sp / "notif" / filename,
-                venv_sp / filename,
-            ])
-
     # 3. Evaluate candidate paths in order of preference
     for candidate in candidate_paths:
         if candidate.exists():
@@ -192,7 +201,7 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
     try:
         os_lib = ctypesFindLibrary(lib_name)
         if os_lib and osPathExists(os_lib):
-            return str(Path(os_lib).resolve())
+            return str(pathPath(os_lib).resolve())
     except Exception:
         pass
 
@@ -204,7 +213,7 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
     return None
 
 
-def _try_autobuild_library(lib_name: str) -> Optional[str]:
+def _try_autobuild_library(lib_name: str) -> typeOptional[str]:
     """
     Auto-compiles missing CGO shared libraries on-the-fly during fresh local installs
     if the Go compiler and repository source trees are present.
@@ -214,7 +223,7 @@ def _try_autobuild_library(lib_name: str) -> Optional[str]:
 
     ext = get_platform_extension()
     filename = f"{lib_name}{ext}"
-    current_dir = Path(__file__).resolve().parent
+    current_dir = pathPath(__file__).resolve().parent
     toolbox_root = current_dir.parent.parent.parent
     workspace_root = toolbox_root.parent
 
@@ -257,10 +266,10 @@ def _try_autobuild_library(lib_name: str) -> Optional[str]:
 # UniLog Shared Library Loader & FFI Signatures
 # -----------------------------------------------------------------------------------------------
 
-_unilog_handle: Optional[ctypesCDLL] = None
+_unilog_handle: typeOptional[ctypesCDLL] = None
 
 
-def load_libunilog() -> Optional[ctypesCDLL]:
+def load_libunilog() -> typeOptional[ctypesCDLL]:
     """
     Locates and loads the libunilog shared library.
     Defines full C ABI function signatures and returns a ctypesCDLL handle.
@@ -327,7 +336,7 @@ def load_libunilog() -> Optional[ctypesCDLL]:
 # DistConf Shared Library Loader & FFI Signatures
 # -----------------------------------------------------------------------------------------------
 
-_distconf_handle: Optional[ctypesCDLL] = None
+_distconf_handle: typeOptional[ctypesCDLL] = None
 
 
 def _bind_distconf_signatures(handle: ctypesCDLL) -> None:
@@ -388,7 +397,7 @@ def _bind_distconf_signatures(handle: ctypesCDLL) -> None:
         pass
 
 
-def load_libdistconf() -> Optional[ctypesCDLL]:
+def load_libdistconf() -> typeOptional[ctypesCDLL]:
     """
     Locates and loads the libdistconf shared library.
     On macOS and Linux, if libunilog is available and exports DistConf symbols,
@@ -427,10 +436,10 @@ def load_libdistconf() -> Optional[ctypesCDLL]:
 # Notif Shared Library Loader & FFI Signatures
 # -----------------------------------------------------------------------------------------------
 
-_notif_handle: Optional[ctypesCDLL] = None
+_notif_handle: typeOptional[ctypesCDLL] = None
 
 
-def load_libnotif() -> Optional[ctypesCDLL]:
+def load_libnotif() -> typeOptional[ctypesCDLL]:
     """
     Locates and loads the libnotif shared library from notif-server.
     Defines full C ABI function signatures and returns a ctypesCDLL handle.
