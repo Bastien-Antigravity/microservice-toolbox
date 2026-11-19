@@ -15,7 +15,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
-#include <fstream>
 #include <stdexcept>
 #include <string>
 
@@ -41,9 +40,8 @@ public:
     bool is_docker{false};
 
     Resolver() {
-        std::ifstream docker_env("/.dockerenv");
         const char* docker_env_var = std::getenv("DOCKER_ENV");
-        is_docker = docker_env.good() || (docker_env_var && std::string(docker_env_var) == "true");
+        is_docker = (docker_env_var != nullptr && std::string(docker_env_var) == "true");
     }
 
     explicit Resolver(bool force_docker) : is_docker(force_docker) {}

@@ -19,7 +19,6 @@ KEY PARAMETERS:
 from argparse import ArgumentParser as argparseArgumentParser
 from collections import namedtuple
 from os import environ as osEnviron
-from os.path import exists as osPathExists
 from typing import List, Optional
 
 # -----------------------------------------------------------------------------------------------
@@ -77,7 +76,7 @@ def parse_cli_args(specific_args: Optional[List[str]] = None, input_args: Option
         osEnviron["BASTIEN_PRIVATE_KEY_PATH"] = key
 
     # Docker Guard for network flags
-    is_docker = osPathExists("/.dockerenv") or osEnviron.get("DOCKER_ENV") == "true"
+    is_docker = osEnviron.get("DOCKER_ENV") == "true"
     if is_docker:
         if args.host or args.port or args.grpc_host or args.grpc_port:
             print(

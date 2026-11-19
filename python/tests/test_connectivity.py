@@ -38,3 +38,11 @@ def test_resolver_preserves_config_in_docker_and_fails_fast_when_empty():
         r.resolve_full_bind_addr(":8080")
     with pytest.raises(ValueError):
         r.resolve_full_bind_addr("127.0.0.1:")
+
+
+def test_resolver_detects_docker_env_only_from_env_var(monkeypatch):
+    monkeypatch.delenv("DOCKER_ENV", raising=False)
+    assert Resolver().is_docker_env() is False
+
+    monkeypatch.setenv("DOCKER_ENV", "true")
+    assert Resolver().is_docker_env() is True

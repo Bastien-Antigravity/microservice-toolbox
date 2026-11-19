@@ -26,10 +26,8 @@ type Resolver struct {
 
 // NewResolver creates a new network resolver.
 func NewResolver() *Resolver {
-	// Detect Docker environment
-	_, err := os.Stat("/.dockerenv")
 	return &Resolver{
-		IsDocker: err == nil || os.Getenv("DOCKER_ENV") == "true",
+		IsDocker: os.Getenv("DOCKER_ENV") == "true",
 	}
 }
 

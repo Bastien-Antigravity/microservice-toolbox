@@ -14,7 +14,6 @@ KEY PARAMETERS:
 """
 
 from os import getenv as osGetenv
-from os.path import exists as osPathExists
 from socket import (
     AF_INET as socketAF_INET,
     getaddrinfo as socketGetAddrInfo,
@@ -35,7 +34,7 @@ class Resolver:
 
     def __init__(self):
         # Detect Docker environment
-        self.is_docker = osPathExists("/.dockerenv") or osGetenv("DOCKER_ENV") == "true"
+        self.is_docker = osGetenv("DOCKER_ENV") == "true"
 
     # -----------------------------------------------------------------------------------------------
 

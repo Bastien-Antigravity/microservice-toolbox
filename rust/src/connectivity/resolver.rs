@@ -11,7 +11,6 @@
 
 use std::env;
 use std::net::ToSocketAddrs;
-use std::path::Path;
 
 /// Resolver handles config-driven network address resolution with zero hardcoded defaults.
 pub struct Resolver {
@@ -21,7 +20,7 @@ pub struct Resolver {
 impl Resolver {
     /// Creates a new network resolver.
     pub fn new() -> Self {
-        let is_docker = Path::new("/.dockerenv").exists() || env::var("DOCKER_ENV").is_ok_and(|v| v == "true");
+        let is_docker = env::var("DOCKER_ENV").is_ok_and(|v| v == "true");
         Self { is_docker }
     }
 }

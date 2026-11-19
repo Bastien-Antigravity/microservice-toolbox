@@ -13,7 +13,6 @@
 
 use clap::Parser;
 use std::collections::HashMap;
-use std::path::Path;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Microservice Toolbox CLI Parser", long_about = None)]
@@ -83,8 +82,7 @@ impl ToolboxArgs {
         });
         let mut result = ToolboxArgs::default();
 
-        let is_docker = Path::new("/.dockerenv").exists()
-            || std::env::var("DOCKER_ENV").is_ok_and(|v| v == "true");
+        let is_docker = std::env::var("DOCKER_ENV").map(|v| v == "true").unwrap_or(false);
 
         result.name = raw.name.or_else(|| {
             std::env::current_exe().ok().and_then(|p| {

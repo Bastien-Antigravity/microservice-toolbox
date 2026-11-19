@@ -315,3 +315,17 @@ def test_env_expansion(tmp_path):
         assert ac.get_local("auto_repair") is True
     finally:
         os.chdir(old_cwd)
+
+
+def test_cli_docker_guard_uses_docker_env_var(monkeypatch):
+    from microservice_toolbox.config.args import parse_cli_args
+
+    monkeypatch.delenv("DOCKER_ENV", raising=False)
+    native_args = parse_cli_args(input_args=["--host", "10.0.0.1", "--port", "5555"])
+    assert native_args.host == "10.0.0.1"
+    assert native_args.port == 5555
+
+    monkeypatch.setenv("DOCKER_ENV", "true")
+    docker_args = parse_cli_args(input_args=["--host", "10.0.0.1", "--port", "5555"])
+    assert docker_args.host is None
+    assert docker_args.port is None
