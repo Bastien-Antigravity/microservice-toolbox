@@ -202,6 +202,8 @@ pub struct ServiceSpec {
     #[serde(rename = "requiresAuth")]
     pub requires_auth: bool,
     pub capability: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brain_id: Option<String>,
     #[serde(rename = "desc")]
     pub description: String,
     pub protocol: String,
@@ -244,6 +246,7 @@ impl Default for ServiceSpec {
             color: String::new(),
             requires_auth: false,
             capability: String::new(),
+            brain_id: None,
             description: String::new(),
             protocol: String::new(),
             framing: String::new(),
@@ -545,6 +548,20 @@ pub fn build_spec_from_config(
     }
 
     base.capability = cap.to_string();
+    if base.brain_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_none() {
+        base.brain_id = std::env::var("BRAIN_ID")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                std::env::var("TARGET_BRAIN_ID")
+                    .ok()
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+            });
+    } else {
+        base.brain_id = base.brain_id.map(|v| v.trim().to_string());
+    }
     if base.nav_title.trim().is_empty() {
         base.nav_title = base.name.clone();
     }

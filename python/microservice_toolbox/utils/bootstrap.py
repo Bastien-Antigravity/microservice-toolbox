@@ -158,12 +158,18 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
     if repo_root.exists() and repo_root.is_dir():
         osChdir(repo_root)
 
-    # Find workspace root (walk up until we find a parent containing universal-logger, microservice-toolbox, or code-workspace)
-    workspace_root = repo_root.parent
-    for parent in [repo_root] + list(repo_root.parents):
-        if (parent / "universal-logger").is_dir() or (parent / "microservice-toolbox").is_dir() or (parent / "Bastien-Antigravity-base.code-workspace").exists():
-            workspace_root = parent
-            break
+    # Find workspace root (check BASTIEN_CORE_ROOT first for external L3/L4/L5 domain services,
+    # otherwise walk up until we find universal-logger, microservice-toolbox, or code-workspace)
+    core_root_env = osEnviron.get("BASTIEN_CORE_ROOT", "").strip()
+    core_root = Path(core_root_env).expanduser().resolve() if core_root_env else None
+    if core_root is not None and (core_root / "microservice-toolbox").is_dir():
+        workspace_root = core_root
+    else:
+        workspace_root = repo_root.parent
+        for parent in [repo_root] + list(repo_root.parents):
+            if (parent / "universal-logger").is_dir() or (parent / "microservice-toolbox").is_dir() or (parent / "Bastien-Antigravity-base.code-workspace").exists():
+                workspace_root = parent
+                break
 
     # 1. Align dynamic library paths using the single source of truth in utils.lib_loader
     osEnviron["GODEBUG"] = "cgocheck=0"
@@ -203,7 +209,10 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
         osEnviron["PATH"] = str(venv_bin) + osPathsep + osEnviron.get("PATH", "")
 
     # Inject standard import paths
-    for path in (repo_root, repo_root / "src", workspace_root / "microservice-toolbox" / "python"):
+    import_paths = [repo_root, repo_root / "src", workspace_root / "microservice-toolbox" / "python"]
+    if core_root is not None and (core_root / "microservice-toolbox" / "python").is_dir():
+        import_paths.append(core_root / "microservice-toolbox" / "python")
+    for path in import_paths:
         path_str = str(path.resolve())
         if path.exists() and path_str not in sysPath:
             sysPath.insert(0, path_str)

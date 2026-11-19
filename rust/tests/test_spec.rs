@@ -277,3 +277,37 @@ capabilities:
     assert_eq!(spec.health.as_ref().unwrap().port, 8099);
     assert!(spec.data_structure.get("node").is_some());
 }
+
+#[test]
+fn test_spec_brain_id_explicit_and_omitted() {
+    let yaml_str = r#"
+capabilities:
+  pay_gw:
+    ip: "127.0.0.1"
+    rest_port: "8099"
+"#;
+    let data: serde_yml::Value = serde_yml::from_str(yaml_str).unwrap();
+    let app_config = AppConfig::from_value(data);
+    let base = ServiceSpec {
+        name: "Payment Gateway".to_string(),
+        tag: "payment-gateway-mfe".to_string(),
+        layer: "L2".to_string(),
+        category: "Domain Services".to_string(),
+        description: "Handles payments.".to_string(),
+        doc_link: "doc.md".to_string(),
+        protocol: "REST".to_string(),
+        framing: "Port %s REST".to_string(),
+        brain_id: Some("brain-rust".to_string()),
+        ..Default::default()
+    };
+
+    let spec = build_spec_from_config(&app_config, "pay_gw", base).unwrap();
+    assert_eq!(spec.brain_id.as_deref(), Some("brain-rust"));
+    let json = serde_json::to_string(&spec).unwrap();
+    assert!(json.contains("\"brain_id\":\"brain-rust\""));
+
+    let mut base_none = spec.clone();
+    base_none.brain_id = None;
+    let json_none = serde_json::to_string(&base_none).unwrap();
+    assert!(!json_none.contains("\"brain_id\""));
+}

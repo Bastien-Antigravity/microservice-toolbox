@@ -332,3 +332,86 @@ func TestServiceSpecPublishSync(t *testing.T) {
 		t.Errorf("Expected Capability 'config_server', got %q", receivedPayload.Capability)
 	}
 }
+
+// -----------------------------------------------------------------------------
+
+func TestBuildSpecFromConfig_BrainIDResolution(t *testing.T) {
+	appConfig, err := toolbox_config.LoadConfig("standalone", nil)
+	if err != nil {
+		t.Fatalf("Failed to load standalone config: %v", err)
+	}
+	if appConfig.Capabilities == nil {
+		appConfig.Capabilities = make(map[string]interface{})
+	}
+	appConfig.Capabilities["config_server"] = map[string]interface{}{
+		"ip":   "127.0.0.1",
+		"port": 13306,
+	}
+
+	validBase := ServiceSpec{
+		Name:        "Config Server",
+		Tag:         "config-server-mfe",
+		Layer:       "L1",
+		Category:    "Base Fleet",
+		Description: "Centralized configuration repository.",
+		Protocol:    "TCP",
+		Framing:     "Port %s TCP",
+		DocLink:     "obsidian-brain/06-Microservices/Config-Server-Hub.md",
+	}
+
+	// 1. Omitted when neither struct nor env is set
+	t.Setenv("BRAIN_ID", "")
+	t.Setenv("TARGET_BRAIN_ID", "")
+	specEmpty, err := BuildSpecFromConfig(appConfig, "config_server", validBase)
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig failed: %v", err)
+	}
+	if specEmpty.BrainID != "" {
+		t.Errorf("Expected empty BrainID, got %q", specEmpty.BrainID)
+	}
+	rawEmpty, err := json.Marshal(specEmpty)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	if strings.Contains(string(rawEmpty), `"brain_id"`) {
+		t.Errorf("Expected brain_id to be omitted from JSON when empty, got %s", string(rawEmpty))
+	}
+
+	// 2. Falls back to TARGET_BRAIN_ID when BRAIN_ID is unset
+	t.Setenv("TARGET_BRAIN_ID", "brain-target")
+	specTarget, err := BuildSpecFromConfig(appConfig, "config_server", validBase)
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig failed: %v", err)
+	}
+	if specTarget.BrainID != "brain-target" {
+		t.Errorf("Expected BrainID 'brain-target' from TARGET_BRAIN_ID, got %q", specTarget.BrainID)
+	}
+
+	// 3. BRAIN_ID takes precedence over TARGET_BRAIN_ID
+	t.Setenv("BRAIN_ID", "brain-primary")
+	specPrimary, err := BuildSpecFromConfig(appConfig, "config_server", validBase)
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig failed: %v", err)
+	}
+	if specPrimary.BrainID != "brain-primary" {
+		t.Errorf("Expected BrainID 'brain-primary' from BRAIN_ID, got %q", specPrimary.BrainID)
+	}
+	rawPrimary, err := json.Marshal(specPrimary)
+	if err != nil {
+		t.Fatalf("json.Marshal failed: %v", err)
+	}
+	if !strings.Contains(string(rawPrimary), `"brain_id":"brain-primary"`) {
+		t.Errorf("Expected brain_id in JSON payload, got %s", string(rawPrimary))
+	}
+
+	// 4. Explicit struct BrainID overrides env vars
+	explicitBase := validBase
+	explicitBase.BrainID = "brain-explicit"
+	specExplicit, err := BuildSpecFromConfig(appConfig, "config_server", explicitBase)
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig failed: %v", err)
+	}
+	if specExplicit.BrainID != "brain-explicit" {
+		t.Errorf("Expected explicit BrainID 'brain-explicit', got %q", specExplicit.BrainID)
+	}
+}

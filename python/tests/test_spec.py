@@ -15,8 +15,9 @@ KEY PARAMETERS:
 - None (Unit Test Suite).
 """
 
+from os import environ as osEnviron
 from unittest import TestCase as utTestCase, main as utMain
-from unittest.mock import MagicMock as mockMagicMock
+from unittest.mock import MagicMock as mockMagicMock, patch as mockPatch
 
 from microservice_toolbox.spec import (
     ServiceSpec,
@@ -180,6 +181,51 @@ class TestPythonSpec(utTestCase):
         mock_cfg.get_listen_addr.side_effect = lambda cap: None if cap == "web_interface" else "127.0.0.1:3306"
         with self.assertRaises(RuntimeError):
             mt.publish_sync(mock_cfg, None, "config_server", **valid_kwargs)
+
+    # -------------------------------------------------------------------------------------------
+    def test_brain_id_resolution_and_serialization(self) -> None:
+        mock_cfg = mockMagicMock()
+        mock_cfg.get_version.return_value = "2.3.4"
+        mock_cfg.get_listen_addr.side_effect = lambda cap: "127.0.0.1:3306" if cap == "config_server" else None
+        mock_cfg.get_rest_addr.side_effect = lambda cap: None
+        mock_cfg.get_grpc_listen_addr.side_effect = lambda cap: None
+
+        valid_kwargs = {
+            "name": "Config Server",
+            "tag": "config-server-mfe",
+            "layer": "L1",
+            "category": "Base Fleet",
+            "description": "Centralized configuration repository.",
+            "doc_link": "obsidian-brain/06-Microservices/Config-Server-Hub.md",
+            "protocol": "TCP",
+            "framing": "Port %s TCP",
+        }
+
+        clean_env = {k: v for k, v in osEnviron.items() if k not in ("BRAIN_ID", "TARGET_BRAIN_ID")}
+        with mockPatch.dict("os.environ", clean_env, clear=True):
+            spec_empty = build_spec_from_config(mock_cfg, "config_server", **valid_kwargs)
+            self.assertIsNone(spec_empty.brain_id)
+            self.assertNotIn("brain_id", spec_empty.to_dict())
+
+        with mockPatch.dict("os.environ", {**clean_env, "TARGET_BRAIN_ID": "brain-target"}, clear=True):
+            spec_target = build_spec_from_config(mock_cfg, "config_server", **valid_kwargs)
+            self.assertEqual(spec_target.brain_id, "brain-target")
+            self.assertEqual(spec_target.to_dict().get("brain_id"), "brain-target")
+
+        with mockPatch.dict("os.environ", {**clean_env, "BRAIN_ID": "brain-primary", "TARGET_BRAIN_ID": "brain-target"}, clear=True):
+            spec_primary = build_spec_from_config(mock_cfg, "config_server", **valid_kwargs)
+            self.assertEqual(spec_primary.brain_id, "brain-primary")
+            self.assertEqual(spec_primary.to_dict().get("brain_id"), "brain-primary")
+
+            spec_explicit = build_spec_from_config(mock_cfg, "config_server", brain_id="brain-explicit", **valid_kwargs)
+            self.assertEqual(spec_explicit.brain_id, "brain-explicit")
+            self.assertEqual(spec_explicit.to_dict().get("brain_id"), "brain-explicit")
+
+        with mockPatch("microservice_toolbox.spec.publish") as mock_publish:
+            publish_service_spec(mock_cfg, None, "config_server", brain_id="brain-param", **valid_kwargs)
+            mock_publish.assert_called_once()
+            _, _, called_kwargs = mock_publish.mock_calls[0]
+            self.assertEqual(called_kwargs.get("brain_id"), "brain-param")
 
 
 # -----------------------------------------------------------------------------------------------

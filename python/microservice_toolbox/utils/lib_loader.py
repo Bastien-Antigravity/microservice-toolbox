@@ -30,7 +30,7 @@ from ctypes import (
     c_void_p,
 )
 from ctypes.util import find_library as ctypesFindLibrary
-from os import getenv as osGetenv
+from os import environ as osEnviron, getenv as osGetenv
 from os.path import exists as osPathExists
 from pathlib import Path
 from shutil import which as shutilWhich
@@ -42,7 +42,7 @@ from sys import (
     stderr as sysStderr,
     version_info as sysVersionInfo,
 )
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 # -----------------------------------------------------------------------------------------------
 # Callback Types matching C Header Signatures
@@ -62,6 +62,35 @@ CALLBACK_TYPE = CONFIG_CALLBACK_TYPE
 # -----------------------------------------------------------------------------------------------
 
 
+_CORE_REPO_LAYOUTS: Dict[str, tuple] = {
+    "libunilog": (
+        ("universal-logger", "bin"),
+        ("universal-logger",),
+        ("universal-logger", "libunilog"),
+        ("universal-logger", "unilog", "libunilog"),
+        ("universal-logger", "unilog", "python", "unilog"),
+    ),
+    "libsafesocket": (
+        ("safe-socket", "bin"),
+        ("safe-socket",),
+        ("safe-socket", "safesock", "libsafesocket"),
+        ("safe-socket", "safesock", "python", "safesock"),
+    ),
+    "libdistconf": (
+        ("distributed-config", "bin"),
+        ("distributed-config",),
+        ("distributed-config", "distconf", "libdistconf"),
+        ("distributed-config", "distconf", "python", "distconf"),
+    ),
+    "libnotif": (
+        ("notif-server", "bin"),
+        ("notif-server",),
+        ("notif-server", "notif", "libnotif"),
+        ("notif-server", "notif", "python", "notif"),
+    ),
+}
+
+
 def get_platform_extension() -> str:
     """Returns the OS-specific dynamic library file extension."""
     if sysPlatform == "darwin":
@@ -74,8 +103,8 @@ def get_platform_extension() -> str:
 def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Optional[str]:
     """
     Resolves the absolute path to a named dynamic library (e.g. 'libunilog', 'libdistconf').
-    Checks explicit environment overrides first, followed by workspace roots, virtualenv
-    site-packages, local sibling directories, and OS library search paths.
+    Checks explicit environment overrides first, followed by BASTIEN_CORE_ROOT, workspace roots,
+    virtualenv site-packages, local sibling directories, and OS library search paths.
     """
     # 1. Explicit environment variable override
     if env_var:
@@ -85,6 +114,18 @@ def resolve_library_path(lib_name: str, env_var: Optional[str] = None) -> Option
 
     ext = get_platform_extension()
     filename = f"{lib_name}{ext}"
+
+    # 1.5. External domain service core root override (BASTIEN_CORE_ROOT)
+    core_root_env = osEnviron.get("BASTIEN_CORE_ROOT", "").strip()
+    if core_root_env:
+        core_root = Path(core_root_env).expanduser().resolve()
+        for rel_parts in _CORE_REPO_LAYOUTS.get(lib_name, ()):
+            candidate = core_root.joinpath(*rel_parts, filename)
+            if candidate.exists():
+                return str(candidate.resolve())
+        for fallback_candidate in (core_root / "bin" / filename, core_root / filename):
+            if fallback_candidate.exists():
+                return str(fallback_candidate.resolve())
 
     # 2. Discover workspace root and repository root relative to this file
     # Path: microservice-toolbox/python/microservice_toolbox/utils/lib_loader.py

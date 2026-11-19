@@ -29,6 +29,7 @@ KEY PARAMETERS:
 
 from dataclasses import asdict as dcAsdict, dataclass as dcDataclass, field as dcField, is_dataclass as dcIsDataclass
 from json import dumps as jsonDumps
+from os import environ as osEnviron
 from random import uniform as rndUniform
 from socket import gethostname as sockGetHostname
 from threading import Event as thEvent, Thread as thThread
@@ -194,6 +195,7 @@ class ServiceSpec:
     color: str = ""
     requires_auth: bool = False
     capability: str = ""
+    brain_id: typeOptional[str] = None
     description: str = ""
     protocol: str = ""
     framing: str = ""
@@ -232,6 +234,8 @@ class ServiceSpec:
         }
         if self.color:
             d["color"] = self.color
+        if self.brain_id:
+            d["brain_id"] = self.brain_id
         if self.nav_route:
             d["navRoute"] = self.nav_route
         if self.health is not None:
@@ -258,6 +262,7 @@ class ServiceSpec:
     def from_dict(cls, data: typeDict[str, typeAny]) -> "ServiceSpec":
         raw_health = data.get("health")
         raw_canvas = data.get("canvas")
+        raw_brain_id = data.get("brain_id") or data.get("brainId")
         return cls(
             name=str(data.get("name", "")),
             tag=str(data.get("tag", "")),
@@ -270,6 +275,7 @@ class ServiceSpec:
             color=str(data.get("color", "")),
             requires_auth=bool(data.get("requiresAuth", data.get("requires_auth", False))),
             capability=str(data.get("capability", "")),
+            brain_id=str(raw_brain_id).strip() if raw_brain_id and str(raw_brain_id).strip() else None,
             description=str(data.get("desc") or data.get("description") or ""),
             protocol=str(data.get("protocol", "")),
             framing=str(data.get("framing", "")),
@@ -298,7 +304,12 @@ def _extract_port(addr: str) -> str:
 
 
 # -----------------------------------------------------------------------------------------------
-def build_spec_from_config(app_config: typeAny, capability: str, **overrides: typeAny) -> ServiceSpec:
+def build_spec_from_config(
+    app_config: typeAny,
+    capability: str,
+    brain_id: typeOptional[str] = None,
+    **overrides: typeAny
+) -> ServiceSpec:
     """
     Validates and enriches a ServiceSpec using dynamic parameters from app_config.
     FAIL-FAST: Strictly validates all required metadata and resolves dynamic endpoints.
@@ -340,6 +351,22 @@ def build_spec_from_config(app_config: typeAny, capability: str, **overrides: ty
     if not framing or not str(framing).strip():
         raise ValueError(f"spec.build_spec_from_config: 'framing' is strictly required for capability '{capability}' (FAIL-FAST)")
 
+    raw_brain_id = (
+        brain_id
+        if brain_id is not None and str(brain_id).strip()
+        else (
+            overrides.get("brainId")
+            or overrides.get("BrainID")
+            or osEnviron.get("BRAIN_ID")
+            or osEnviron.get("TARGET_BRAIN_ID")
+        )
+    )
+    resolved_brain_id = (
+        str(raw_brain_id).strip()
+        if raw_brain_id is not None and str(raw_brain_id).strip()
+        else None
+    )
+
     spec = ServiceSpec(
         name=str(name).strip(),
         tag=str(tag).strip(),
@@ -351,6 +378,7 @@ def build_spec_from_config(app_config: typeAny, capability: str, **overrides: ty
         color=overrides.get("color") or "",
         requires_auth=bool(overrides.get("requires_auth", overrides.get("requiresAuth", False))),
         capability=capability,
+        brain_id=resolved_brain_id,
         description=str(description).strip(),
         protocol=str(protocol).strip(),
         framing=str(framing).strip(),
@@ -756,9 +784,12 @@ def publish_service_spec(
     logger: typeOptional[typeAny],
     spec_or_capability: typeUnion[str, ServiceSpec, typeDict[str, typeAny]],
     non_blocking: bool = True,
+    brain_id: typeOptional[str] = None,
     **overrides: typeAny
 ) -> None:
     """Legacy alias for publish / publish_sync."""
+    if brain_id is not None:
+        overrides["brain_id"] = brain_id
     if isinstance(spec_or_capability, str):
         cap = spec_or_capability
         s = None

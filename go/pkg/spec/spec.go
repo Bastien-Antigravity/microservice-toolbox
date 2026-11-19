@@ -92,6 +92,7 @@ type ServiceSpec struct {
 	Color         string                 `json:"color,omitempty"` // Canvas accent color e.g. "#38bdf8"
 	RequiresAuth  bool                   `json:"requiresAuth"`
 	Capability    string                 `json:"capability"`   // Capability key in AppConfig e.g. "config_server"
+	BrainID       string                 `json:"brain_id,omitempty"`
 	Description   string                 `json:"desc"`         // Required description
 	Protocol      string                 `json:"protocol"`     // Required: e.g. "TCP / SafeSocket, REST & gRPC"
 	Framing       string                 `json:"framing"`      // Required: e.g. "Port %s TCP / Port %s REST"
@@ -140,6 +141,13 @@ func BuildSpecFromConfig(appConfig *toolbox_config.AppConfig, capability string,
 
 	s := baseSpec
 	s.Capability = capability
+	if strings.TrimSpace(s.BrainID) == "" {
+		if brainID := strings.TrimSpace(os.Getenv("BRAIN_ID")); brainID != "" {
+			s.BrainID = brainID
+		} else if targetBrainID := strings.TrimSpace(os.Getenv("TARGET_BRAIN_ID")); targetBrainID != "" {
+			s.BrainID = targetBrainID
+		}
+	}
 
 	// 3. Validate Microservice-provided metadata (FAIL-FAST: ZERO DUMMY FALLBACKS)
 	if strings.TrimSpace(s.Name) == "" {
