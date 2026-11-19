@@ -350,23 +350,23 @@ def _bind_distconf_signatures(handle: ctypesCDLL) -> None:
 def load_libdistconf() -> Optional[ctypesCDLL]:
     """
     Locates and loads the libdistconf shared library.
-    On macOS, if libunilog is available, reuses its handle to avoid dual Go CGO runtime collisions.
+    On macOS and Linux, if libunilog is available and exports DistConf symbols,
+    reuses its handle to avoid dual Go CGO runtime collisions.
     Defines full C ABI function signatures and returns a ctypesCDLL handle.
     """
     global _distconf_handle
     if _distconf_handle is not None:
         return _distconf_handle
 
-    # On macOS, reuse the consolidated libunilog handle if it already exports DistConf
-    if sysPlatform == "darwin":
-        unilog = load_libunilog()
-        if unilog and hasattr(unilog, "DistConf_GetRESTAddress"):
-            _distconf_handle = unilog
-            return _distconf_handle
+    # Reuse the consolidated libunilog handle if it already exports DistConf
+    unilog = load_libunilog()
+    if unilog and hasattr(unilog, "DistConf_GetRESTAddress"):
+        _distconf_handle = unilog
+        return _distconf_handle
 
     # Otherwise resolve dedicated libdistconf or explicit LIBDISTCONF_PATH
     lib_path = resolve_library_path("libdistconf", "LIBDISTCONF_PATH")
-    if not lib_path and sysPlatform == "darwin":
+    if not lib_path and sysPlatform in ("darwin", "linux"):
         lib_path = resolve_library_path("libunilog", "LIBUNILOG_PATH")
 
     if not lib_path:

@@ -288,18 +288,21 @@ def test_cli_override_targets_single_capability(tmp_path):
 # ---- Env Expansion ----
 
 def test_env_expansion(tmp_path):
-    """Verify ${VAR:default} expansion in YAML loading."""
+    """Verify ${VAR:default} and ${VAR:-default} expansion in YAML loading."""
     config_file = tmp_path / "test_env.yaml"
     yaml.dump({
         "local": {
             "host": "${TEST_HOST:localhost}",
             "port": "${TEST_PORT:8080}",
+            "rg_port": "${RG_PORT:-8090}",
+            "auto_repair": "${AUTO_REPAIR_ENABLED:-true}",
         }
     }, open(config_file, "w"))
 
     os.environ["TEST_HOST"] = "127.0.0.5"
-    if "TEST_PORT" in os.environ:
-        del os.environ["TEST_PORT"]
+    for k in ("TEST_PORT", "RG_PORT", "AUTO_REPAIR_ENABLED"):
+        if k in os.environ:
+            del os.environ[k]
 
     old_cwd = os.getcwd()
     os.chdir(tmp_path)
@@ -308,5 +311,7 @@ def test_env_expansion(tmp_path):
         assert ac.get_local("host") == "127.0.0.5"
         # YAML parses 8080 as int unless quoted
         assert int(ac.get_local("port")) == 8080
+        assert int(ac.get_local("rg_port")) == 8090
+        assert ac.get_local("auto_repair") is True
     finally:
         os.chdir(old_cwd)

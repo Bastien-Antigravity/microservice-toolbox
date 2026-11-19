@@ -292,12 +292,14 @@ class AppConfig:
             with open(filename, "r") as f:
                 raw_content = f.read()
 
-            # Expand Environment Variables: ${VAR} or ${VAR:default}
+            # Expand Environment Variables: ${VAR}, ${VAR:default}, or ${VAR:-default}
             def env_expander(match):
                 token = match.group(1)
                 parts = token.split(":", 1)
                 var_name = parts[0]
-                default_val = parts[1] if len(parts) > 1 else ""
+                default_val = ""
+                if len(parts) > 1:
+                    default_val = parts[1][1:] if parts[1].startswith("-") else parts[1]
                 return osGetenv(var_name, default_val)
 
             expanded_content = reSub(r"\${([^}]+)}", env_expander, raw_content)

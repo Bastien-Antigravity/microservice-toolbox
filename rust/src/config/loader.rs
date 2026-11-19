@@ -312,7 +312,7 @@ impl AppConfig {
     fn read_and_expand_yaml(&self, filename: &str) -> Option<Value> {
         let content = fs::read_to_string(filename).ok()?;
         
-        // Expand Environment Variables: ${VAR} or ${VAR:default}
+        // Expand Environment Variables: ${VAR}, ${VAR:default}, or ${VAR:-default}
         let mut expanded = content.clone();
         let re = regex::Regex::new(r"\$\{([^}]+)\}").unwrap();
         
@@ -320,7 +320,7 @@ impl AppConfig {
             let token = &cap[1];
             let parts: Vec<&str> = token.splitn(2, ':').collect();
             let var_name = parts[0];
-            let default_val = parts.get(1).unwrap_or(&"");
+            let default_val = parts.get(1).map(|v| v.strip_prefix('-').unwrap_or(v)).unwrap_or("");
             
             let final_val = std::env::var(var_name).unwrap_or_else(|_| default_val.to_string());
             expanded = expanded.replace(&cap[0], &final_val);
@@ -919,7 +919,7 @@ mod tests {
     #[test]
     fn test_env_expansion() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        let yaml_str = "local:\n  host: \"${TEST_HOST:localhost}\"\n  port: \"${TEST_PORT:8080}\"";
+        let yaml_str = "local:\n  host: \"${TEST_HOST:localhost}\"\n  port: \"${TEST_PORT:8080}\"\n  ls_port: \"${LS_PORT:-9020}\"";
         let dir = std::env::temp_dir().join("rust_toolbox_env");
         let _ = std::fs::create_dir_all(&dir);
         let config_path = dir.join("standalone.yaml");
@@ -928,6 +928,7 @@ mod tests {
         unsafe {
             std::env::set_var("TEST_HOST", "127.0.0.5");
             std::env::remove_var("TEST_PORT");
+            std::env::remove_var("LS_PORT");
         }
 
         let old_dir = std::env::current_dir().unwrap();
@@ -939,5 +940,6 @@ mod tests {
 
         assert_eq!(ac.get_local("host").unwrap().as_str().unwrap(), "127.0.0.5");
         assert_eq!(ac.get_local("port").unwrap().as_str().unwrap(), "8080");
+        assert_eq!(ac.get_local("ls_port").unwrap().as_str().unwrap(), "9020");
     }
 }
