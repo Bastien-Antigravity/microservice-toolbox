@@ -28,6 +28,7 @@ KEY PARAMETERS:
 """
 
 from dataclasses import asdict as dcAsdict, dataclass as dcDataclass, field as dcField, is_dataclass as dcIsDataclass
+from ipaddress import ip_address as ipAddress
 from json import dumps as jsonDumps
 from os import environ as osEnviron
 from random import uniform as rndUniform
@@ -35,6 +36,7 @@ from socket import gethostname as sockGetHostname
 from threading import Event as thEvent, Thread as thThread
 from time import sleep as timeSleep
 from typing import Any as typeAny, Dict as typeDict, List as typeList, Optional as typeOptional, Union as typeUnion
+from urllib.parse import urlparse as urlParse, urlunparse as urlUnparse
 from urllib.request import Request as urlRequest, urlopen as urlOpen
 
 from microservice_toolbox.contracts import ExchangeContract
@@ -304,6 +306,69 @@ def _extract_port(addr: str) -> str:
 
 
 # -----------------------------------------------------------------------------------------------
+def _is_docker_internal_host(host: str) -> bool:
+    trimmed = (host or "").strip()
+    if trimmed in ("", "0.0.0.0", "::"):
+        return True
+    if trimmed.lower() == "localhost":
+        return False
+    try:
+        ipAddress(trimmed)
+        return False
+    except ValueError:
+        return "." not in trimmed
+
+
+# -----------------------------------------------------------------------------------------------
+def _extract_public_ip(app_config: typeAny) -> str:
+    if app_config is None:
+        return ""
+    get_pub = getattr(app_config, "get_public_ip", None)
+    if callable(get_pub):
+        val = get_pub()
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    common = getattr(app_config, "common", None)
+    if isinstance(common, dict):
+        val = common.get("public_ip")
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+# -----------------------------------------------------------------------------------------------
+def resolve_mfe_url(app_config: typeAny, raw_url: str) -> str:
+    """
+    Rewrites wildcard (0.0.0.0, ::, empty) or single-label Docker DNS hosts
+    to a browser-reachable host from HOST_IP or app_config.get_public_ip() when DOCKER_ENV=true.
+    """
+    trimmed = (raw_url or "").strip()
+    if not trimmed or osEnviron.get("DOCKER_ENV") != "true":
+        return raw_url
+    try:
+        parsed = urlParse(trimmed)
+    except Exception:
+        return raw_url
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https") or not parsed.netloc:
+        return raw_url
+    host = parsed.hostname or ""
+    if not _is_docker_internal_host(host):
+        return raw_url
+
+    public_host = (osEnviron.get("HOST_IP") or "").strip()
+    if not public_host:
+        public_host = _extract_public_ip(app_config)
+    if not public_host or public_host in ("0.0.0.0", "::"):
+        return raw_url
+
+    port = parsed.port
+    formatted_host = f"[{public_host}]" if ":" in public_host and not public_host.startswith("[") else public_host
+    new_netloc = f"{formatted_host}:{port}" if port else formatted_host
+    return urlUnparse((parsed.scheme, new_netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+
+
+# -----------------------------------------------------------------------------------------------
 def _resolve_capability_str(app_config: typeAny, cap_name: str, key: str) -> str:
     cap_data: typeAny = None
     get_cap = getattr(app_config, "get_capability", None)
@@ -453,6 +518,7 @@ def build_spec_from_config(
         spec.url = f"http://{tcp_addr}"
     else:
         raise RuntimeError(f"spec.build_spec_from_config: unable to resolve URL for capability '{capability}' (FAIL-FAST)")
+    spec.url = resolve_mfe_url(app_config, spec.url)
 
     # Dynamic Framing Port Interpolation
     if "%s" in spec.framing:
@@ -841,3 +907,4 @@ Publish = publish
 PublishWithLifecycle = publish_with_lifecycle
 PublishSync = publish_sync
 BuildSpecFromConfig = build_spec_from_config
+ResolveMFEURL = resolve_mfe_url

@@ -53,4 +53,3 @@ struct Packet {
 		t.Fatalf("unexpected envelope: %+v", env)
 	}
 }
-

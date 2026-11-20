@@ -339,4 +339,3 @@ func estimateProtoSize(msg any) int {
 	}
 	return 0
 }
-

@@ -423,3 +423,61 @@ capabilities:
     let spec_loaded = build_spec_from_config(&loaded_cfg, "order_router", base).unwrap();
     assert_eq!(spec_loaded.brain_id.as_deref(), Some("trading-brain"));
 }
+
+//-----------------------------------------------------------------------------------------------
+#[test]
+fn test_docker_mfe_url_resolution() {
+    use microservice_toolbox::spec::resolve_mfe_url;
+    use std::sync::Mutex;
+
+    static DOCKER_ENV_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = DOCKER_ENV_LOCK.lock().unwrap();
+
+    let yaml_str = r#"
+common:
+  name: rust_svc
+  public_ip: "127.0.0.2"
+capabilities:
+  rust_svc:
+    ip: "0.0.0.0"
+    rest_port: "8099"
+"#;
+    let data: serde_yml::Value = serde_yml::from_str(yaml_str).unwrap();
+    let app_config = AppConfig::from_value(data);
+    let base = ServiceSpec {
+        name: "Rust Service".to_string(),
+        tag: "rust-svc-mfe".to_string(),
+        layer: "L2".to_string(),
+        category: "Domain Services".to_string(),
+        description: "Rust service.".to_string(),
+        doc_link: "doc.md".to_string(),
+        protocol: "REST".to_string(),
+        framing: "Port %s REST".to_string(),
+        ..Default::default()
+    };
+
+    unsafe {
+        std::env::set_var("DOCKER_ENV", "true");
+        std::env::remove_var("HOST_IP");
+    }
+
+    let spec = build_spec_from_config(&app_config, "rust_svc", base).unwrap();
+    assert_eq!(spec.url, "http://127.0.0.2:8099");
+    assert_eq!(
+        resolve_mfe_url(&app_config, "http://log-shipper:9095/static/mfe.js"),
+        "http://127.0.0.2:9095/static/mfe.js"
+    );
+
+    unsafe {
+        std::env::set_var("HOST_IP", "203.0.113.10");
+    }
+    assert_eq!(
+        resolve_mfe_url(&app_config, "http://0.0.0.0:8099/static/mfe.js"),
+        "http://203.0.113.10:8099/static/mfe.js"
+    );
+
+    unsafe {
+        std::env::remove_var("HOST_IP");
+        std::env::remove_var("DOCKER_ENV");
+    }
+}

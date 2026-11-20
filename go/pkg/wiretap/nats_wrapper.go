@@ -119,4 +119,3 @@ func SubscribeNATS(nc *nats.Conn, subject string, cb nats.MsgHandler) (*nats.Sub
 	}
 	return nc.Subscribe(subject, wrappedCB)
 }
-

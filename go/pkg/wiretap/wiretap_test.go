@@ -134,4 +134,3 @@ func TestWireTapAtomicSwitchAndSegregatedChannels(t *testing.T) {
 		t.Fatalf("expected 4 samples for mask 0x3 over 16 calls, got %d", sampled)
 	}
 }
-

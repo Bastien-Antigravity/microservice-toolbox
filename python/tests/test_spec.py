@@ -26,6 +26,7 @@ from microservice_toolbox.spec import (
     ServiceSpec,
     build_spec_from_config,
     publish_service_spec,
+    resolve_mfe_url,
 )
 
 
@@ -283,6 +284,41 @@ class TestPythonSpec(utTestCase):
                 )
                 self.assertEqual(spec.brain_id, "trading-brain")
                 self.assertEqual(spec.to_dict().get("brain_id"), "trading-brain")
+
+    # -------------------------------------------------------------------------------------------
+    def test_docker_mfe_url_resolution(self) -> None:
+        mock_cfg = mockMagicMock()
+        mock_cfg.get_version.return_value = "0.0.1"
+        mock_cfg.get_public_ip.return_value = "127.0.0.2"
+        mock_cfg.get_listen_addr.side_effect = lambda cap: "0.0.0.0:8085" if cap == "squad_agent" else None
+        mock_cfg.get_rest_addr.side_effect = lambda cap: "0.0.0.0:8085" if cap == "squad_agent" else None
+        mock_cfg.get_grpc_listen_addr.side_effect = lambda cap: None
+
+        valid_kwargs = {
+            "name": "Squad Agent",
+            "tag": "squad-agent-mfe",
+            "layer": "L3",
+            "category": "Domain Services",
+            "description": "Autonomous squad runtime.",
+            "doc_link": "obsidian-brain/06-Microservices/Squad-Agent-Hub.md",
+            "protocol": "REST",
+            "framing": "Port %s REST",
+        }
+
+        clean_env = {k: v for k, v in osEnviron.items() if k not in ("DOCKER_ENV", "HOST_IP")}
+        with mockPatch.dict("os.environ", {**clean_env, "DOCKER_ENV": "true"}, clear=True):
+            spec = build_spec_from_config(mock_cfg, "squad_agent", **valid_kwargs)
+            self.assertEqual(spec.url, "http://127.0.0.2:8085")
+            self.assertEqual(
+                resolve_mfe_url(mock_cfg, "http://log-shipper:9095/static/mfe.js"),
+                "http://127.0.0.2:9095/static/mfe.js",
+            )
+
+        with mockPatch.dict("os.environ", {**clean_env, "DOCKER_ENV": "true", "HOST_IP": "203.0.113.10"}, clear=True):
+            self.assertEqual(
+                resolve_mfe_url(mock_cfg, "http://0.0.0.0:8085/static/mfe.js"),
+                "http://203.0.113.10:8085/static/mfe.js",
+            )
 
 
 # -----------------------------------------------------------------------------------------------

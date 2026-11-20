@@ -32,7 +32,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -45,9 +47,9 @@ import (
 
 // ProtocolSpec describes a single network protocol and port exposed by a service.
 type ProtocolSpec struct {
-	Type        string `json:"type"`        // "TCP", "REST", "gRPC", "WebSocket", "SSE", "SQL"
-	Port        int    `json:"port"`        // Port number
-	Framing     string `json:"framing"`     // e.g. "4-byte length prefix (safe-socket)", "HTTP/1.1 JSON", "Protobuf Stream"
+	Type        string `json:"type"`    // "TCP", "REST", "gRPC", "WebSocket", "SSE", "SQL"
+	Port        int    `json:"port"`    // Port number
+	Framing     string `json:"framing"` // e.g. "4-byte length prefix (safe-socket)", "HTTP/1.1 JSON", "Protobuf Stream"
 	Description string `json:"description"`
 }
 
@@ -55,8 +57,8 @@ type ProtocolSpec struct {
 type DependencySpec struct {
 	Target      string `json:"target"`                // Target capability or service key e.g. "timescale_db", "nats"
 	Protocol    string `json:"proto"`                 // Protocol e.g. "sql", "nats", "grpc", "safesocket", "http", "mcp"
-	Label       string `json:"label,omitempty"`        // Human-readable wire label e.g. "Order Hypertables"
-	ExchangeID  string `json:"exchangeId,omitempty"`   // Associated message exchange schema id
+	Label       string `json:"label,omitempty"`       // Human-readable wire label e.g. "Order Hypertables"
+	ExchangeID  string `json:"exchangeId,omitempty"`  // Associated message exchange schema id
 	Description string `json:"description,omitempty"` // Context / description
 }
 
@@ -72,9 +74,9 @@ type HealthSpec struct {
 type CanvasSpec struct {
 	Icon          string   `json:"icon,omitempty"`          // FontAwesome icon class e.g. "fa-bolt"
 	Color         string   `json:"color,omitempty"`         // Hex accent color e.g. "#38bdf8"
-	PreferredSlot string   `json:"preferredSlot,omitempty"`  // Suggested slot or tier e.g. "core-top", "domain"
-	PreferredX    float64  `json:"preferredX,omitempty"`     // Preferred initial canvas X coordinate
-	PreferredY    float64  `json:"preferredY,omitempty"`     // Preferred initial canvas Y coordinate
+	PreferredSlot string   `json:"preferredSlot,omitempty"` // Suggested slot or tier e.g. "core-top", "domain"
+	PreferredX    float64  `json:"preferredX,omitempty"`    // Preferred initial canvas X coordinate
+	PreferredY    float64  `json:"preferredY,omitempty"`    // Preferred initial canvas Y coordinate
 	ParticleProto []string `json:"particleProto,omitempty"` // Protocols that emit particle telemetry streams
 }
 
@@ -83,20 +85,20 @@ type CanvasSpec struct {
 type ServiceSpec struct {
 	Name          string                 `json:"name"`
 	Tag           string                 `json:"tag"`
-	URL           string                 `json:"url"`          // Dynamic if empty (from REST/ListenAddr)
-	NavTitle      string                 `json:"navTitle"`     // Defaults to Name if empty
-	Layer         string                 `json:"layer"`        // Required: "L1", "L2", "L3"
-	Category      string                 `json:"category"`     // Required: "Base Fleet", "Domain Services", "Secure Controls"
-	Priority      int                    `json:"priority"`     // Lower number = higher priority
-	Icon          string                 `json:"icon"`         // FontAwesome icon class
+	URL           string                 `json:"url"`             // Dynamic if empty (from REST/ListenAddr)
+	NavTitle      string                 `json:"navTitle"`        // Defaults to Name if empty
+	Layer         string                 `json:"layer"`           // Required: "L1", "L2", "L3"
+	Category      string                 `json:"category"`        // Required: "Base Fleet", "Domain Services", "Secure Controls"
+	Priority      int                    `json:"priority"`        // Lower number = higher priority
+	Icon          string                 `json:"icon"`            // FontAwesome icon class
 	Color         string                 `json:"color,omitempty"` // Canvas accent color e.g. "#38bdf8"
 	RequiresAuth  bool                   `json:"requiresAuth"`
-	Capability    string                 `json:"capability"`   // Capability key in AppConfig e.g. "config_server"
+	Capability    string                 `json:"capability"` // Capability key in AppConfig e.g. "config_server"
 	BrainID       string                 `json:"brain_id,omitempty"`
-	Description   string                 `json:"desc"`         // Required description
-	Protocol      string                 `json:"protocol"`     // Required: e.g. "TCP / SafeSocket, REST & gRPC"
-	Framing       string                 `json:"framing"`      // Required: e.g. "Port %s TCP / Port %s REST"
-	DocLink       string                 `json:"docLink"`      // Required: Obsidian vault markdown path
+	Description   string                 `json:"desc"`               // Required description
+	Protocol      string                 `json:"protocol"`           // Required: e.g. "TCP / SafeSocket, REST & gRPC"
+	Framing       string                 `json:"framing"`            // Required: e.g. "Port %s TCP / Port %s REST"
+	DocLink       string                 `json:"docLink"`            // Required: Obsidian vault markdown path
 	NavRoute      string                 `json:"navRoute,omitempty"` // Dynamic web route e.g. "/mfe/order-processor"
 	Health        HealthSpec             `json:"health,omitempty"`
 	Canvas        CanvasSpec             `json:"canvas,omitempty"`
@@ -120,6 +122,56 @@ func extractPort(addr string) string {
 		return parts[len(parts)-1]
 	}
 	return addr
+}
+
+func isDockerInternalHost(host string) bool {
+	trimmed := strings.TrimSpace(host)
+	if trimmed == "" || trimmed == "0.0.0.0" || trimmed == "::" {
+		return true
+	}
+	if strings.EqualFold(trimmed, "localhost") {
+		return false
+	}
+	if net.ParseIP(trimmed) != nil {
+		return false
+	}
+	return !strings.Contains(trimmed, ".")
+}
+
+// ResolveMFEURL rewrites wildcard (0.0.0.0, ::, empty) or single-label Docker DNS hosts
+// to a browser-reachable host from HOST_IP or appConfig.GetPublicIP() when DOCKER_ENV=true.
+func ResolveMFEURL(appConfig *toolbox_config.AppConfig, rawURL string) string {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" || os.Getenv("DOCKER_ENV") != "true" {
+		return rawURL
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return rawURL
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if (scheme != "http" && scheme != "https") || parsed.Host == "" {
+		return rawURL
+	}
+	if !isDockerInternalHost(parsed.Hostname()) {
+		return rawURL
+	}
+	publicHost := strings.TrimSpace(os.Getenv("HOST_IP"))
+	if publicHost == "" && appConfig != nil {
+		publicHost = strings.TrimSpace(appConfig.GetPublicIP())
+	}
+	if publicHost == "" || publicHost == "0.0.0.0" || publicHost == "::" {
+		return rawURL
+	}
+	port := parsed.Port()
+	if port != "" {
+		parsed.Host = net.JoinHostPort(publicHost, port)
+	} else if strings.Contains(publicHost, ":") && !strings.HasPrefix(publicHost, "[") {
+		parsed.Host = "[" + publicHost + "]"
+	} else {
+		parsed.Host = publicHost
+	}
+	return parsed.String()
 }
 
 func resolveCapabilityString(appConfig *toolbox_config.AppConfig, capName, key string) string {
@@ -226,6 +278,7 @@ func BuildSpecFromConfig(appConfig *toolbox_config.AppConfig, capability string,
 			return ServiceSpec{}, fmt.Errorf("spec.BuildSpecFromConfig: unable to resolve URL for capability %q from configuration (FAIL-FAST)", capability)
 		}
 	}
+	s.URL = ResolveMFEURL(appConfig, s.URL)
 
 	// 5. Framing interpolation: If caller provided format string with %s, populate available ports
 	if strings.Contains(s.Framing, "%s") {

@@ -77,6 +77,8 @@ def __getattr__(name):
         "PublishWithLifecycle",
         "PublishSync",
         "BuildSpecFromConfig",
+        "resolve_mfe_url",
+        "ResolveMFEURL",
     ]:
         from .spec import (
             BuildSpecFromConfig,
@@ -87,12 +89,14 @@ def __getattr__(name):
             Publish,
             PublishSync,
             PublishWithLifecycle,
+            ResolveMFEURL,
             ServiceSpec,
             build_spec_from_config,
             publish,
             publish_service_spec,
             publish_sync,
             publish_with_lifecycle,
+            resolve_mfe_url,
         )
         globals()["publish"] = publish
         globals()["publish_with_lifecycle"] = publish_with_lifecycle
@@ -108,6 +112,8 @@ def __getattr__(name):
         globals()["PublishWithLifecycle"] = PublishWithLifecycle
         globals()["PublishSync"] = PublishSync
         globals()["BuildSpecFromConfig"] = BuildSpecFromConfig
+        globals()["resolve_mfe_url"] = resolve_mfe_url
+        globals()["ResolveMFEURL"] = ResolveMFEURL
         return globals()[name]
     if name in [
         "ContractPeer",

@@ -341,4 +341,3 @@ func writeProtoMessage(b *strings.Builder, msg protoreflect.MessageDescriptor, i
 	}
 	b.WriteString(fmt.Sprintf("%s}\n", indent))
 }
-

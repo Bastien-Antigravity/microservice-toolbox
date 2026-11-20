@@ -489,3 +489,119 @@ capabilities:
 		t.Errorf("Expected BrainID 'trading-brain' from standalone.yaml with zero env vars, got %q", spec.BrainID)
 	}
 }
+
+// -----------------------------------------------------------------------------
+
+func TestBuildSpecFromConfig_DockerMFEURLResolution(t *testing.T) {
+	tmpDir := t.TempDir()
+	yamlPath := filepath.Join(tmpDir, "docker.yaml")
+	yamlContent := `common:
+  name: watchdog_agent
+  public_ip: 127.0.0.2
+capabilities:
+  config_server:
+    ip: 0.0.0.0
+    port: 3306
+    rest_port: 3308
+  watchdog_agent:
+    ip: log-shipper
+    port: 9090
+    rest_port: 9095
+  ipv6_svc:
+    ip: "::"
+    port: 7000
+    rest_port: 7001
+`
+	if err := os.WriteFile(yamlPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker.yaml: %v", err)
+	}
+
+	t.Setenv("CONFIG_PATH", yamlPath)
+	t.Setenv("SHARED_CONFIG_PATH", "")
+	t.Setenv("HOST_IP", "")
+	t.Setenv("DOCKER_ENV", "true")
+
+	appConfig, err := toolbox_config.LoadConfig("standalone", nil)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+
+	// 1. Wildcard 0.0.0.0 explicit MFE URL resolves to common.public_ip (127.0.0.2)
+	cfgSpec, err := BuildSpecFromConfig(appConfig, "config_server", ServiceSpec{
+		Name:        "Config Server",
+		Tag:         "config-server-mfe",
+		URL:         "http://0.0.0.0:3308/static/js/mfe-loader.js",
+		Layer:       "L1",
+		Category:    "Base Fleet",
+		Description: "Config service.",
+		Protocol:    "TCP & REST",
+		Framing:     "Port %s TCP / Port %s REST",
+		DocLink:     "obsidian-brain/06-Microservices/Config-Server-Hub.md",
+	})
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig(config_server) failed: %v", err)
+	}
+	if cfgSpec.URL != "http://127.0.0.2:3308/static/js/mfe-loader.js" {
+		t.Errorf("Expected http://127.0.0.2:3308/static/js/mfe-loader.js, got %q", cfgSpec.URL)
+	}
+
+	// 2. Docker single-label DNS host (log-shipper) resolves to common.public_ip (127.0.0.2)
+	wdSpec, err := BuildSpecFromConfig(appConfig, "watchdog_agent", ServiceSpec{
+		Name:        "Watchdog Agent",
+		Tag:         "watchdog-agent-mfe",
+		URL:         "http://log-shipper:9095/static/mfe.js",
+		Layer:       "L1",
+		Category:    "Base Fleet",
+		Description: "Watchdog agent.",
+		Protocol:    "HTTP/1.1 REST",
+		Framing:     "Port %s REST",
+		DocLink:     "obsidian-brain/06-Microservices/Watchdog-Agent-Hub.md",
+	})
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig(watchdog_agent) failed: %v", err)
+	}
+	if wdSpec.URL != "http://127.0.0.2:9095/static/mfe.js" {
+		t.Errorf("Expected http://127.0.0.2:9095/static/mfe.js, got %q", wdSpec.URL)
+	}
+
+	// 3. Auto-resolved empty URL with :: wildcard also resolves to 127.0.0.2
+	v6Spec, err := BuildSpecFromConfig(appConfig, "ipv6_svc", ServiceSpec{
+		Name:        "IPv6 Service",
+		Tag:         "ipv6-svc-mfe",
+		Layer:       "L2",
+		Category:    "Domain Services",
+		Description: "IPv6 test service.",
+		Protocol:    "REST",
+		Framing:     "Port %s REST",
+		DocLink:     "doc.md",
+	})
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig(ipv6_svc) failed: %v", err)
+	}
+	if v6Spec.URL != "http://127.0.0.2:7001" {
+		t.Errorf("Expected http://127.0.0.2:7001, got %q", v6Spec.URL)
+	}
+
+	// 4. HOST_IP overrides common.public_ip when set
+	t.Setenv("HOST_IP", "203.0.113.10")
+	if got := ResolveMFEURL(appConfig, "http://log-shipper:9095/static/mfe.js"); got != "http://203.0.113.10:9095/static/mfe.js" {
+		t.Errorf("Expected HOST_IP override http://203.0.113.10:9095/static/mfe.js, got %q", got)
+	}
+
+	// 5. Relative path and non-Docker mode remain untouched
+	if got := ResolveMFEURL(appConfig, "/static/mfe.js"); got != "/static/mfe.js" {
+		t.Errorf("Expected relative URL untouched, got %q", got)
+	}
+	t.Setenv("DOCKER_ENV", "")
+	if got := ResolveMFEURL(appConfig, "http://log-shipper:9095/static/mfe.js"); got != "http://log-shipper:9095/static/mfe.js" {
+		t.Errorf("Expected URL untouched outside Docker, got %q", got)
+	}
+
+	// 6. Zero silent fallback when both HOST_IP and common.public_ip are empty
+	t.Setenv("DOCKER_ENV", "true")
+	t.Setenv("HOST_IP", "")
+	appConfig.Config.Common.PublicIP = ""
+	if got := ResolveMFEURL(appConfig, "http://0.0.0.0:3308/static/js/mfe-loader.js"); got != "http://0.0.0.0:3308/static/js/mfe-loader.js" {
+		t.Errorf("Expected no silent 127.0.0.2 fallback when public_ip and HOST_IP are empty, got %q", got)
+	}
+}

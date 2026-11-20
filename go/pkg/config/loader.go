@@ -55,6 +55,14 @@ func (ac *AppConfig) GetVersion() string {
 	return version.Get()
 }
 
+// GetPublicIP returns the configured public IP from common.public_ip.
+func (ac *AppConfig) GetPublicIP() string {
+	if ac == nil || ac.Config == nil {
+		return ""
+	}
+	return strings.TrimSpace(ac.Config.Common.PublicIP)
+}
+
 // SetLogger updates the logger after instantiation.
 func (ac *AppConfig) SetLogger(l logger.Logger) {
 	ac.Logger = logger.EnsureSafeLogger(l)
@@ -202,6 +210,9 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 	if comm, ok := raw["common"].(map[string]interface{}); ok {
 		if name, ok := comm["name"].(string); ok {
 			ac.Config.Common.Name = name
+		}
+		if pubIP, ok := comm["public_ip"].(string); ok && strings.TrimSpace(pubIP) != "" {
+			ac.Config.Common.PublicIP = strings.TrimSpace(pubIP)
 		}
 	}
 	if priv, ok := raw["local"].(map[string]interface{}); ok {
@@ -389,7 +400,6 @@ func (ac *AppConfig) GetGRPCListenAddr(capability string) (string, error) {
 func (ac *AppConfig) GetRESTAddr(capability string) (string, error) {
 	return ac.Config.GetRESTAddress(capability)
 }
-
 
 type endpointKey struct {
 	IP   string

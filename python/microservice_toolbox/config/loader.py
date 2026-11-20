@@ -196,6 +196,13 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
+    def get_public_ip(self) -> str:
+        """Returns the configured public IP from common.public_ip."""
+        val = self.common.get("public_ip", "")
+        return str(val).strip() if val is not None else ""
+
+    # -----------------------------------------------------------------------------------------------
+
     def get_version(self) -> str:
         """Returns the dynamic semantic version of the microservice from VERSION.txt."""
         from microservice_toolbox.version import get_version as resolve_ver

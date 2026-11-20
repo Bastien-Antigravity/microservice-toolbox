@@ -614,6 +614,7 @@ pub fn build_spec_from_config(
             return Err(format!("spec.build_spec_from_config: unable to resolve URL for capability '{}' (FAIL-FAST)", cap).into());
         }
     }
+    base.url = resolve_mfe_url(app_config, &base.url);
 
     // 4. Dynamic Framing Port Interpolation (FAIL-FAST)
     if base.framing.contains("%s") {
@@ -875,6 +876,99 @@ pub fn publish_with_lifecycle(
         });
     }
     publish_service_spec_internal(app_config, logger, capability, base, Some(stop_flag))
+}
+
+//-----------------------------------------------------------------------------------------------
+fn is_docker_internal_host(host: &str) -> bool {
+    let trimmed = host.trim();
+    if trimmed.is_empty() || trimmed == "0.0.0.0" || trimmed == "::" {
+        return true;
+    }
+    if trimmed.eq_ignore_ascii_case("localhost") {
+        return false;
+    }
+    if trimmed.parse::<std::net::IpAddr>().is_ok() {
+        return false;
+    }
+    !trimmed.contains('.')
+}
+
+//-----------------------------------------------------------------------------------------------
+/// Rewrites wildcard (0.0.0.0, ::, empty) or single-label Docker DNS hosts to a browser-reachable
+/// host from HOST_IP or app_config.get_public_ip() when DOCKER_ENV=true.
+pub fn resolve_mfe_url(app_config: &AppConfig, raw_url: &str) -> String {
+    let trimmed = raw_url.trim();
+    if trimmed.is_empty() || std::env::var("DOCKER_ENV").ok().as_deref() != Some("true") {
+        return raw_url.to_string();
+    }
+
+    let scheme_len = if trimmed.len() >= 7 && trimmed[..7].eq_ignore_ascii_case("http://") {
+        7
+    } else if trimmed.len() >= 8 && trimmed[..8].eq_ignore_ascii_case("https://") {
+        8
+    } else {
+        return raw_url.to_string();
+    };
+
+    let scheme_prefix = &trimmed[..scheme_len];
+    let after_scheme = &trimmed[scheme_len..];
+    let split_idx = after_scheme
+        .find(['/', '?', '#'])
+        .unwrap_or(after_scheme.len());
+    let authority = &after_scheme[..split_idx];
+    let suffix = &after_scheme[split_idx..];
+    if authority.is_empty() {
+        return raw_url.to_string();
+    }
+
+    let (userinfo_prefix, hostport) = match authority.rfind('@') {
+        Some(idx) => (&authority[..=idx], &authority[idx + 1..]),
+        None => ("", authority),
+    };
+
+    let (host, port) = if hostport.starts_with('[') {
+        match hostport.find(']') {
+            Some(end) => {
+                let h = &hostport[1..end];
+                let rem = &hostport[end + 1..];
+                let p = rem.strip_prefix(':').unwrap_or("");
+                (h, p)
+            }
+            None => return raw_url.to_string(),
+        }
+    } else {
+        match hostport.rfind(':') {
+            Some(idx) => (&hostport[..idx], &hostport[idx + 1..]),
+            None => (hostport, ""),
+        }
+    };
+
+    if !is_docker_internal_host(host) {
+        return raw_url.to_string();
+    }
+
+    let public_host = std::env::var("HOST_IP")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| app_config.get_public_ip().trim().to_string());
+
+    if public_host.is_empty() || public_host == "0.0.0.0" || public_host == "::" {
+        return raw_url.to_string();
+    }
+
+    let formatted_host = if public_host.contains(':') && !public_host.starts_with('[') {
+        format!("[{}]", public_host)
+    } else {
+        public_host
+    };
+    let new_hostport = if port.is_empty() {
+        formatted_host
+    } else {
+        format!("{}:{}", formatted_host, port)
+    };
+
+    format!("{}{}{}{}", scheme_prefix, userinfo_prefix, new_hostport, suffix)
 }
 
 //-----------------------------------------------------------------------------------------------
