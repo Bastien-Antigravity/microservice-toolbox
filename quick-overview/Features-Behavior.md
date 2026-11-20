@@ -31,7 +31,7 @@ graph TD
 
 ### 2. The CLI Docker Guard & Config-Only Bindings (Networking)
 To prevent CLI overrides from breaking automated container orchestration while preserving explicit YAML configuration:
-- **Override Suppression (CLI Docker Guard)**: CLI flags for networking (`--host`, `--port`, `--grpc_host`, `--grpc_port`) are **strictly ignored** when `DOCKER_ENV=true` or `/.dockerenv` is detected, preserving the container YAML DNS configuration.
+- **Override Suppression (CLI Docker Guard)**: CLI flags for networking (`--host`, `--port`, `--grpc_host`, `--grpc_port`) are **strictly ignored** when `DOCKER_ENV=true` is detected, preserving the container YAML DNS configuration.
 - **Verbatim Config Binding (`connectivity.Resolver`)**: Resolvers preserve the configured `AppConfig` IP, hostname, and port **verbatim** (no automatic `0.0.0.0` or interface-IP rewriting) and fail fast on empty values.
 
 ### 3. Hardened RSA Secret Management (v0.0.1+)

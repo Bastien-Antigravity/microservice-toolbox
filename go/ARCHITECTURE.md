@@ -11,7 +11,7 @@ Configuration is resolved in the following priority:
 
 ## 2. Docker Guard & Config-Only Networking
 A specialized networking guard that prevents CLI overrides from breaking automated container orchestration:
-- **CLI Docker Guard (`config/args.go`)**: Inside containers (`/.dockerenv` or `DOCKER_ENV=true`), CLI network overrides (`--host`, `--port`, `--grpc_host`, `--grpc_port`) are strictly ignored so container YAML DNS routing is never overwritten.
+- **CLI Docker Guard (`config/args.go`)**: Inside containers (`DOCKER_ENV=true`), CLI network overrides (`--host`, `--port`, `--grpc_host`, `--grpc_port`) are strictly ignored so container YAML DNS routing is never overwritten.
 - **Config-Only Bindings**: `connectivity.Resolver` and network servers preserve the IP, hostname, and port configured in `AppConfig` **verbatim** (never rewriting configured addresses to `0.0.0.0` or interface IPs) and fail fast on missing values.
 
 ## 3. Decryption Engine
