@@ -16,9 +16,12 @@ KEY PARAMETERS:
 """
 
 from os import environ as osEnviron
+from os.path import join as osPathJoin
+from tempfile import TemporaryDirectory as tmpTemporaryDirectory
 from unittest import TestCase as utTestCase, main as utMain
 from unittest.mock import MagicMock as mockMagicMock, patch as mockPatch
 
+from microservice_toolbox.config import load_config
 from microservice_toolbox.spec import (
     ServiceSpec,
     build_spec_from_config,
@@ -226,6 +229,60 @@ class TestPythonSpec(utTestCase):
             mock_publish.assert_called_once()
             _, _, called_kwargs = mock_publish.mock_calls[0]
             self.assertEqual(called_kwargs.get("brain_id"), "brain-param")
+
+        # Capability resolution priority: squad_agent.target_brain_id > watchdog_agent.brain_id > BRAIN_ID > TARGET_BRAIN_ID
+        cap_store = {
+            "watchdog_agent": {"brain_id": "watchdog-brain"},
+        }
+        mock_cfg.get_capability.side_effect = lambda cap: cap_store.get(cap, {})
+        with mockPatch.dict("os.environ", {**clean_env, "BRAIN_ID": "brain-primary", "TARGET_BRAIN_ID": "brain-target"}, clear=True):
+            spec_wd = build_spec_from_config(mock_cfg, "config_server", **valid_kwargs)
+            self.assertEqual(spec_wd.brain_id, "watchdog-brain")
+
+            cap_store["squad_agent"] = {"target_brain_id": "squad-brain"}
+            spec_sq = build_spec_from_config(mock_cfg, "config_server", **valid_kwargs)
+            self.assertEqual(spec_sq.brain_id, "squad-brain")
+
+            spec_ov = build_spec_from_config(mock_cfg, "config_server", brain_id="brain-explicit", **valid_kwargs)
+            self.assertEqual(spec_ov.brain_id, "brain-explicit")
+
+    # -------------------------------------------------------------------------------------------
+    def test_standalone_yaml_brain_id_zero_env(self) -> None:
+        with tmpTemporaryDirectory() as tmp_dir:
+            yaml_path = osPathJoin(tmp_dir, "standalone.yaml")
+            with open(yaml_path, "w", encoding="utf-8") as fh:
+                fh.write(
+                    "common:\n"
+                    "  name: order_router\n"
+                    "capabilities:\n"
+                    "  order_router:\n"
+                    "    ip: 127.0.0.1\n"
+                    "    port: 14100\n"
+                    "  squad_agent:\n"
+                    "    target_brain_id: \"trading-brain\"\n"
+                )
+
+            clean_env = {
+                k: v for k, v in osEnviron.items()
+                if k not in ("BRAIN_ID", "TARGET_BRAIN_ID", "CONFIG_PATH", "SHARED_CONFIG_PATH")
+            }
+            clean_env["CONFIG_PATH"] = yaml_path
+            with mockPatch.dict("os.environ", clean_env, clear=True):
+                cfg = load_config("standalone", specific_flags=[], input_args=[])
+                spec = build_spec_from_config(
+                    cfg,
+                    "order_router",
+                    name="Order Router",
+                    tag="order-router-mfe",
+                    layer="L3",
+                    category="Domain Services",
+                    description="Routes trading orders.",
+                    doc_link="obsidian-brain/06-Microservices/Order-Router.md",
+                    protocol="TCP",
+                    framing="Port %s TCP",
+                )
+                self.assertEqual(spec.brain_id, "trading-brain")
+                self.assertEqual(spec.to_dict().get("brain_id"), "trading-brain")
 
 
 # -----------------------------------------------------------------------------------------------

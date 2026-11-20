@@ -311,3 +311,115 @@ capabilities:
     let json_none = serde_json::to_string(&base_none).unwrap();
     assert!(!json_none.contains("\"brain_id\""));
 }
+
+//-----------------------------------------------------------------------------------------------
+#[test]
+fn test_spec_brain_id_priority_and_standalone_yaml_zero_env() {
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = ENV_LOCK.lock().unwrap();
+
+    let base = ServiceSpec {
+        name: "Order Router".to_string(),
+        tag: "order-router-mfe".to_string(),
+        layer: "L3".to_string(),
+        category: "Domain Services".to_string(),
+        description: "Routes trading orders.".to_string(),
+        doc_link: "obsidian-brain/06-Microservices/Order-Router.md".to_string(),
+        protocol: "TCP".to_string(),
+        framing: "Port %s TCP".to_string(),
+        ..Default::default()
+    };
+
+    let make_cfg = |yaml: &str| -> AppConfig {
+        let data: serde_yml::Value = serde_yml::from_str(yaml).unwrap();
+        AppConfig::from_value(data)
+    };
+
+    unsafe {
+        std::env::remove_var("BRAIN_ID");
+        std::env::set_var("TARGET_BRAIN_ID", "env-target");
+    }
+
+    // 1. TARGET_BRAIN_ID fallback when capabilities and BRAIN_ID are absent
+    let cfg_env = make_cfg(
+        r#"
+capabilities:
+  order_router:
+    ip: "127.0.0.1"
+    port: "14100"
+"#,
+    );
+    let spec_target = build_spec_from_config(&cfg_env, "order_router", base.clone()).unwrap();
+    assert_eq!(spec_target.brain_id.as_deref(), Some("env-target"));
+
+    // 2. BRAIN_ID > TARGET_BRAIN_ID
+    unsafe {
+        std::env::set_var("BRAIN_ID", "env-primary");
+    }
+    let spec_primary = build_spec_from_config(&cfg_env, "order_router", base.clone()).unwrap();
+    assert_eq!(spec_primary.brain_id.as_deref(), Some("env-primary"));
+
+    // 3. watchdog_agent.brain_id > BRAIN_ID
+    let cfg_wd = make_cfg(
+        r#"
+capabilities:
+  order_router:
+    ip: "127.0.0.1"
+    port: "14100"
+  watchdog_agent:
+    brain_id: "watchdog-brain"
+"#,
+    );
+    let spec_wd = build_spec_from_config(&cfg_wd, "order_router", base.clone()).unwrap();
+    assert_eq!(spec_wd.brain_id.as_deref(), Some("watchdog-brain"));
+
+    // 4. squad_agent.target_brain_id > watchdog_agent.brain_id
+    let cfg_sq = make_cfg(
+        r#"
+capabilities:
+  order_router:
+    ip: "127.0.0.1"
+    port: "14100"
+  watchdog_agent:
+    brain_id: "watchdog-brain"
+  squad_agent:
+    target_brain_id: "squad-brain"
+"#,
+    );
+    let spec_sq = build_spec_from_config(&cfg_sq, "order_router", base.clone()).unwrap();
+    assert_eq!(spec_sq.brain_id.as_deref(), Some("squad-brain"));
+
+    // 5. Loading standalone.yaml with target_brain_id: "trading-brain" and ZERO env vars set
+    let tmp_dir = std::env::temp_dir().join("rust_toolbox_spec_brain_id_test");
+    let _ = std::fs::create_dir_all(&tmp_dir);
+    let yaml_path = tmp_dir.join("standalone.yaml");
+    let yaml_content = r#"
+common:
+  name: order_router
+capabilities:
+  order_router:
+    ip: "127.0.0.1"
+    port: "14100"
+  squad_agent:
+    target_brain_id: "trading-brain"
+"#;
+    std::fs::write(&yaml_path, yaml_content).unwrap();
+
+    unsafe {
+        std::env::remove_var("BRAIN_ID");
+        std::env::remove_var("TARGET_BRAIN_ID");
+        std::env::remove_var("SHARED_CONFIG_PATH");
+        std::env::set_var("CONFIG_PATH", &yaml_path);
+    }
+    let loaded_cfg = AppConfig::load_config("standalone_brain_test", None).unwrap();
+    unsafe {
+        std::env::remove_var("CONFIG_PATH");
+    }
+    let _ = std::fs::remove_file(&yaml_path);
+    let _ = std::fs::remove_dir(&tmp_dir);
+
+    let spec_loaded = build_spec_from_config(&loaded_cfg, "order_router", base).unwrap();
+    assert_eq!(spec_loaded.brain_id.as_deref(), Some("trading-brain"));
+}

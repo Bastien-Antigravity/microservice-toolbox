@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -343,6 +345,8 @@ func TestBuildSpecFromConfig_BrainIDResolution(t *testing.T) {
 	if appConfig.Capabilities == nil {
 		appConfig.Capabilities = make(map[string]interface{})
 	}
+	delete(appConfig.Capabilities, "squad_agent")
+	delete(appConfig.Capabilities, "watchdog_agent")
 	appConfig.Capabilities["config_server"] = map[string]interface{}{
 		"ip":   "127.0.0.1",
 		"port": 13306,
@@ -359,7 +363,7 @@ func TestBuildSpecFromConfig_BrainIDResolution(t *testing.T) {
 		DocLink:     "obsidian-brain/06-Microservices/Config-Server-Hub.md",
 	}
 
-	// 1. Omitted when neither struct nor env is set
+	// 1. Omitted when neither struct, config capability, nor env is set
 	t.Setenv("BRAIN_ID", "")
 	t.Setenv("TARGET_BRAIN_ID", "")
 	specEmpty, err := BuildSpecFromConfig(appConfig, "config_server", validBase)
@@ -377,7 +381,7 @@ func TestBuildSpecFromConfig_BrainIDResolution(t *testing.T) {
 		t.Errorf("Expected brain_id to be omitted from JSON when empty, got %s", string(rawEmpty))
 	}
 
-	// 2. Falls back to TARGET_BRAIN_ID when BRAIN_ID is unset
+	// 2. Falls back to TARGET_BRAIN_ID when BRAIN_ID and capabilities are unset
 	t.Setenv("TARGET_BRAIN_ID", "brain-target")
 	specTarget, err := BuildSpecFromConfig(appConfig, "config_server", validBase)
 	if err != nil {
@@ -404,7 +408,31 @@ func TestBuildSpecFromConfig_BrainIDResolution(t *testing.T) {
 		t.Errorf("Expected brain_id in JSON payload, got %s", string(rawPrimary))
 	}
 
-	// 4. Explicit struct BrainID overrides env vars
+	// 4. watchdog_agent.brain_id takes precedence over BRAIN_ID and TARGET_BRAIN_ID
+	appConfig.Capabilities["watchdog_agent"] = map[string]interface{}{
+		"brain_id": "watchdog-brain",
+	}
+	specWatchdog, err := BuildSpecFromConfig(appConfig, "config_server", validBase)
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig failed: %v", err)
+	}
+	if specWatchdog.BrainID != "watchdog-brain" {
+		t.Errorf("Expected BrainID 'watchdog-brain' from watchdog_agent.brain_id, got %q", specWatchdog.BrainID)
+	}
+
+	// 5. squad_agent.target_brain_id takes precedence over watchdog_agent.brain_id and env vars
+	appConfig.Capabilities["squad_agent"] = map[string]interface{}{
+		"target_brain_id": "squad-brain",
+	}
+	specSquad, err := BuildSpecFromConfig(appConfig, "config_server", validBase)
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig failed: %v", err)
+	}
+	if specSquad.BrainID != "squad-brain" {
+		t.Errorf("Expected BrainID 'squad-brain' from squad_agent.target_brain_id, got %q", specSquad.BrainID)
+	}
+
+	// 6. Explicit struct BrainID overrides config capabilities and env vars
 	explicitBase := validBase
 	explicitBase.BrainID = "brain-explicit"
 	specExplicit, err := BuildSpecFromConfig(appConfig, "config_server", explicitBase)
@@ -413,5 +441,51 @@ func TestBuildSpecFromConfig_BrainIDResolution(t *testing.T) {
 	}
 	if specExplicit.BrainID != "brain-explicit" {
 		t.Errorf("Expected explicit BrainID 'brain-explicit', got %q", specExplicit.BrainID)
+	}
+}
+
+// -----------------------------------------------------------------------------
+
+func TestBuildSpecFromConfig_StandaloneYAMLBrainIDZeroEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+	yamlPath := filepath.Join(tmpDir, "standalone.yaml")
+	yamlContent := `common:
+  name: order_router
+capabilities:
+  order_router:
+    ip: 127.0.0.1
+    port: 14100
+  squad_agent:
+    target_brain_id: "trading-brain"
+`
+	if err := os.WriteFile(yamlPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("Failed to write standalone.yaml: %v", err)
+	}
+
+	t.Setenv("CONFIG_PATH", yamlPath)
+	t.Setenv("SHARED_CONFIG_PATH", "")
+	t.Setenv("BRAIN_ID", "")
+	t.Setenv("TARGET_BRAIN_ID", "")
+
+	appConfig, err := toolbox_config.LoadConfig("standalone", nil)
+	if err != nil {
+		t.Fatalf("LoadConfig(standalone) failed: %v", err)
+	}
+
+	spec, err := BuildSpecFromConfig(appConfig, "order_router", ServiceSpec{
+		Name:        "Order Router",
+		Tag:         "order-router-mfe",
+		Layer:       "L3",
+		Category:    "Domain Services",
+		Description: "Routes trading orders.",
+		Protocol:    "TCP",
+		Framing:     "Port %s TCP",
+		DocLink:     "obsidian-brain/06-Microservices/Order-Router.md",
+	})
+	if err != nil {
+		t.Fatalf("BuildSpecFromConfig failed: %v", err)
+	}
+	if spec.BrainID != "trading-brain" {
+		t.Errorf("Expected BrainID 'trading-brain' from standalone.yaml with zero env vars, got %q", spec.BrainID)
 	}
 }

@@ -547,12 +547,24 @@ pub fn build_spec_from_config(
         return Err(format!("spec.build_spec_from_config: 'framing' is strictly required for capability '{}' (FAIL-FAST)", cap).into());
     }
 
+    let resolve_cap_str = |path: &str| -> Option<String> {
+        app_config
+            .get_value(path)
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+
     base.capability = cap.to_string();
     if base.brain_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_none() {
-        base.brain_id = std::env::var("BRAIN_ID")
-            .ok()
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
+        base.brain_id = resolve_cap_str("capabilities.squad_agent.target_brain_id")
+            .or_else(|| resolve_cap_str("capabilities.watchdog_agent.brain_id"))
+            .or_else(|| {
+                std::env::var("BRAIN_ID")
+                    .ok()
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+            })
             .or_else(|| {
                 std::env::var("TARGET_BRAIN_ID")
                     .ok()

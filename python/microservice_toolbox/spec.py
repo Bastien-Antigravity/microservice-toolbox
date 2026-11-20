@@ -304,6 +304,29 @@ def _extract_port(addr: str) -> str:
 
 
 # -----------------------------------------------------------------------------------------------
+def _resolve_capability_str(app_config: typeAny, cap_name: str, key: str) -> str:
+    cap_data: typeAny = None
+    get_cap = getattr(app_config, "get_capability", None)
+    if callable(get_cap):
+        cand = get_cap(cap_name)
+        if isinstance(cand, dict):
+            cap_data = cand
+    if cap_data is None:
+        raw_data = getattr(app_config, "data", None)
+        if isinstance(raw_data, dict):
+            caps = raw_data.get("capabilities")
+            if isinstance(caps, dict):
+                cand = caps.get(cap_name)
+                if isinstance(cand, dict):
+                    cap_data = cand
+    if isinstance(cap_data, dict):
+        val = cap_data.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+# -----------------------------------------------------------------------------------------------
 def build_spec_from_config(
     app_config: typeAny,
     capability: str,
@@ -357,6 +380,8 @@ def build_spec_from_config(
         else (
             overrides.get("brainId")
             or overrides.get("BrainID")
+            or _resolve_capability_str(app_config, "squad_agent", "target_brain_id")
+            or _resolve_capability_str(app_config, "watchdog_agent", "brain_id")
             or osEnviron.get("BRAIN_ID")
             or osEnviron.get("TARGET_BRAIN_ID")
         )

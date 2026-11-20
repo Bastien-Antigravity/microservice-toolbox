@@ -122,6 +122,29 @@ func extractPort(addr string) string {
 	return addr
 }
 
+func resolveCapabilityString(appConfig *toolbox_config.AppConfig, capName, key string) string {
+	if appConfig == nil || appConfig.Config == nil || appConfig.Capabilities == nil {
+		return ""
+	}
+	rawCap, ok := appConfig.Capabilities[capName]
+	if !ok || rawCap == nil {
+		return ""
+	}
+	switch m := rawCap.(type) {
+	case map[string]interface{}:
+		if val, exists := m[key]; exists && val != nil {
+			if s, ok := val.(string); ok {
+				return strings.TrimSpace(s)
+			}
+		}
+	case map[string]string:
+		if val, exists := m[key]; exists {
+			return strings.TrimSpace(val)
+		}
+	}
+	return ""
+}
+
 // -----------------------------------------------------------------------------
 
 // BuildSpecFromConfig validates and enriches a ServiceSpec using dynamic parameters
@@ -142,11 +165,17 @@ func BuildSpecFromConfig(appConfig *toolbox_config.AppConfig, capability string,
 	s := baseSpec
 	s.Capability = capability
 	if strings.TrimSpace(s.BrainID) == "" {
-		if brainID := strings.TrimSpace(os.Getenv("BRAIN_ID")); brainID != "" {
+		if brainID := resolveCapabilityString(appConfig, "squad_agent", "target_brain_id"); brainID != "" {
+			s.BrainID = brainID
+		} else if brainID := resolveCapabilityString(appConfig, "watchdog_agent", "brain_id"); brainID != "" {
+			s.BrainID = brainID
+		} else if brainID := strings.TrimSpace(os.Getenv("BRAIN_ID")); brainID != "" {
 			s.BrainID = brainID
 		} else if targetBrainID := strings.TrimSpace(os.Getenv("TARGET_BRAIN_ID")); targetBrainID != "" {
 			s.BrainID = targetBrainID
 		}
+	} else {
+		s.BrainID = strings.TrimSpace(s.BrainID)
 	}
 
 	// 3. Validate Microservice-provided metadata (FAIL-FAST: ZERO DUMMY FALLBACKS)
