@@ -128,12 +128,18 @@ impl AppConfig {
         // Build search candidates (matches distributed-config locality)
         let base_dir = crate::utils::helpers::get_base_dir();
         let filename_base = format!("{}.yaml", actual_profile);
-        let candidates = [
+        let mut candidates = vec![
             std::path::Path::new(&base_dir).join("config").join(&filename_base),
             std::path::Path::new(&base_dir).join(&filename_base),
             std::path::Path::new("config").join(&filename_base),
             std::path::Path::new(&filename_base).to_path_buf(),
         ];
+        if actual_profile != "standalone" {
+            candidates.push(std::path::Path::new(&base_dir).join("config").join("standalone.yaml"));
+            candidates.push(std::path::Path::new(&base_dir).join("standalone.yaml"));
+            candidates.push(std::path::Path::new("config").join("standalone.yaml"));
+            candidates.push(std::path::Path::new("standalone.yaml").to_path_buf());
+        }
 
         let mut found_path = None;
         if let Ok(custom_path) = std::env::var("CONFIG_PATH") {
