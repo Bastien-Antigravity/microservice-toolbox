@@ -1,6 +1,4 @@
-package wiretap
-
-// =============================================================================
+// -----------------------------------------------------------------------------
 // ESSENTIAL PROCESS:
 // Provides a distinct, lock-free atomic switchable real-time transport telemetry
 // wrapper ("WireTap") across safe-socket, gRPC, NATS, and HTTP/SSE connections.
@@ -18,7 +16,9 @@ package wiretap
 //
 // KEY PARAMETERS:
 // - enabled: Lock-free atomic.Bool switch modifiable via config or runtime API.
-// =============================================================================
+// -----------------------------------------------------------------------------
+
+package wiretap
 
 import (
 	"bytes"
@@ -304,6 +304,47 @@ func handleSafeSocketEvent(ev safesocket.TelemetryEvent) {
 	)
 }
 
+const (
+	// MaxPayloadSummaryBytes is the maximum byte length stored for a WireTap channel payload summary.
+	MaxPayloadSummaryBytes = 256
+	redactedENCToken       = "ENC([REDACTED])"
+)
+
+// SanitizePayloadSummary redacts any ENC(...) secret tokens and caps the summary length
+// to at most MaxPayloadSummaryBytes (256) bytes (appending "..." if truncated).
+func SanitizePayloadSummary(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	s := raw
+	if strings.Contains(s, "ENC(") {
+		var b strings.Builder
+		b.Grow(len(s))
+		rem := s
+		for {
+			idx := strings.Index(rem, "ENC(")
+			if idx == -1 {
+				b.WriteString(rem)
+				break
+			}
+			b.WriteString(rem[:idx])
+			afterPrefix := rem[idx+4:]
+			closeIdx := strings.IndexByte(afterPrefix, ')')
+			if closeIdx == -1 {
+				b.WriteString(redactedENCToken)
+				break
+			}
+			b.WriteString(redactedENCToken)
+			rem = afterPrefix[closeIdx+1:]
+		}
+		s = b.String()
+	}
+	if len(s) > MaxPayloadSummaryBytes {
+		return s[:MaxPayloadSummaryBytes-3] + "..."
+	}
+	return s
+}
+
 // -----------------------------------------------------------------------------
 // Lock-Free Hot-Path Event Recording
 // -----------------------------------------------------------------------------
@@ -457,7 +498,7 @@ func RecordEventWithConnDelta(
 	}
 	chEntry.lastSeenMs.Store(nowMs)
 	if payloadSummary != "" {
-		pCopy := payloadSummary
+		pCopy := SanitizePayloadSummary(payloadSummary)
 		chEntry.lastPayload.Store(&pCopy)
 	}
 }
@@ -623,7 +664,7 @@ func MergeRemoteSnapshot(incoming []EdgeReport) {
 			}
 			chEntry.lastSeenMs.Store(nowMs)
 			if ch.LastPayload != "" {
-				pCopy := ch.LastPayload
+				pCopy := SanitizePayloadSummary(ch.LastPayload)
 				chEntry.lastPayload.Store(&pCopy)
 			}
 		}

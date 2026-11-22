@@ -54,6 +54,7 @@ type ManagedConnection struct {
 	appConfig   *config.AppConfig
 	capability  string
 	reconnectMu sync.Mutex
+	closeOnce   sync.Once
 	closing     chan struct{}
 }
 
@@ -178,12 +179,11 @@ func (mc *ManagedConnection) isClosing() bool {
 
 // Close terminates the connection and stops the reconnection loop.
 func (mc *ManagedConnection) Close() error {
-	select {
-	case <-mc.closing:
-		// Already closed
-	default:
-		close(mc.closing)
-	}
+	mc.closeOnce.Do(func() {
+		if mc.closing != nil {
+			close(mc.closing)
+		}
+	})
 
 	connPtr := mc.currentConn.Swap(nil)
 	if connPtr != nil && *connPtr != nil {
@@ -215,10 +215,20 @@ func (mc *ManagedConnection) reconnect() error {
 		ep := mc.currentEndpoint()
 		conn, err := nm.EstablishConnection(ep)
 		if err == nil {
+			if mc.isClosing() {
+				_ = conn.Close()
+				return fmt.Errorf("connection closed")
+			}
 			nm.Logger.Info("ManagedConnection: Reconnected to %s", ep.Address)
 			old := mc.currentConn.Swap(&conn)
 			if old != nil && *old != nil {
 				_ = (*old).Close()
+			}
+			if mc.isClosing() {
+				if swapped := mc.currentConn.Swap(nil); swapped != nil && *swapped != nil {
+					_ = (*swapped).Close()
+				}
+				return fmt.Errorf("connection closed")
 			}
 			return nil
 		}

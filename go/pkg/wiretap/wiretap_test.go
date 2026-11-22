@@ -1,6 +1,7 @@
 package wiretap
 
 import (
+	"strings"
 	"testing"
 
 	safesocket "github.com/Bastien-Antigravity/safe-socket"
@@ -132,5 +133,97 @@ func TestWireTapAtomicSwitchAndSegregatedChannels(t *testing.T) {
 	}
 	if sampled != 4 {
 		t.Fatalf("expected 4 samples for mask 0x3 over 16 calls, got %d", sampled)
+	}
+}
+
+func TestWireTapSanitizePayloadSummary_RedactionAndTruncation(t *testing.T) {
+	Reset()
+	defer func() {
+		SetEnabled(true)
+		Reset()
+	}()
+	SetEnabled(true)
+
+	// 1. Direct helper check for ENC(...) redaction
+	rawWithSecrets := "auth_header=ENC(super_secret_rsa_payload_123) secondary=ENC(another_secret) status=ok"
+	sanitized := SanitizePayloadSummary(rawWithSecrets)
+	expectedSanitized := "auth_header=ENC([REDACTED]) secondary=ENC([REDACTED]) status=ok"
+	if sanitized != expectedSanitized {
+		t.Fatalf("expected %q, got %q", expectedSanitized, sanitized)
+	}
+	if strings.Contains(sanitized, "super_secret") || strings.Contains(sanitized, "another_secret") {
+		t.Fatalf("secret leaked in sanitized output: %q", sanitized)
+	}
+
+	// 2. Direct helper check for 256-byte cap with "..."
+	longPayload := strings.Repeat("A", 400)
+	truncated := SanitizePayloadSummary(longPayload)
+	if len(truncated) != MaxPayloadSummaryBytes {
+		t.Fatalf("expected truncated length %d, got %d", MaxPayloadSummaryBytes, len(truncated))
+	}
+	if !strings.HasSuffix(truncated, "...") {
+		t.Fatalf("expected truncated payload to end with '...', got %q", truncated)
+	}
+
+	// 3. Verify RecordEventWithConnDelta and MergeRemoteSnapshot both apply sanitization
+	RecordEvent(
+		"config_server",
+		"api_gateway",
+		"GRPC",
+		"HTTP/2 Protobuf",
+		"config:push",
+		"rpc",
+		"outbound",
+		"db_pass=ENC(top_secret_value) "+strings.Repeat("X", 300),
+		512,
+		1.0,
+		false,
+		false,
+	)
+
+	MergeRemoteSnapshot([]EdgeReport{
+		{
+			Source:      "secret_manager",
+			Target:      "execution_engine",
+			Protocol:    "GRPC",
+			Framing:     "HTTP/2 Protobuf",
+			ActiveConns: 1,
+			TotalFrames: 1,
+			TotalBytes:  512,
+			Channels: []ChannelMetric{
+				{
+					Channel:     "secret:fetch",
+					Category:    "rpc",
+					Direction:   "outbound",
+					Frames:      1,
+					Bytes:       512,
+					LastPayload: "api_key=ENC(merged_secret_key) " + strings.Repeat("Y", 300),
+				},
+			},
+		},
+	})
+
+	snap := Snapshot()
+	if len(snap) != 2 {
+		t.Fatalf("expected 2 edges in snapshot, got %d", len(snap))
+	}
+
+	for _, edge := range snap {
+		if len(edge.Channels) != 1 {
+			t.Fatalf("expected 1 channel on edge %s->%s", edge.Source, edge.Target)
+		}
+		gotPayload := edge.Channels[0].LastPayload
+		if len(gotPayload) != MaxPayloadSummaryBytes {
+			t.Errorf("expected payload capped to %d bytes on %s->%s, got %d", MaxPayloadSummaryBytes, edge.Source, edge.Target, len(gotPayload))
+		}
+		if !strings.HasSuffix(gotPayload, "...") {
+			t.Errorf("expected '...' suffix on truncated payload for %s->%s, got %q", edge.Source, edge.Target, gotPayload)
+		}
+		if !strings.Contains(gotPayload, "ENC([REDACTED])") {
+			t.Errorf("expected ENC([REDACTED]) in payload for %s->%s, got %q", edge.Source, edge.Target, gotPayload)
+		}
+		if strings.Contains(gotPayload, "top_secret_value") || strings.Contains(gotPayload, "merged_secret_key") {
+			t.Errorf("plaintext secret token leaked in %s->%s: %q", edge.Source, edge.Target, gotPayload)
+		}
 	}
 }

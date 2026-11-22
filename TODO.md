@@ -28,3 +28,6 @@ tags:
 - [x] C++ Parity: Implemented ManagedConnection and orchestration methods (ConnectBlocking, etc).
 - [x] Networking Hardening: Implemented "Docker Guard" CLI override suppression (`--host`/`--port` ignored in containers) and config-verbatim bind resolution (`connectivity.Resolver` preserves configured `AppConfig` IP/host/port).
 - [x] Direct Notification Client Standard: Go, Python, Rust, C++, and VBA parity pushing direct alerts to notif-server (gRPC port 1027) via libnotif CGO bridge.
+- [x] Connection Manager Concurrency & Policy Hardening: `sync.Once` channel close protection on `ManagedConnection.Close()`, post-dial shutdown race re-check in `reconnect()`, policy clamping in `WithPolicy()`/`GetNextDelay()`, and observable warning logging in `ConnectEndpoint(ep, ModeBlocking)`.
+- [x] WireTap Payload Sanitization & Cap: Enabled by default with `SanitizePayloadSummary` redacting `ENC(...)` tokens (`ENC([REDACTED])`) and capping payload summaries to 256 bytes across `RecordEventWithConnDelta` and `MergeRemoteSnapshot`.
+- [x] Lifecycle Per-Hook Timeout Guard: Added `HookTimeout` (default `10s`) to `lifecycle.Manager` so a hung cleanup hook logs an error and advances to remaining LIFO hooks without deadlocking process shutdown.

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -328,5 +329,142 @@ func TestRealWorld_DynamicFailover_And_3TryReload(t *testing.T) {
 	curIP, curPort := mc.GetEndpoint()
 	if curPort != server2Port {
 		t.Fatalf("Expected endpoint updated to port %s, got %s:%s", server2Port, curIP, curPort)
+	}
+}
+
+type trackingWriteCloser struct {
+	closed atomic.Bool
+}
+
+func (twc *trackingWriteCloser) Write(p []byte) (int, error) {
+	if twc.closed.Load() {
+		return 0, io.ErrClosedPipe
+	}
+	return len(p), nil
+}
+
+func (twc *trackingWriteCloser) Close() error {
+	twc.closed.Store(true)
+	return nil
+}
+
+func TestManagedConnection_ConcurrentClose_NoPanic(t *testing.T) {
+	nm := NewNetworkManager(nil, nil)
+	ep := NewEndpoint("127.0.0.1", "9090", "", "tcp")
+	mc := NewManagedConnection(nm, ep)
+
+	mockConn := &trackingWriteCloser{}
+	var wc io.WriteCloser = mockConn
+	mc.currentConn.Store(&wc)
+
+	const goroutines = 100
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	start := make(chan struct{})
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			_ = mc.Close()
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	if !mockConn.closed.Load() {
+		t.Fatal("Expected underlying connection to be closed")
+	}
+	if mc.currentConn.Load() != nil {
+		t.Fatal("Expected currentConn to be nil after Close()")
+	}
+}
+
+func TestManagedConnection_CloseDuringDial_ClosesNewSocketAndLeavesCurrentConnNil(t *testing.T) {
+	nm := NewNetworkManagerWithPolicy(3, 10, 50, 50, 1.0, 0.0)
+	ep := NewEndpoint("127.0.0.1", "9091", "", "tcp")
+
+	dialStarted := make(chan struct{})
+	allowDialReturn := make(chan struct{})
+	dialedConn := &trackingWriteCloser{}
+
+	nm.Dialer = func(target *Endpoint) (io.WriteCloser, error) {
+		close(dialStarted)
+		<-allowDialReturn
+		return dialedConn, nil
+	}
+
+	mc := NewManagedConnection(nm, ep)
+
+	reconnectDone := make(chan error, 1)
+	go func() {
+		reconnectDone <- mc.reconnect()
+	}()
+
+	// Wait until Dialer is blocked inside EstablishConnection
+	<-dialStarted
+
+	// Call Close() while Dialer is blocked
+	if err := mc.Close(); err != nil {
+		t.Fatalf("Unexpected error on Close(): %v", err)
+	}
+
+	// Unblock Dialer so EstablishConnection returns (dialedConn, nil)
+	close(allowDialReturn)
+
+	err := <-reconnectDone
+	if err == nil {
+		t.Fatal("Expected reconnect() to return error when closed during dial")
+	}
+	if !dialedConn.closed.Load() {
+		t.Fatal("Expected newly dialed connection to be immediately closed on shutdown race")
+	}
+	if mc.currentConn.Load() != nil {
+		t.Fatal("Expected currentConn to remain nil after Close() during dial")
+	}
+}
+
+func TestNetworkManager_WithPolicy_ClampingAndConnectEndpointFailure(t *testing.T) {
+	nm := NewNetworkManagerWithPolicy(-5, -100, -50, -10, 0.2, 2.5)
+	if nm.MaxRetries != -1 {
+		t.Errorf("Expected MaxRetries clamped to -1, got %d", nm.MaxRetries)
+	}
+	if nm.BaseDelay != 0 {
+		t.Errorf("Expected BaseDelay clamped to 0, got %v", nm.BaseDelay)
+	}
+	if nm.MaxDelay != 0 {
+		t.Errorf("Expected MaxDelay clamped to 0, got %v", nm.MaxDelay)
+	}
+	if nm.ConnectTimeout != 0 {
+		t.Errorf("Expected ConnectTimeout clamped to 0, got %v", nm.ConnectTimeout)
+	}
+	if nm.Backoff != 1.0 {
+		t.Errorf("Expected Backoff clamped to 1.0, got %v", nm.Backoff)
+	}
+	if nm.Jitter != 1.0 {
+		t.Errorf("Expected Jitter clamped to 1.0, got %v", nm.Jitter)
+	}
+
+	// Verify ModeBlocking in ConnectEndpoint logs warning and triggers OnError when MaxRetries == 0
+	var onErrorCount atomic.Int32
+	nm.WithPolicy(0, 10, 5, 10, 0.5, -0.5)
+	if nm.MaxDelay != nm.BaseDelay {
+		t.Errorf("Expected MaxDelay clamped to BaseDelay (%v), got %v", nm.BaseDelay, nm.MaxDelay)
+	}
+	if nm.Jitter != 0.0 {
+		t.Errorf("Expected negative Jitter clamped to 0.0, got %v", nm.Jitter)
+	}
+	nm.OnError = func(attempt int, err error, source string, msg string) {
+		onErrorCount.Add(1)
+	}
+
+	ep := NewEndpoint("127.0.0.1", "9999", "", "tcp")
+	mc := nm.ConnectEndpoint(ep, ModeBlocking)
+	if mc == nil {
+		t.Fatal("Expected non-nil ManagedConnection from ConnectEndpoint")
+	}
+	if onErrorCount.Load() != 1 {
+		t.Errorf("Expected OnError to be triggered once on ModeBlocking failure with MaxRetries=0, got %d", onErrorCount.Load())
 	}
 }

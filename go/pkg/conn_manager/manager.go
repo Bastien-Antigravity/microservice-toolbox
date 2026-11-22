@@ -92,6 +92,26 @@ func NewNetworkManager(ac *config.AppConfig, l logger.Logger) *NetworkManager {
 
 // WithPolicy configures custom retry policy parameters on NetworkManager.
 func (nm *NetworkManager) WithPolicy(maxRetries int, baseDelayMs, maxDelayMs, connectTimeoutMs int, backoff, jitter float64) *NetworkManager {
+	if maxRetries < -1 {
+		maxRetries = -1
+	}
+	if baseDelayMs < 0 {
+		baseDelayMs = 0
+	}
+	if maxDelayMs < baseDelayMs {
+		maxDelayMs = baseDelayMs
+	}
+	if connectTimeoutMs < 0 {
+		connectTimeoutMs = 0
+	}
+	if backoff < 1.0 {
+		backoff = 1.0
+	}
+	if jitter < 0.0 {
+		jitter = 0.0
+	} else if jitter > 1.0 {
+		jitter = 1.0
+	}
 	nm.MaxRetries = maxRetries
 	nm.BaseDelay = time.Duration(baseDelayMs) * time.Millisecond
 	nm.MaxDelay = time.Duration(maxDelayMs) * time.Millisecond
@@ -120,13 +140,33 @@ func NewNetworkManagerWithLogger(maxRetries int, baseDelayMs, maxDelayMs, connec
 // GetNextDelay calculates the delay for the next attempt using backoff and jitter.
 // attempt is 0-indexed.
 func (nm *NetworkManager) GetNextDelay(attempt int) time.Duration {
-	delay := float64(nm.BaseDelay) * math.Pow(nm.Backoff, float64(attempt))
-	if delay > float64(nm.MaxDelay) {
-		delay = float64(nm.MaxDelay)
+	if attempt < 0 {
+		attempt = 0
+	}
+	baseDelay := nm.BaseDelay
+	if baseDelay < 0 {
+		baseDelay = 0
+	}
+	maxDelay := nm.MaxDelay
+	if maxDelay < baseDelay {
+		maxDelay = baseDelay
+	}
+	backoff := nm.Backoff
+	if backoff < 1.0 {
+		backoff = 1.0
 	}
 
-	if nm.Jitter > 0 {
-		jitterVal := rand.Float64() * nm.Jitter * delay
+	delay := float64(baseDelay) * math.Pow(backoff, float64(attempt))
+	if delay > float64(maxDelay) || math.IsNaN(delay) || math.IsInf(delay, 0) {
+		delay = float64(maxDelay)
+	}
+
+	jitter := nm.Jitter
+	if jitter > 1.0 {
+		jitter = 1.0
+	}
+	if jitter > 0 {
+		jitterVal := rand.Float64() * jitter * delay
 		delay += jitterVal
 	}
 
@@ -267,6 +307,14 @@ func (nm *NetworkManager) ConnectEndpoint(ep *Endpoint, mode ConnectionMode) *Ma
 	case ModeBlocking:
 		mc, err := nm.ConnectWithRetryEndpoint(ep)
 		if err != nil {
+			addr := ""
+			if ep != nil {
+				addr = ep.Address
+			}
+			nm.Logger.Warning("NetworkManager: Blocking connection to %s failed (%v); returning unconnected ManagedConnection", addr, err)
+			if nm.OnError != nil && nm.MaxRetries <= 0 {
+				nm.OnError(1, err, "NetworkManager", fmt.Sprintf("Failed blocking connection to %s", addr))
+			}
 			return NewManagedConnection(nm, ep)
 		}
 		return mc

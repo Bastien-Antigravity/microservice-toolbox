@@ -71,8 +71,9 @@ Unified OpenMFE service registration and microservice-owned Exchange Contract de
 
 ### 7. Real-Time Transport WireTap (`wiretap`)
 Lock-free, real-time inter-service connection and segregated channel telemetry across **SafeSocket TCP**, **gRPC**, **NATS**, **HTTP REST**, and **External Gateways/MCP Clients** in **Go, Python, Rust, and C++17**:
-- **Atomic Switch**: Controlled via `common.wiretap_enabled` (or `local.wiretap_enabled`) in `AppConfig` (`SetEnabled(bool)` / `set_enabled(bool)`) with zero mutexes on the hot path and live runtime hot-reload.
+- **Atomic Switch**: Enabled by default and controlled via `common.wiretap_enabled` (or `local.wiretap_enabled`) in `AppConfig` (`SetEnabled(bool)` / `set_enabled(bool)`) with zero mutexes on the hot path and live runtime hot-reload.
 - **Segregated Channel Tracking**: Captures per-edge logical sub-channels (`RegisterService`, `SendEvent`, `DispatchNotification`, `mcp:tool:*`, NATS subjects) with live frame and byte counters (`EdgeReport`, `ChannelMetric` / `ChannelStat`).
+- **Payload Cap & Secret Redaction**: `SanitizePayloadSummary` automatically redacts any `ENC(...)` secret token (`ENC([REDACTED])`) and truncates payload summaries to at most 256 bytes (`...`) before storing or merging snapshots.
 - **Zero-Touch Mesh Integration**: Automatically initialized by `BootstrapService` (Go) and `init_microservice` (Python), or configured via `ConfigureFromConfig` / `configure_from_config` in C++ and Rust, streaming `EdgeReport` snapshots to `web-interface` (`/api/v1/system/wiretap/ingest`).
 
 ---

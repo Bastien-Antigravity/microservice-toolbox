@@ -14,6 +14,7 @@ package lifecycle
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,4 +59,52 @@ func TestManager_Lifecycle(t *testing.T) {
 	assert.Equal(t, []string{"second", "first"}, order)
 	m2.ExecuteCleanups()
 	assert.Equal(t, []string{"second", "first"}, order)
+}
+
+func TestManager_HookTimeout_ContinuesLIFOExecution(t *testing.T) {
+	m := NewManager()
+	assert.Equal(t, 10*time.Second, m.HookTimeout, "Default HookTimeout should be 10s")
+
+	m.HookTimeout = 30 * time.Millisecond
+
+	var mu sync.Mutex
+	var executed []string
+	releaseHungHook := make(chan struct{})
+	defer close(releaseHungHook)
+
+	m.Register("first_SurvivingHook", func() error {
+		mu.Lock()
+		executed = append(executed, "first_SurvivingHook")
+		mu.Unlock()
+		return nil
+	})
+
+	m.Register("second_HungHook", func() error {
+		mu.Lock()
+		executed = append(executed, "second_HungHook_started")
+		mu.Unlock()
+		<-releaseHungHook
+		return nil
+	})
+
+	m.Register("third_FastHook", func() error {
+		mu.Lock()
+		executed = append(executed, "third_FastHook")
+		mu.Unlock()
+		return nil
+	})
+
+	start := time.Now()
+	m.ExecuteCleanups()
+	elapsed := time.Since(start)
+
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("ExecuteCleanups took too long (%v), expected HookTimeout to unblock hung hook", elapsed)
+	}
+
+	mu.Lock()
+	got := append([]string(nil), executed...)
+	mu.Unlock()
+
+	assert.Equal(t, []string{"third_FastHook", "second_HungHook_started", "first_SurvivingHook"}, got)
 }
