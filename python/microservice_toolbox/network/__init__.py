@@ -13,5 +13,19 @@ KEY PARAMETERS:
 """
 
 from .grpc_server import GRPCServer
+from .tls import (
+    build_client_ssl_credentials,
+    create_aio_channel,
+    is_local_address,
+    normalize_tls_mode,
+    should_use_client_tls,
+)
 
-__all__ = ["GRPCServer"]
+__all__ = [
+    "GRPCServer",
+    "build_client_ssl_credentials",
+    "create_aio_channel",
+    "is_local_address",
+    "normalize_tls_mode",
+    "should_use_client_tls",
+]

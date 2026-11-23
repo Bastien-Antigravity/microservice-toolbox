@@ -273,6 +273,126 @@ func (ac *AppConfig) UnmarshalLocal(target interface{}) error {
 	return yaml.Unmarshal(data, target)
 }
 
+// -----------------------------------------------------------------------------
+
+// LocalTLSConfig holds non-shared, service-private X.509 TLS/mTLS file paths from the local: section.
+type LocalTLSConfig struct {
+	CertFile     string `yaml:"cert_file" json:"cert_file"`
+	KeyFile      string `yaml:"key_file" json:"key_file"`
+	CAFile       string `yaml:"ca_file" json:"ca_file"`
+	VerifyClient *bool  `yaml:"verify_client,omitempty" json:"verify_client,omitempty"`
+}
+
+// ShouldVerifyClient returns true when mTLS client verification is active.
+// Defaults to true whenever CAFile is configured and VerifyClient is not explicitly set to false.
+func (c LocalTLSConfig) ShouldVerifyClient() bool {
+	if c.VerifyClient != nil {
+		return *c.VerifyClient
+	}
+	return strings.TrimSpace(c.CAFile) != ""
+}
+
+func (c LocalTLSConfig) isEmpty() bool {
+	return c.CertFile == "" && c.KeyFile == "" && c.CAFile == "" && c.VerifyClient == nil
+}
+
+// GetLocalTLSConfig resolves service-private X.509 TLS/mTLS paths strictly from ac.Local.
+// Precedence: local.<serviceKey>.tls (exact, then '-'/'_' normalized) -> local.tls.
+func (ac *AppConfig) GetLocalTLSConfig(serviceKey string) LocalTLSConfig {
+	if ac == nil || ac.Local == nil {
+		return LocalTLSConfig{}
+	}
+
+	trimmedKey := strings.TrimSpace(serviceKey)
+	if trimmedKey != "" {
+		candidates := []string{trimmedKey + ".tls"}
+		if under := strings.ReplaceAll(trimmedKey, "-", "_"); under != trimmedKey {
+			candidates = append(candidates, under+".tls")
+		}
+		if dash := strings.ReplaceAll(trimmedKey, "_", "-"); dash != trimmedKey {
+			candidates = append(candidates, dash+".tls")
+		}
+
+		for _, key := range candidates {
+			if cfg := extractLocalTLSConfig(ac.GetLocal(key)); !cfg.isEmpty() {
+				return cfg
+			}
+		}
+	}
+
+	return extractLocalTLSConfig(ac.GetLocal("tls"))
+}
+
+func extractLocalTLSConfig(raw interface{}) LocalTLSConfig {
+	if raw == nil {
+		return LocalTLSConfig{}
+	}
+
+	switch typed := raw.(type) {
+	case LocalTLSConfig:
+		typed.CertFile = strings.TrimSpace(typed.CertFile)
+		typed.KeyFile = strings.TrimSpace(typed.KeyFile)
+		typed.CAFile = strings.TrimSpace(typed.CAFile)
+		return typed
+	case *LocalTLSConfig:
+		if typed == nil {
+			return LocalTLSConfig{}
+		}
+		return LocalTLSConfig{
+			CertFile:     strings.TrimSpace(typed.CertFile),
+			KeyFile:      strings.TrimSpace(typed.KeyFile),
+			CAFile:       strings.TrimSpace(typed.CAFile),
+			VerifyClient: typed.VerifyClient,
+		}
+	case map[string]interface{}:
+		return extractLocalTLSFromMap(typed)
+	case map[interface{}]interface{}:
+		normalized := make(map[string]interface{}, len(typed))
+		for k, v := range typed {
+			if ks, ok := k.(string); ok {
+				normalized[ks] = v
+			}
+		}
+		return extractLocalTLSFromMap(normalized)
+	default:
+		return LocalTLSConfig{}
+	}
+}
+
+func extractLocalTLSFromMap(m map[string]interface{}) LocalTLSConfig {
+	cfg := LocalTLSConfig{
+		CertFile: extractTrimmedString(m["cert_file"]),
+		KeyFile:  extractTrimmedString(m["key_file"]),
+		CAFile:   extractTrimmedString(m["ca_file"]),
+	}
+
+	if rawVerify, exists := m["verify_client"]; exists && rawVerify != nil {
+		switch v := rawVerify.(type) {
+		case bool:
+			b := v
+			cfg.VerifyClient = &b
+		case string:
+			switch strings.ToLower(strings.TrimSpace(v)) {
+			case "true":
+				b := true
+				cfg.VerifyClient = &b
+			case "false":
+				b := false
+				cfg.VerifyClient = &b
+			}
+		}
+	}
+
+	return cfg
+}
+
+func extractTrimmedString(raw interface{}) string {
+	if s, ok := raw.(string); ok {
+		return strings.TrimSpace(s)
+	}
+	return ""
+}
+
 // DecryptSecret decrypts a single ENC(...) ciphertext string.
 // If the string does not start with ENC(...), it is returned as-is (plaintext fallback).
 // If it is an ENC(...) block but decryption fails, an error is returned.

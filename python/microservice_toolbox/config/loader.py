@@ -27,6 +27,7 @@ from yaml import safe_load as yamlSafeLoad
 from ..logger import Logger, ensure_safe_logger
 from ..utils.lib_loader import CALLBACK_TYPE, load_libdistconf
 from .args import parse_cli_args
+from .local_tls import LocalTLSConfig, extract_local_tls_config
 from .merger import deep_merge
 
 lib = load_libdistconf()
@@ -507,6 +508,30 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
+    def get_local_tls_config(self, service_key: str = "") -> LocalTLSConfig:
+        """
+        Resolves service-private X.509 TLS/mTLS paths strictly from local:.
+        Precedence: local.<service_key>.tls (exact, then '-'/'_' normalized) -> local.tls.
+        """
+        trimmed_key = service_key.strip() if isinstance(service_key, str) else ""
+        if trimmed_key:
+            candidates = [f"{trimmed_key}.tls"]
+            under = trimmed_key.replace("-", "_")
+            if under != trimmed_key:
+                candidates.append(f"{under}.tls")
+            dash = trimmed_key.replace("_", "-")
+            if dash != trimmed_key:
+                candidates.append(f"{dash}.tls")
+
+            for key in candidates:
+                cfg = extract_local_tls_config(self.get_local(key))
+                if not cfg.is_empty():
+                    return cfg
+
+        return extract_local_tls_config(self.get_local("tls"))
+
+    # -----------------------------------------------------------------------------------------------
+
     def unmarshal_local(self, target: Any) -> Any:
         """
         Unmarshals the 'local' configuration section into a target type or instance.
@@ -546,8 +571,8 @@ class AppConfig:
         def _bridge_cb(handle: int, json_data: bytes) -> None:
             try:
                 data = jsonLoads(json_data.decode('utf-8'))
+                self._sync_from_bridge()  # Keep local data in sync before callback reads AppConfig
                 callback(data)
-                self._sync_from_bridge()  # Keep local data in sync
             except Exception as e:
                 self.logger.error(f"{self.Name} : Live update callback failed: {e}")
 

@@ -14,4 +14,4 @@ pub mod loader;
 pub mod merger;
 pub mod ffi;
 
-pub use loader::load_config;
+pub use loader::{load_config, LocalTLSConfig};

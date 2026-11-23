@@ -12,10 +12,16 @@
 package teleremote
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	toolbox_config "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/config"
+
+	distconf "github.com/Bastien-Antigravity/distributed-config"
 )
 
 func TestTeleClient_ActionAndMenuGeneration(t *testing.T) {
@@ -128,4 +134,183 @@ func TestTeleClient_SendTelemetryDisconnected(t *testing.T) {
 	err := client.SendTelemetry("test message")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not connected to tele-remote")
+}
+
+func TestGenerateMenuJSON_WithPriorityAndOrder(t *testing.T) {
+	client := NewTeleClient("TestApp", "127.0.0.1", 1863, nil)
+	client.UpdateActions([]Action{
+		{
+			Label:    "Second",
+			Order:    20,
+			Callback: func(input string) error { return nil },
+		},
+		{
+			Label: "First Menu",
+			Order: 10,
+			SubMenu: []Action{
+				{
+					Label:    "Sub Item",
+					Order:    5,
+					Callback: func(input string) error { return nil },
+				},
+			},
+		},
+	})
+
+	// Default priority == 0 emits flat JSON array for backward compatibility
+	defaultJSON := client.GenerateMenuJSON()
+	var flatRows []rowDef
+	require.NoError(t, json.Unmarshal([]byte(defaultJSON), &flatRows))
+	require.Len(t, flatRows, 2)
+	assert.Equal(t, 20, flatRows[0].Order)
+	assert.Equal(t, 20, flatRows[0].Buttons[0].Order)
+	assert.Equal(t, 10, flatRows[1].Order)
+	assert.Equal(t, 10, flatRows[1].Buttons[0].Order)
+	require.Len(t, flatRows[1].Buttons[0].Menu, 1)
+	assert.Equal(t, 5, flatRows[1].Buttons[0].Menu[0].Order)
+	assert.Equal(t, 5, flatRows[1].Buttons[0].Menu[0].Buttons[0].Order)
+
+	// Priority > 0 emits OpenMFE wrapper object {"priority": ..., "rows": [...]}
+	returned := client.SetPriority(20)
+	assert.Same(t, client, returned)
+
+	wrappedJSON := client.GenerateMenuJSON()
+	var envelope struct {
+		Priority int      `json:"priority"`
+		Rows     []rowDef `json:"rows"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(wrappedJSON), &envelope))
+	assert.Equal(t, 20, envelope.Priority)
+	require.Len(t, envelope.Rows, 2)
+	assert.Equal(t, 20, envelope.Rows[0].Buttons[0].Order)
+	assert.Equal(t, 10, envelope.Rows[1].Buttons[0].Order)
+}
+
+func TestTeleClient_ConfigureFromAppConfig_LocalTLSAndPolicy(t *testing.T) {
+	dist := distconf.New("standalone")
+	dist.Capabilities = map[string]interface{}{
+		"tele_remote": map[string]interface{}{
+			"tls_enabled":      true,
+			"tls_mode":         "auto",
+			"auth_token":       "secret-tok",
+			"tls_cert_file":    "/ignored/from-capabilities.crt",
+			"tls_key_file":     "/ignored/from-capabilities.key",
+			"private_key_path": "/ignored/legacy-key.pem",
+		},
+		"my_service": map[string]interface{}{
+			"tls": map[string]interface{}{
+				"cert_file": "/ignored/cap-service.crt",
+				"key_file":  "/ignored/cap-service.key",
+				"ca_file":   "/ignored/cap-service-ca.crt",
+			},
+		},
+	}
+	ac := &toolbox_config.AppConfig{
+		Config: dist,
+		Local: map[string]interface{}{
+			"my_service": map[string]interface{}{
+				"tls": map[string]interface{}{
+					"cert_file": "/etc/bastien/certs/my_service.crt",
+					"key_file":  "/etc/bastien/certs/my_service.key",
+					"ca_file":   "/etc/bastien/certs/fleet-ca.crt",
+				},
+			},
+		},
+	}
+
+	client := NewTeleClient("MyService", "10.0.0.5", 1863, nil)
+	err := client.ConfigureFromAppConfig(ac, "my_service")
+	require.NoError(t, err)
+
+	client.mu.RLock()
+	assert.Equal(t, toolbox_config.LocalTLSConfig{
+		CertFile: "/etc/bastien/certs/my_service.crt",
+		KeyFile:  "/etc/bastien/certs/my_service.key",
+		CAFile:   "/etc/bastien/certs/fleet-ca.crt",
+	}, client.localTLS)
+	assert.True(t, client.tlsEnabled)
+	assert.Equal(t, "auto", client.tlsMode)
+	assert.Equal(t, "secret-tok", client.authToken)
+	client.mu.RUnlock()
+
+	t.Run("string tls_enabled and live config update", func(t *testing.T) {
+		dist.ReplaceLive(map[string]map[string]string{
+			"tele_remote": {
+				"tls_enabled": "false",
+				"tls_mode":    "STRICT",
+				"auth_token":  "updated-tok",
+			},
+		})
+		ac.Local["my_service"] = map[string]interface{}{
+			"tls": map[string]interface{}{
+				"cert_file": "/etc/bastien/certs/rotated.crt",
+				"key_file":  "/etc/bastien/certs/rotated.key",
+				"ca_file":   "/etc/bastien/certs/rotated-ca.crt",
+			},
+		}
+		require.NotNil(t, dist.ParentOnLiveConfUpdate)
+		dist.ParentOnLiveConfUpdate(nil)
+
+		client.mu.RLock()
+		assert.False(t, client.tlsEnabled)
+		assert.Equal(t, "strict", client.tlsMode)
+		assert.Equal(t, "updated-tok", client.authToken)
+		assert.Equal(t, toolbox_config.LocalTLSConfig{
+			CertFile: "/etc/bastien/certs/rotated.crt",
+			KeyFile:  "/etc/bastien/certs/rotated.key",
+			CAFile:   "/etc/bastien/certs/rotated-ca.crt",
+		}, client.localTLS)
+		client.mu.RUnlock()
+	})
+
+	t.Run("fail fast when DecryptSecret fails on ENC auth_token", func(t *testing.T) {
+		badDist := distconf.New("standalone")
+		badDist.Capabilities = map[string]interface{}{
+			"tele_remote": map[string]interface{}{
+				"tls_enabled": "true",
+				"tls_mode":    "auto",
+				"auth_token":  "ENC(not-valid-base64-or-key)",
+			},
+		}
+		badAC := &toolbox_config.AppConfig{Config: badDist}
+		badClient := NewTeleClient("MyService", "10.0.0.5", 1863, nil)
+		err := badClient.ConfigureFromAppConfig(badAC, "my_service")
+		assert.Error(t, err)
+	})
+}
+
+func TestTeleClient_SettersAndTLSPolicy(t *testing.T) {
+	client := NewTeleClient("TestApp", "10.0.0.5", 1863, nil)
+	customTLS := &tls.Config{MinVersion: tls.VersionTLS13}
+	localCfg := toolbox_config.LocalTLSConfig{
+		CertFile: " /certs/client.crt ",
+		KeyFile:  " /certs/client.key ",
+		CAFile:   " /certs/ca.crt ",
+	}
+
+	assert.Same(t, client, client.SetAuthToken("  secret-123  "))
+	assert.Same(t, client, client.SetLocalTLS(localCfg))
+	assert.Same(t, client, client.SetTLSPolicy(true, "STRICT"))
+	assert.Same(t, client, client.SetTLSConfig(customTLS))
+	assert.Same(t, client, client.SetPriority(25))
+
+	client.mu.RLock()
+	assert.Equal(t, "secret-123", client.authToken)
+	assert.Equal(t, toolbox_config.LocalTLSConfig{
+		CertFile: "/certs/client.crt",
+		KeyFile:  "/certs/client.key",
+		CAFile:   "/certs/ca.crt",
+	}, client.localTLS)
+	assert.True(t, client.tlsEnabled)
+	assert.Equal(t, "strict", client.tlsMode)
+	assert.Equal(t, customTLS, client.tlsConfig)
+	assert.Equal(t, 25, client.priority)
+	client.mu.RUnlock()
+
+	// Empty mode normalizes to "auto"
+	client.SetTLSPolicy(false, "   ")
+	client.mu.RLock()
+	assert.False(t, client.tlsEnabled)
+	assert.Equal(t, "auto", client.tlsMode)
+	client.mu.RUnlock()
 }

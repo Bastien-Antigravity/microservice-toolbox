@@ -422,3 +422,103 @@ capabilities:
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate endpoint detected")
 }
+
+func TestAppConfig_GetLocalTLSConfig(t *testing.T) {
+	boolFalse := false
+	boolTrue := true
+
+	t.Run("service key takes precedence over local.tls", func(t *testing.T) {
+		ac := &AppConfig{
+			Config: distconf.New("standalone"),
+			Local: map[string]interface{}{
+				"tls": map[string]interface{}{
+					"cert_file": "/etc/bastien/certs/default.crt",
+					"key_file":  "/etc/bastien/certs/default.key",
+					"ca_file":   "/etc/bastien/certs/ca.crt",
+				},
+				"tele-remote": map[string]interface{}{
+					"tls": map[string]interface{}{
+						"cert_file":     " /etc/bastien/certs/tele-remote.crt ",
+						"key_file":      " /etc/bastien/certs/tele-remote.key ",
+						"ca_file":       " /etc/bastien/certs/fleet-ca.crt ",
+						"verify_client": "false",
+					},
+				},
+			},
+		}
+
+		cfg := ac.GetLocalTLSConfig("tele-remote")
+		assert.Equal(t, "/etc/bastien/certs/tele-remote.crt", cfg.CertFile)
+		assert.Equal(t, "/etc/bastien/certs/tele-remote.key", cfg.KeyFile)
+		assert.Equal(t, "/etc/bastien/certs/fleet-ca.crt", cfg.CAFile)
+		if assert.NotNil(t, cfg.VerifyClient) {
+			assert.False(t, *cfg.VerifyClient)
+		}
+		assert.False(t, cfg.ShouldVerifyClient())
+	})
+
+	t.Run("normalized dash and underscore service key lookup", func(t *testing.T) {
+		ac := &AppConfig{
+			Config: distconf.New("standalone"),
+			Local: map[string]interface{}{
+				"tele_remote": map[string]interface{}{
+					"tls": map[string]interface{}{
+						"cert_file":     "/certs/tr.crt",
+						"key_file":      "/certs/tr.key",
+						"ca_file":       "/certs/ca.crt",
+						"verify_client": true,
+					},
+				},
+			},
+		}
+
+		cfg := ac.GetLocalTLSConfig("tele-remote")
+		assert.Equal(t, "/certs/tr.crt", cfg.CertFile)
+		assert.Equal(t, "/certs/tr.key", cfg.KeyFile)
+		assert.Equal(t, "/certs/ca.crt", cfg.CAFile)
+		assert.True(t, cfg.ShouldVerifyClient())
+	})
+
+	t.Run("fallback to local.tls when service key missing", func(t *testing.T) {
+		ac := &AppConfig{
+			Config: distconf.New("standalone"),
+			Local: map[string]interface{}{
+				"tls": map[string]interface{}{
+					"cert_file": "/certs/container.crt",
+					"key_file":  "/certs/container.key",
+					"ca_file":   "/certs/ca.crt",
+				},
+			},
+		}
+
+		cfg := ac.GetLocalTLSConfig("unknown-service")
+		assert.Equal(t, "/certs/container.crt", cfg.CertFile)
+		assert.Equal(t, "/certs/container.key", cfg.KeyFile)
+		assert.Equal(t, "/certs/ca.crt", cfg.CAFile)
+		assert.Nil(t, cfg.VerifyClient)
+		assert.True(t, cfg.ShouldVerifyClient())
+	})
+
+	t.Run("ignores capabilities section", func(t *testing.T) {
+		dist := distconf.New("standalone")
+		dist.Capabilities = map[string]interface{}{
+			"tele-remote": map[string]interface{}{
+				"tls": map[string]interface{}{
+					"cert_file": "/bad/from-capabilities.crt",
+					"key_file":  "/bad/from-capabilities.key",
+				},
+			},
+		}
+		ac := &AppConfig{Config: dist}
+
+		cfg := ac.GetLocalTLSConfig("tele-remote")
+		assert.Equal(t, LocalTLSConfig{}, cfg)
+	})
+
+	t.Run("ShouldVerifyClient defaults and overrides", func(t *testing.T) {
+		assert.False(t, (LocalTLSConfig{}).ShouldVerifyClient())
+		assert.True(t, (LocalTLSConfig{CAFile: "/certs/ca.crt"}).ShouldVerifyClient())
+		assert.False(t, (LocalTLSConfig{CAFile: "/certs/ca.crt", VerifyClient: &boolFalse}).ShouldVerifyClient())
+		assert.True(t, (LocalTLSConfig{CAFile: "", VerifyClient: &boolTrue}).ShouldVerifyClient())
+	})
+}

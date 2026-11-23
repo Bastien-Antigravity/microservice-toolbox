@@ -10,6 +10,7 @@
 // - data: In-memory configuration key-value tree.
 // -----------------------------------------------------------------------------
 
+use serde::{Deserialize, Serialize};
 use serde_yml::Value;
 use std::fs;
 use std::ffi::{CStr, CString, c_char};
@@ -27,14 +28,40 @@ use unilog_rs::LogLevel;
 // Static callback registry — routes C callbacks to Rust closures.
 // One AppConfig per process is the standard microservice pattern.
 type CbBox = Box<dyn Fn(serde_json::Value) + Send + Sync>;
-static LIVE_CB: OnceLock<Mutex<Option<CbBox>>> = OnceLock::new();
+static LIVE_CB: OnceLock<Mutex<Vec<(usize, CbBox)>>> = OnceLock::new();
 static REG_CB: OnceLock<Mutex<Option<CbBox>>> = OnceLock::new();
 
-fn get_live_cb() -> &'static Mutex<Option<CbBox>> {
-    LIVE_CB.get_or_init(|| Mutex::new(None))
+fn get_live_cb() -> &'static Mutex<Vec<(usize, CbBox)>> {
+    LIVE_CB.get_or_init(|| Mutex::new(Vec::new()))
 }
 fn get_reg_cb() -> &'static Mutex<Option<CbBox>> {
     REG_CB.get_or_init(|| Mutex::new(None))
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LocalTLSConfig {
+    pub cert_file: String,
+    pub key_file: String,
+    pub ca_file: String,
+    pub verify_client: Option<bool>,
+}
+
+impl LocalTLSConfig {
+    /// Returns true when mTLS client verification is active.
+    /// Defaults to true whenever `ca_file` is configured and `verify_client` is not explicitly `false`.
+    pub fn should_verify_client(&self) -> bool {
+        self.verify_client
+            .unwrap_or_else(|| !self.ca_file.trim().is_empty())
+    }
+
+    /// Returns true when all fields are unset/empty.
+    pub fn is_empty(&self) -> bool {
+        self.cert_file.is_empty()
+            && self.key_file.is_empty()
+            && self.ca_file.is_empty()
+            && self.verify_client.is_none()
+    }
 }
 
 pub struct AppConfig {
@@ -234,18 +261,22 @@ impl AppConfig {
     /// Explicitly decrypts a single ENC(...) ciphertext string.
     /// Uses the hardened distributed-config engine for cross-language consistency.
     pub fn decrypt_secret(&self, ciphertext: &str) -> Result<String, String> {
+        Self::decrypt_secret_by_handle(self._handle, ciphertext)
+    }
+
+    pub(crate) fn decrypt_secret_by_handle(handle_opt: Option<usize>, ciphertext: &str) -> Result<String, String> {
         if !ciphertext.starts_with("ENC(") || !ciphertext.ends_with(")") {
             return Ok(ciphertext.to_string());
         }
 
-        if let Some(handle) = self._handle
+        if let Some(handle) = handle_opt
             && let Some(lib) = crate::config::ffi::get_lib() {
                 let cipher_c = CString::new(ciphertext).map_err(|e| e.to_string())?;
                 let ptr = unsafe { (lib.dist_conf_decrypt)(handle, cipher_c.as_ptr()) };
                 if !ptr.is_null() && let Some(decrypted) = unsafe { crate::config::ffi::to_rust_string(ptr as *mut c_char) } {
                     return Ok(decrypted);
                 }
-                
+
                 let err_ptr = unsafe { (lib.dist_conf_get_last_error)() };
                 if !err_ptr.is_null() {
                     let c_str = unsafe { CStr::from_ptr(err_ptr) };
@@ -425,6 +456,88 @@ impl AppConfig {
         self.get_value(&format!("local.{}", key))
     }
 
+    /// Resolves service-private X.509 TLS/mTLS paths strictly from `local`.
+    /// Precedence: `local.<service_key>.tls` (exact, then '-'/'_' normalized) -> `local.tls`.
+    pub fn get_local_tls_config(&self, service_key: &str) -> LocalTLSConfig {
+        let trimmed_key = service_key.trim();
+        if !trimmed_key.is_empty() {
+            let mut candidates = vec![format!("{}.tls", trimmed_key)];
+            let under = trimmed_key.replace('-', "_");
+            if under != trimmed_key {
+                candidates.push(format!("{}.tls", under));
+            }
+            let dash = trimmed_key.replace('_', "-");
+            if dash != trimmed_key {
+                candidates.push(format!("{}.tls", dash));
+            }
+
+            for key in &candidates {
+                let cfg = Self::extract_local_tls_config(self.get_local(key));
+                if !cfg.is_empty() {
+                    return cfg;
+                }
+            }
+        }
+
+        Self::extract_local_tls_config(self.get_local("tls"))
+    }
+
+    fn extract_local_tls_config(raw: Option<&Value>) -> LocalTLSConfig {
+        let Some(Value::Mapping(map)) = raw else {
+            return LocalTLSConfig::default();
+        };
+
+        let extract_trimmed = |field: &str| -> String {
+            map.get(field)
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default()
+        };
+
+        let verify_client = match map.get("verify_client") {
+            Some(Value::Bool(b)) => Some(*b),
+            Some(Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
+                "true" => Some(true),
+                "false" => Some(false),
+                _ => None,
+            },
+            _ => None,
+        };
+
+        LocalTLSConfig {
+            cert_file: extract_trimmed("cert_file"),
+            key_file: extract_trimmed("key_file"),
+            ca_file: extract_trimmed("ca_file"),
+            verify_client,
+        }
+    }
+
+    /// Resolves a capability block as JSON via CGO bridge or local YAML tree.
+    pub fn get_capability(&self, capability: &str) -> Result<serde_json::Value, String> {
+        if let Some(handle) = self._handle {
+            return Self::get_capability_by_handle(handle, capability);
+        }
+        let val = self
+            .get_value(&format!("capabilities.{}", capability))
+            .ok_or_else(|| format!("capability {} not found", capability))?;
+        serde_json::to_value(val).map_err(|e| format!("failed to serialize capability {}: {}", capability, e))
+    }
+
+    pub(crate) fn bridge_handle(&self) -> Option<usize> {
+        self._handle
+    }
+
+    pub(crate) fn get_capability_by_handle(handle: usize, capability: &str) -> Result<serde_json::Value, String> {
+        let lib = crate::config::ffi::get_lib()
+            .ok_or_else(|| "distconf bridge not available".to_string())?;
+        let cap_c = CString::new(capability).map_err(|e| e.to_string())?;
+        let ptr = (lib.dist_conf_get_capability)(handle, cap_c.as_ptr());
+        let json_str = unsafe { crate::config::ffi::to_rust_string(ptr) }
+            .ok_or_else(|| Self::get_bridge_error(lib, &format!("capability {} not found", capability)))?;
+        serde_json::from_str(&json_str)
+            .map_err(|e| format!("failed to parse capability {} JSON: {}", capability, e))
+    }
+
     /// Unmarshals the 'local' (local) configuration section into a target type.
     /// Parity with Go's UnmarshalLocal.
     pub fn unmarshal_local<T: serde::de::DeserializeOwned>(&self) -> Result<T, String> {
@@ -558,25 +671,34 @@ impl AppConfig {
         self.get_value(&format!("{}.{}", section, key)).and_then(|v| v.as_str()).map(|s| s.to_string())
     }
 
-    pub fn on_live_conf_update<F>(&mut self, cb: F) 
+    pub fn on_live_conf_update<F>(&self, cb: F)
     where F: Fn(serde_json::Value) + Send + Sync + 'static {
         if let Some(handle) = self._handle
             && let Some(lib) = crate::config::ffi::get_lib() {
-                
-                *get_live_cb().lock().unwrap() = Some(Box::new(cb));
-                
-                extern "C" fn internal_cb(_handle: usize, json_ptr: *const std::os::raw::c_char) {
+                extern "C" fn internal_cb(cb_handle: usize, json_ptr: *const std::os::raw::c_char) {
                     if !json_ptr.is_null() {
                         let json_str = unsafe { std::ffi::CStr::from_ptr(json_ptr).to_string_lossy() };
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&json_str)
-                            && let Ok(guard) = get_live_cb().lock()
-                            && let Some(cb) = guard.as_ref() {
-                                cb(val);
+                            && let Ok(guard) = get_live_cb().lock() {
+                                for (registered_handle, cb) in guard.iter() {
+                                    if *registered_handle == cb_handle {
+                                        cb(val.clone());
+                                    }
+                                }
                         }
                     }
                 }
 
-                (lib.dist_conf_on_live_conf_update)(handle, internal_cb);
+                let should_register = {
+                    let mut guard = get_live_cb().lock().unwrap();
+                    let already_registered = guard.iter().any(|(h, _)| *h == handle);
+                    guard.push((handle, Box::new(cb)));
+                    !already_registered
+                };
+
+                if should_register {
+                    (lib.dist_conf_on_live_conf_update)(handle, internal_cb);
+                }
         }
     }
 
@@ -671,9 +793,13 @@ impl AppConfig {
 
 impl Drop for AppConfig {
     fn drop(&mut self) {
-        if let Some(handle) = self._handle
-            && let Some(lib) = crate::config::ffi::get_lib() {
+        if let Some(handle) = self._handle {
+            if let Ok(mut guard) = get_live_cb().lock() {
+                guard.retain(|(h, _)| *h != handle);
+            }
+            if let Some(lib) = crate::config::ffi::get_lib() {
                 (lib.dist_conf_close)(handle);
+            }
         }
     }
 }
@@ -947,5 +1073,72 @@ mod tests {
         assert_eq!(ac.get_local("host").unwrap().as_str().unwrap(), "127.0.0.5");
         assert_eq!(ac.get_local("port").unwrap().as_str().unwrap(), "8080");
         assert_eq!(ac.get_local("ls_port").unwrap().as_str().unwrap(), "9020");
+    }
+
+    #[test]
+    fn test_get_local_tls_config_precedence_and_normalization() {
+        let yaml_str = r#"
+capabilities:
+  tele_remote:
+    tls:
+      cert_file: "/wrong/cap.crt"
+      key_file: "/wrong/cap.key"
+      ca_file: "/wrong/cap-ca.crt"
+local:
+  tls:
+    cert_file: " /etc/tls/default.crt "
+    key_file: " /etc/tls/default.key "
+    ca_file: " /etc/tls/default-ca.crt "
+  tele_remote:
+    tls:
+      cert_file: " /etc/tls/tr.crt "
+      key_file: " /etc/tls/tr.key "
+      ca_file: " /etc/tls/tr-ca.crt "
+      verify_client: "false"
+  custom-svc:
+    tls:
+      cert_file: "/etc/tls/custom.crt"
+      key_file: "/etc/tls/custom.key"
+      ca_file: "/etc/tls/custom-ca.crt"
+      verify_client: true
+"#;
+        let data = serde_yml::from_str::<Value>(yaml_str).unwrap();
+        let ac = AppConfig::from_value(data);
+
+        // Exact match + dash-to-underscore normalization
+        let tr_from_dash = ac.get_local_tls_config("tele-remote");
+        assert_eq!(tr_from_dash.cert_file, "/etc/tls/tr.crt");
+        assert_eq!(tr_from_dash.key_file, "/etc/tls/tr.key");
+        assert_eq!(tr_from_dash.ca_file, "/etc/tls/tr-ca.crt");
+        assert_eq!(tr_from_dash.verify_client, Some(false));
+        assert!(!tr_from_dash.should_verify_client());
+
+        // Underscore-to-dash normalization
+        let custom_from_under = ac.get_local_tls_config("custom_svc");
+        assert_eq!(custom_from_under.cert_file, "/etc/tls/custom.crt");
+        assert_eq!(custom_from_under.verify_client, Some(true));
+        assert!(custom_from_under.should_verify_client());
+
+        // Fallback to local.tls (never reads capabilities)
+        let fallback = ac.get_local_tls_config("unknown_service");
+        assert_eq!(fallback.cert_file, "/etc/tls/default.crt");
+        assert_eq!(fallback.key_file, "/etc/tls/default.key");
+        assert_eq!(fallback.ca_file, "/etc/tls/default-ca.crt");
+        assert_eq!(fallback.verify_client, None);
+        assert!(fallback.should_verify_client());
+
+        // Ignores capabilities entirely when local is empty
+        let cap_only_yaml = r#"
+capabilities:
+  tele_remote:
+    tls:
+      cert_file: "/wrong/cap.crt"
+      key_file: "/wrong/cap.key"
+      ca_file: "/wrong/cap-ca.crt"
+"#;
+        let cap_only = AppConfig::from_value(serde_yml::from_str::<Value>(cap_only_yaml).unwrap());
+        let empty = cap_only.get_local_tls_config("tele_remote");
+        assert!(empty.is_empty());
+        assert!(!empty.should_verify_client());
     }
 }

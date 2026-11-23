@@ -3,6 +3,7 @@ import os
 import pytest
 import yaml
 
+from microservice_toolbox.config import LocalTLSConfig
 from microservice_toolbox.config.loader import AppConfig, load_config
 
 # ---- Deep Merge ----
@@ -329,3 +330,119 @@ def test_cli_docker_guard_uses_docker_env_var(monkeypatch):
     docker_args = parse_cli_args(input_args=["--host", "10.0.0.1", "--port", "5555"])
     assert docker_args.host is None
     assert docker_args.port is None
+
+
+# ---- Local TLS Config ----
+
+def test_local_tls_config_should_verify_client():
+    empty = LocalTLSConfig()
+    assert empty.is_empty() is True
+    assert empty.should_verify_client() is False
+
+    ca_only = LocalTLSConfig(ca_file="  /tmp/ca.crt  ")
+    assert ca_only.is_empty() is False
+    assert ca_only.should_verify_client() is True
+
+    explicit_false = LocalTLSConfig(ca_file="/tmp/ca.crt", verify_client=False)
+    assert explicit_false.is_empty() is False
+    assert explicit_false.should_verify_client() is False
+
+    explicit_true = LocalTLSConfig(verify_client=True)
+    assert explicit_true.is_empty() is False
+    assert explicit_true.should_verify_client() is True
+
+
+def test_get_local_tls_config_precedence_and_normalization(tmp_path):
+    config_file = tmp_path / "tls_precedence.yaml"
+    data = {
+        "capabilities": {
+            "tele_remote": {
+                "tls": {
+                    "cert_file": "/cap/should-be-ignored.crt",
+                    "key_file": "/cap/should-be-ignored.key",
+                    "ca_file": "/cap/ca.crt",
+                }
+            }
+        },
+        "local": {
+            "tls": {
+                "cert_file": "/local/default.crt",
+                "key_file": "/local/default.key",
+                "ca_file": "/local/ca.crt",
+            },
+            "tele-remote": {
+                "tls": {
+                    "cert_file": "  /local/tele.crt  ",
+                    "key_file": "  /local/tele.key  ",
+                    "ca_file": "  /local/tele-ca.crt ",
+                    "verify_client": "false",
+                }
+            },
+            "watchdog_agent": {
+                "tls": {
+                    "cert_file": "/local/wd.crt",
+                    "key_file": "/local/wd.key",
+                    "ca_file": "/local/wd-ca.crt",
+                    "verify_client": "TRUE",
+                }
+            },
+        },
+    }
+    with open(config_file, "w") as f:
+        yaml.dump(data, f)
+
+    old_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        ac = load_config("tls_precedence", input_args=[])
+
+        tele_cfg = ac.get_local_tls_config("tele_remote")
+        assert tele_cfg.cert_file == "/local/tele.crt"
+        assert tele_cfg.key_file == "/local/tele.key"
+        assert tele_cfg.ca_file == "/local/tele-ca.crt"
+        assert tele_cfg.verify_client is False
+        assert tele_cfg.should_verify_client() is False
+
+        wd_cfg = ac.get_local_tls_config("watchdog-agent")
+        assert wd_cfg.cert_file == "/local/wd.crt"
+        assert wd_cfg.verify_client is True
+        assert wd_cfg.should_verify_client() is True
+
+        fallback_cfg = ac.get_local_tls_config("unknown-service")
+        assert fallback_cfg.cert_file == "/local/default.crt"
+        assert fallback_cfg.key_file == "/local/default.key"
+        assert fallback_cfg.ca_file == "/local/ca.crt"
+        assert fallback_cfg.verify_client is None
+        assert fallback_cfg.should_verify_client() is True
+
+        empty_key_cfg = ac.get_local_tls_config("")
+        assert empty_key_cfg.cert_file == "/local/default.crt"
+    finally:
+        os.chdir(old_cwd)
+
+
+def test_get_local_tls_config_never_reads_capabilities(tmp_path):
+    config_file = tmp_path / "tls_cap_only.yaml"
+    data = {
+        "capabilities": {
+            "tele_remote": {
+                "tls": {
+                    "cert_file": "/cap/cert.crt",
+                    "key_file": "/cap/cert.key",
+                    "ca_file": "/cap/ca.crt",
+                }
+            }
+        }
+    }
+    with open(config_file, "w") as f:
+        yaml.dump(data, f)
+
+    old_cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        ac = load_config("tls_cap_only", input_args=[])
+        cfg = ac.get_local_tls_config("tele_remote")
+        assert cfg.is_empty() is True
+        assert cfg.should_verify_client() is False
+    finally:
+        os.chdir(old_cwd)

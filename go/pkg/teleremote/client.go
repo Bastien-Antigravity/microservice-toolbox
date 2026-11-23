@@ -14,16 +14,23 @@ package teleremote
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/logger"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/teleremote/grpc_client"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/wiretap"
+
+	toolbox_config "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/config"
+	toolbox_network "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/network"
+
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 )
 
 // -----------------------------------------------------------------------------
@@ -32,6 +39,7 @@ import (
 
 type btnDef struct {
 	Label       string   `json:"label"`
+	Order       int      `json:"order,omitempty"`
 	CmdType     int32    `json:"cmd_type,omitempty"`
 	Payload     string   `json:"payload,omitempty"`
 	InputPrompt string   `json:"input_prompt,omitempty"`
@@ -39,7 +47,13 @@ type btnDef struct {
 }
 
 type rowDef struct {
+	Order   int      `json:"order,omitempty"`
 	Buttons []btnDef `json:"buttons"`
+}
+
+type menuEnvelope struct {
+	Priority int      `json:"priority"`
+	Rows     []rowDef `json:"rows"`
 }
 
 // -----------------------------------------------------------------------------
@@ -49,6 +63,7 @@ type rowDef struct {
 // Action defines a single interactive element in the Telegram UI
 type Action struct {
 	Label       string
+	Order       int
 	SubMenu     []Action
 	InputPrompt string                   // If set, bot asks user for text input
 	Callback    func(input string) error // Handler receives optional user text
@@ -72,10 +87,24 @@ type TeleClient struct {
 	cancelFunc context.CancelFunc
 
 	// Automatic UI State
+	priority int
 	actions  []Action
 	handlers map[string]func(string) error // label -> callback
 	cmdChan  chan *grpc_client.BotCommand
 	closed   bool
+
+	// Optional Security & Transport Policy
+	authToken  string
+	tlsEnabled bool
+	tlsMode    string
+	tlsConfig  *tls.Config
+	localTLS   toolbox_config.LocalTLSConfig
+}
+
+type teleRemoteCapability struct {
+	TLSEnabled interface{} `json:"tls_enabled"`
+	TLSMode    string      `json:"tls_mode"`
+	AuthToken  string      `json:"auth_token"`
 }
 
 // NewTeleClient initializes a new Tele-Remote client
@@ -87,6 +116,120 @@ func NewTeleClient(componentName, targetIP string, targetPort int, l logger.Logg
 		logger:        logger.EnsureSafeLogger(l),
 		cmdChan:       make(chan *grpc_client.BotCommand, 100),
 		handlers:      make(map[string]func(string) error),
+	}
+}
+
+// SetPriority configures the OpenMFE menu priority for this component
+func (tc *TeleClient) SetPriority(priority int) *TeleClient {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.priority = priority
+	return tc
+}
+
+// SetAuthToken configures the shared secret sent in outgoing x-tele-auth gRPC metadata
+func (tc *TeleClient) SetAuthToken(token string) *TeleClient {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.authToken = strings.TrimSpace(token)
+	return tc
+}
+
+// SetTLSConfig configures an explicit TLS configuration for the gRPC connection
+func (tc *TeleClient) SetTLSConfig(cfg *tls.Config) *TeleClient {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.tlsConfig = cfg
+	return tc
+}
+
+// SetLocalTLS configures service-private X.509 TLS/mTLS file paths from the local: section
+func (tc *TeleClient) SetLocalTLS(cfg toolbox_config.LocalTLSConfig) *TeleClient {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.localTLS = toolbox_config.LocalTLSConfig{
+		CertFile:     strings.TrimSpace(cfg.CertFile),
+		KeyFile:      strings.TrimSpace(cfg.KeyFile),
+		CAFile:       strings.TrimSpace(cfg.CAFile),
+		VerifyClient: cfg.VerifyClient,
+	}
+	return tc
+}
+
+// SetTLSPolicy configures local/remote-aware TLS enforcement
+func (tc *TeleClient) SetTLSPolicy(enabled bool, mode string) *TeleClient {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.tlsEnabled = enabled
+	tc.tlsMode = toolbox_network.NormalizeTLSMode(mode)
+	return tc
+}
+
+// ConfigureFromAppConfig loads local X.509 credentials, fleet tele_remote TLS/auth policy,
+// and registers a live-configuration callback to refresh them dynamically at runtime.
+func (tc *TeleClient) ConfigureFromAppConfig(ac *toolbox_config.AppConfig, serviceKey string) error {
+	if ac == nil || ac.Config == nil {
+		return fmt.Errorf("TeleClient.ConfigureFromAppConfig requires non-nil AppConfig")
+	}
+
+	if err := tc.applyAppConfigPolicy(ac, serviceKey); err != nil {
+		return err
+	}
+
+	ac.OnLiveConfUpdate(func(_ map[string]interface{}) {
+		if err := tc.applyAppConfigPolicy(ac, serviceKey); err != nil {
+			tc.logger.Warning("TeleClient live config refresh failed: %v", err)
+		}
+	})
+
+	return nil
+}
+
+func (tc *TeleClient) applyAppConfigPolicy(ac *toolbox_config.AppConfig, serviceKey string) error {
+	var trCap teleRemoteCapability
+	if err := ac.Config.GetCapability("tele_remote", &trCap); err != nil {
+		return err
+	}
+
+	tlsEnabled, err := parseCapabilityBool(trCap.TLSEnabled)
+	if err != nil {
+		return fmt.Errorf("invalid tele_remote.tls_enabled: %w", err)
+	}
+
+	authToken := strings.TrimSpace(trCap.AuthToken)
+	if authToken != "" {
+		decrypted, decErr := ac.DecryptSecret(authToken)
+		if decErr != nil {
+			return fmt.Errorf("failed to decrypt tele_remote.auth_token: %w", decErr)
+		}
+		authToken = decrypted
+	}
+
+	tc.SetLocalTLS(ac.GetLocalTLSConfig(serviceKey))
+	tc.SetTLSPolicy(tlsEnabled, trCap.TLSMode)
+	tc.SetAuthToken(authToken)
+	return nil
+}
+
+func parseCapabilityBool(raw interface{}) (bool, error) {
+	if raw == nil {
+		return false, nil
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v, nil
+	case string:
+		trimmed := strings.ToLower(strings.TrimSpace(v))
+		switch trimmed {
+		case "", "false":
+			return false, nil
+		case "true":
+			return true, nil
+		default:
+			return false, fmt.Errorf("expected boolean or \"true\"/\"false\", got %q", v)
+		}
+	default:
+		return false, fmt.Errorf("expected boolean or string, got %T", raw)
 	}
 }
 
@@ -129,11 +272,22 @@ func (tc *TeleClient) GenerateMenuJSON() string {
 	tc.mu.RLock()
 	defer tc.mu.RUnlock()
 
-	var rows []rowDef
-
+	rows := make([]rowDef, 0, len(tc.actions))
 	for _, a := range tc.actions {
 		btn := tc.convertActionToBtn(a)
-		rows = append(rows, rowDef{Buttons: []btnDef{btn}})
+		row := rowDef{Buttons: []btnDef{btn}}
+		if a.Order > 0 {
+			row.Order = a.Order
+		}
+		rows = append(rows, row)
+	}
+
+	if tc.priority > 0 {
+		data, _ := json.Marshal(menuEnvelope{
+			Priority: tc.priority,
+			Rows:     rows,
+		})
+		return string(data)
 	}
 
 	data, _ := json.Marshal(rows)
@@ -145,13 +299,20 @@ func (tc *TeleClient) convertActionToBtn(a Action) btnDef {
 		Label:       a.Label,
 		InputPrompt: a.InputPrompt,
 	}
+	if a.Order > 0 {
+		btn.Order = a.Order
+	}
 
 	if len(a.SubMenu) > 0 || a.Callback == nil {
 		// Recursive Menu Generation - one button per row
-		subRows := []rowDef{}
+		subRows := make([]rowDef, 0, len(a.SubMenu))
 		for _, subA := range a.SubMenu {
 			subBtn := tc.convertActionToBtn(subA)
-			subRows = append(subRows, rowDef{Buttons: []btnDef{subBtn}})
+			subRow := rowDef{Buttons: []btnDef{subBtn}}
+			if subA.Order > 0 {
+				subRow.Order = subA.Order
+			}
+			subRows = append(subRows, subRow)
 		}
 		btn.Menu = subRows
 	} else {
@@ -226,12 +387,31 @@ func (tc *TeleClient) connectionManager() {
 			tc.mu.RUnlock()
 			return
 		}
+		explicitTLS := tc.tlsConfig
+		tlsEnabled := tc.tlsEnabled
+		tlsMode := tc.tlsMode
+		localTLS := tc.localTLS
+		targetIP := tc.targetIP
+		authToken := tc.authToken
 		tc.mu.RUnlock()
+
+		var transportCreds credentials.TransportCredentials
+		if explicitTLS != nil {
+			transportCreds = credentials.NewTLS(explicitTLS)
+		} else {
+			var tlsErr error
+			transportCreds, tlsErr = toolbox_network.DialTransportCredentials(localTLS, targetIP, tlsEnabled, tlsMode)
+			if tlsErr != nil {
+				tc.logger.Warning("TeleClient failed to resolve TLS credentials for %s: %v", addr, tlsErr)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+		}
 
 		tc.logger.Info("TeleClient connecting to %s...", addr)
 
 		dialOpts := append(
-			[]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
+			[]grpc.DialOption{grpc.WithTransportCredentials(transportCreds)},
 			wiretap.ClientDialOptions("tele_remote")...,
 		)
 		conn, err := grpc.Dial(addr, dialOpts...)
@@ -243,6 +423,9 @@ func (tc *TeleClient) connectionManager() {
 
 		client := grpc_client.NewTeleRemoteServiceClient(conn)
 		ctx, cancel := context.WithCancel(context.Background())
+		if authToken != "" {
+			ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("x-tele-auth", authToken))
+		}
 
 		stream, err := client.Connect(ctx)
 		if err != nil {
