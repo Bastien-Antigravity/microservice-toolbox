@@ -1,0 +1,1 @@
+../../go/pkg/schemas/notifier/notifier.capnp

@@ -1,0 +1,1 @@
+../../go/pkg/schemas/logger/logger.capnp

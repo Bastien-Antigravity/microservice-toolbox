@@ -234,6 +234,18 @@ struct Packet {
     );
     assert!(env.reliable && env.exhaustive);
     assert_eq!(env.contracts.len(), 1);
+
+    let logger_ops = extract_capnp_operations(LOGGER_CAPNP_SCHEMA);
+    assert_eq!(logger_ops.len(), 2);
+    assert_eq!(logger_ops[0].name, "Level");
+    assert_eq!(logger_ops[0].kind, "ENUM");
+    assert_eq!(logger_ops[1].name, "LoggerMsg");
+    assert_eq!(logger_ops[1].kind, "STRUCT");
+
+    let notifier_ops = extract_capnp_operations(NOTIFIER_CAPNP_SCHEMA);
+    assert_eq!(notifier_ops.len(), 1);
+    assert_eq!(notifier_ops[0].name, "NotifierMsg");
+    assert_eq!(notifier_ops[0].kind, "STRUCT");
 }
 
 #[test]
