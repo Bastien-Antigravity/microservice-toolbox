@@ -13,6 +13,7 @@
 
 import asyncio
 import concurrent.futures
+import threading
 from typing import Optional
 
 import grpc
@@ -168,3 +169,46 @@ def test_notification_missing_capability_fails_fast():
 
     with pytest.raises(ValueError, match="failed to resolve notif_server gRPC address"):
         NotificationClient.from_config(EmptyAppConfig())
+
+
+def test_notification_logs_strictly_on_caller_thread():
+    """Verify libunilog/logger calls never execute inside the libnotif worker thread pool."""
+    caller_tid = threading.get_ident()
+    logged_tids = []
+
+    class ThreadRecordingLogger:
+        def debug(self, msg, *args, **kwargs):
+            logged_tids.append(("debug", threading.get_ident()))
+
+        def info(self, msg, *args, **kwargs):
+            logged_tids.append(("info", threading.get_ident()))
+
+        def warning(self, msg, *args, **kwargs):
+            logged_tids.append(("warning", threading.get_ident()))
+
+        def error(self, msg, *args, **kwargs):
+            logged_tids.append(("error", threading.get_ident()))
+
+        def critical(self, msg, *args, **kwargs):
+            logged_tids.append(("critical", threading.get_ident()))
+
+    async def run_test():
+        _, ok_addr, cleanup_ok = start_mock_server(success=True)
+        _, fail_addr, cleanup_fail = start_mock_server(success=False)
+        try:
+            ok_client = NotificationClient(ok_addr, logger=ThreadRecordingLogger())
+            await ok_client.send("ok message", "telegram")
+            await ok_client.close()
+
+            fail_client = NotificationClient(fail_addr, logger=ThreadRecordingLogger())
+            with pytest.raises(RuntimeError, match="SendNotification failed"):
+                await fail_client.send("fail message", "telegram")
+            await fail_client.close()
+        finally:
+            cleanup_ok()
+            cleanup_fail()
+
+    asyncio.run(run_test())
+    assert ("debug", caller_tid) in logged_tids
+    assert ("warning", caller_tid) in logged_tids
+    assert all(tid == caller_tid for _, tid in logged_tids)

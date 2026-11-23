@@ -20,7 +20,7 @@
 from asyncio import get_running_loop as asyncioGetRunningLoop
 from concurrent.futures import ThreadPoolExecutor as concurrentThreadPoolExecutor
 from ctypes import c_double as ctypesC_double, string_at as ctypesStringAt
-from typing import Optional
+from typing import Optional as typeOptional, Tuple as typeTuple
 
 from ..logger import Logger, ensure_safe_logger
 from ..utils.lib_loader import load_libnotif
@@ -41,7 +41,7 @@ class NotificationClient:
     notifications directly from Python microservices to notif-server via libnotif.
     """
 
-    def __init__(self, target_addr: str, logger: Optional[Logger] = None):
+    def __init__(self, target_addr: str, logger: typeOptional[Logger] = None):
         """
         Initializes a NotificationClient pointing to a specific target address.
         """
@@ -59,7 +59,7 @@ class NotificationClient:
     # -----------------------------------------------------------------------------------------------
 
     @classmethod
-    def from_config(cls, app_config, logger: Optional[Logger] = None) -> "NotificationClient":
+    def from_config(cls, app_config, logger: typeOptional[Logger] = None) -> "NotificationClient":
         """
         Initializes a NotificationClient by dynamically resolving the notif_server
         capability address from the provided ecosystem AppConfig.
@@ -116,11 +116,12 @@ class NotificationClient:
             raise RuntimeError("notification client is closed")
 
         loop = asyncioGetRunningLoop()
-        await loop.run_in_executor(
+        rc, err_str = await loop.run_in_executor(
             _notif_executor,
             self._dispatch_c_call,
             level, message, attachment, *tags
         )
+        self._handle_dispatch_result(rc, err_str, level, tags)
 
     # -----------------------------------------------------------------------------------------------
 
@@ -144,11 +145,16 @@ class NotificationClient:
         future = _notif_executor.submit(
             self._dispatch_c_call, level, message, attachment, *tags
         )
-        future.result()
+        rc, err_str = future.result()
+        self._handle_dispatch_result(rc, err_str, level, tags)
 
     # -----------------------------------------------------------------------------------------------
 
-    def _dispatch_c_call(self, level: str, message: str, attachment: str = "", *tags: str) -> None:
+    def _dispatch_c_call(self, level: str, message: str, attachment: str = "", *tags: str) -> typeTuple[int, str]:
+        """
+        Executes libnotif CGO calls strictly on _notif_executor with zero logger/libunilog calls.
+        Avoids macOS dual Go c-shared TLS (tls_g) collisions between libnotif and libunilog.
+        """
         tags_csv = ",".join(tags)
         target_b = self.target_addr.encode("utf-8")
         level_b = level.encode("utf-8")
@@ -165,12 +171,25 @@ class NotificationClient:
             ctypesC_double(self.timeout),
         )
 
+        err_str = ""
         if rc != 0:
             err_ptr = self._lib.Notif_GetLastError()
-            err_str = ""
             if err_ptr:
                 err_str = ctypesStringAt(err_ptr).decode("utf-8", errors="replace")
                 self._lib.Notif_FreeString(err_ptr)
+
+        return rc, err_str
+
+    # -----------------------------------------------------------------------------------------------
+
+    def _handle_dispatch_result(
+        self,
+        rc: int,
+        err_str: str,
+        level: str,
+        tags: typeTuple[str, ...],
+    ) -> None:
+        if rc != 0:
             self.logger.warning(
                 f"Notification dispatch to {self.target_addr} failed (rc={rc}): {err_str}"
             )
@@ -198,7 +217,7 @@ class NotificationClient:
 # -----------------------------------------------------------------------------------------------
 
 
-def new_client(app_config, logger: Optional[Logger] = None) -> NotificationClient:
+def new_client(app_config, logger: typeOptional[Logger] = None) -> NotificationClient:
     """Initializes a NotificationClient dynamically from AppConfig (Go NewClient parity)."""
     return NotificationClient.from_config(app_config, logger)
 
@@ -206,6 +225,6 @@ def new_client(app_config, logger: Optional[Logger] = None) -> NotificationClien
 # -----------------------------------------------------------------------------------------------
 
 
-def new_client_with_target(target_addr: str, logger: Optional[Logger] = None) -> NotificationClient:
+def new_client_with_target(target_addr: str, logger: typeOptional[Logger] = None) -> NotificationClient:
     """Initializes a NotificationClient with an explicit target address (Go NewClientWithTarget parity)."""
     return NotificationClient(target_addr, logger)

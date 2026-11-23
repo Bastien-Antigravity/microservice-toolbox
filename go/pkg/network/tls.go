@@ -232,11 +232,10 @@ func (plaintextAuthInfo) AuthType() string {
 
 func shouldLoadServerTLS(policy TLSPolicy) bool {
 	mode := NormalizeTLSMode(policy.Mode)
-	hasCertFiles := strings.TrimSpace(policy.LocalTLS.CertFile) != "" || strings.TrimSpace(policy.LocalTLS.KeyFile) != ""
 	if mode == "disabled" {
-		return hasCertFiles
+		return false
 	}
-	return policy.Enabled || mode == "strict" || mode == "required" || mode == "remote_only" || hasCertFiles
+	return policy.Enabled || mode == "strict" || mode == "required" || mode == "remote_only"
 }
 
 // NewDynamicTransportCredentials validates initial TLS policy and fails fast if required certs are missing or invalid.

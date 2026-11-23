@@ -213,6 +213,35 @@ func TestDynamicTransportCredentials_ColdBootFailFast(t *testing.T) {
 		require.NotNil(t, creds)
 		assert.Equal(t, "insecure", creds.Info().SecurityProtocol)
 	})
+
+	t.Run("boots cleanly over cleartext when disabled even if pre-populated local.tls paths do not exist yet", func(t *testing.T) {
+		creds, err := NewDynamicTransportCredentials("127.0.0.1", TLSPolicy{
+			Enabled: false,
+			Mode:    "auto",
+			LocalTLS: config.LocalTLSConfig{
+				CertFile: "/nonexistent/tele-remote.crt",
+				KeyFile:  "/nonexistent/tele-remote.key",
+				CAFile:   "/nonexistent/ca.crt",
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, creds)
+		assert.Equal(t, "insecure", creds.Info().SecurityProtocol)
+	})
+
+	t.Run("boots cleanly over cleartext when mode is disabled even if enabled and cert paths missing", func(t *testing.T) {
+		creds, err := NewDynamicTransportCredentials("127.0.0.1", TLSPolicy{
+			Enabled: true,
+			Mode:    "disabled",
+			LocalTLS: config.LocalTLSConfig{
+				CertFile: "/nonexistent/tele-remote.crt",
+				KeyFile:  "/nonexistent/tele-remote.key",
+			},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, creds)
+		assert.Equal(t, "insecure", creds.Info().SecurityProtocol)
+	})
 }
 
 func TestDynamicTransportCredentials_AutoModeAndMTLS(t *testing.T) {
