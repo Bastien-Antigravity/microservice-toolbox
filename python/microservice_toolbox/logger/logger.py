@@ -18,6 +18,7 @@ from logging import getLogger as loggingGetLogger
 from os import environ as osEnviron
 from typing import Optional, Protocol, runtime_checkable
 
+# -----------------------------------------------------------------------------------------------
 
 @runtime_checkable
 class Logger(Protocol):

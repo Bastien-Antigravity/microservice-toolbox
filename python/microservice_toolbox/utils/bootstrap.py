@@ -36,6 +36,111 @@ from microservice_toolbox.utils.lib_loader import resolve_library_path
 
 # -----------------------------------------------------------------------------------------------
 
+WORKSPACE_PYTHON_SDK_RELPATHS = (
+    "microservice-toolbox/python",
+    "universal-logger/unilog/python",
+    "distributed-config/distconf/python",
+    "safe-socket/safesock/python",
+    "notif-server/notif/python",
+)
+
+# -----------------------------------------------------------------------------------------------
+
+
+def sync_workspace_python_paths(workspace_root: Path, venv_dir: Path = None) -> list:
+    """Synchronize local-first workspace Python SDK paths onto sys.path and venv .pth hooks.
+
+    1. Locates .venv/lib/python*/site-packages (if venv_dir exists) and ensures it is on sys.path.
+    2. Writes/updates _bastien_workspace.pth in site-packages with a safe 1-line startup hook.
+    3. Prepends any candidate workspace SDK directories that exist on disk to sys.path index 0
+       so local workspace source code always takes priority over site-packages while falling
+       back automatically to site-packages when a local SDK directory does not exist.
+    """
+    ws_root = Path(workspace_root).resolve()
+    candidate_paths = []
+    seen_paths = set()
+
+    def _add_candidate(path: Path) -> None:
+        resolved = path.resolve()
+        key = str(resolved)
+        if key not in seen_paths:
+            seen_paths.add(key)
+            candidate_paths.append(resolved)
+
+    for relpath in WORKSPACE_PYTHON_SDK_RELPATHS:
+        _add_candidate(ws_root / relpath)
+
+    if ws_root.is_dir():
+        try:
+            repo_dirs = sorted(
+                (d for d in ws_root.iterdir() if d.is_dir() and not d.name.startswith(".")),
+                key=lambda p: p.name,
+            )
+        except OSError:
+            repo_dirs = []
+        for repo_dir in repo_dirs:
+            direct_py = repo_dir / "python"
+            if (direct_py / "pyproject.toml").is_file() or (direct_py / "setup.py").is_file():
+                _add_candidate(direct_py)
+            try:
+                sub_dirs = sorted(
+                    (d for d in repo_dir.iterdir() if d.is_dir() and not d.name.startswith(".")),
+                    key=lambda p: p.name,
+                )
+            except OSError:
+                sub_dirs = []
+            for sub_dir in sub_dirs:
+                nested_py = sub_dir / "python"
+                if (nested_py / "pyproject.toml").is_file() or (nested_py / "setup.py").is_file():
+                    _add_candidate(nested_py)
+
+    candidate_strs = [str(p) for p in candidate_paths]
+
+    if venv_dir is not None:
+        venv_path = Path(venv_dir)
+        site_packages_dir = None
+        venv_lib_dir = venv_path / "lib"
+        if venv_lib_dir.exists():
+            for py_dir in sorted(venv_lib_dir.glob("python*")):
+                sp = py_dir / "site-packages"
+                if sp.exists() and sp.is_dir():
+                    site_packages_dir = sp
+                    break
+        if site_packages_dir is None:
+            win_sp = venv_path / "Lib" / "site-packages"
+            if win_sp.exists() and win_sp.is_dir():
+                site_packages_dir = win_sp
+
+        if site_packages_dir is not None:
+            site_pkg_str = str(site_packages_dir.resolve())
+            if site_pkg_str not in sysPath:
+                sysPath.insert(0, site_pkg_str)
+
+            pth_file = site_packages_dir / "_bastien_workspace.pth"
+            pth_line = (
+                f"import os, sys; [sys.path.insert(0, p) for p in {repr(candidate_strs)} "
+                f"if os.path.isdir(p) and p not in sys.path]\n"
+            )
+            try:
+                if not pth_file.exists() or pth_file.read_text(encoding="utf-8") != pth_line:
+                    pth_file.write_text(pth_line, encoding="utf-8")
+            except OSError:
+                pass
+
+    active_paths = []
+    for path in reversed(candidate_paths):
+        if path.is_dir():
+            path_str = str(path)
+            while path_str in sysPath:
+                sysPath.remove(path_str)
+            sysPath.insert(0, path_str)
+            active_paths.insert(0, path_str)
+
+    return active_paths
+
+
+# -----------------------------------------------------------------------------------------------
+
 
 def find_vault_root(start_dir: str) -> Path:
     """Walk up from the start directory until the vault root (obsidian-brain) is found.
@@ -138,7 +243,7 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
     2. Normalizes the current working directory to the repo root.
     3. Resolves and aligns the dynamic library (libunilog) to prevent double initialization crashes on macOS.
     4. Checks if running under the root's local virtualenv; if not, force relaunches via os.execl.
-    5. Appends virtualenv site-packages and standard 'src/' folder to sys.path.
+    5. Synchronizes virtualenv site-packages, _bastien_workspace.pth, and local-first workspace SDK paths.
     """
     # Resolve sys.argv[0] to an absolute path before changing the directory
     if sysArgv and sysArgv[0]:
@@ -159,7 +264,7 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
         osChdir(repo_root)
 
     # Find workspace root (check BASTIEN_CORE_ROOT first for external L3/L4/L5 domain services,
-    # otherwise walk up until we find universal-logger, microservice-toolbox, or code-workspace)
+    # otherwise walk up until we find universal-logger, microservice-toolbox, go.work, .cargo/config.toml, or *.code-workspace)
     core_root_env = osEnviron.get("BASTIEN_CORE_ROOT", "").strip()
     core_root = Path(core_root_env).expanduser().resolve() if core_root_env else None
     if core_root is not None and (core_root / "microservice-toolbox").is_dir():
@@ -167,7 +272,13 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
     else:
         workspace_root = repo_root.parent
         for parent in [repo_root] + list(repo_root.parents):
-            if (parent / "universal-logger").is_dir() or (parent / "microservice-toolbox").is_dir() or (parent / "Bastien-Antigravity-base.code-workspace").exists():
+            if (
+                (parent / "universal-logger").is_dir()
+                or (parent / "microservice-toolbox").is_dir()
+                or (parent / "go.work").is_file()
+                or (parent / ".cargo" / "config.toml").is_file()
+                or any(parent.glob("*.code-workspace"))
+            ):
                 workspace_root = parent
                 break
 
@@ -208,25 +319,17 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
     if venv_bin.exists():
         osEnviron["PATH"] = str(venv_bin) + osPathsep + osEnviron.get("PATH", "")
 
-    # Inject standard import paths
-    import_paths = [repo_root, repo_root / "src", workspace_root / "microservice-toolbox" / "python"]
-    if core_root is not None and (core_root / "microservice-toolbox" / "python").is_dir():
-        import_paths.append(core_root / "microservice-toolbox" / "python")
-    for path in import_paths:
-        path_str = str(path.resolve())
-        if path.exists() and path_str not in sysPath:
-            sysPath.insert(0, path_str)
+    # 3. Synchronize virtualenv site-packages, .pth workspace hook, and local-first SDK priority
+    sync_workspace_python_paths(workspace_root, venv_dir=_venv_dir)
+    if core_root is not None and core_root.resolve() != workspace_root.resolve():
+        sync_workspace_python_paths(core_root, venv_dir=None)
 
-    # Locate virtualenv lib site-packages
-    _venv_lib_dir = _venv_dir / "lib"
-    if _venv_lib_dir.exists():
-        for _py_dir in _venv_lib_dir.glob("python*"):
-            _sp = _py_dir / "site-packages"
-            if _sp.exists():
-                site_pkg_str = str(_sp.resolve())
-                if site_pkg_str not in sysPath:
-                    sysPath.insert(0, site_pkg_str)
-                break
+    for repo_path in (repo_root, repo_root / "src"):
+        if repo_path.is_dir():
+            path_str = str(repo_path.resolve())
+            while path_str in sysPath:
+                sysPath.remove(path_str)
+            sysPath.insert(0, path_str)
 
 
 

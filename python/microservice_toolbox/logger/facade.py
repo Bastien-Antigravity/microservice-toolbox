@@ -34,6 +34,8 @@ from ..utils.lib_loader import LOGGER_CALLBACK_TYPE, load_libunilog
 from .logger import Logger
 from .models import LogLevel
 
+# -----------------------------------------------------------------------------------------------
+
 lib = load_libunilog()
 
 

@@ -103,5 +103,8 @@ cd cpp && make test
       - `bootstrap.BootstrapService` (Go) and `init_microservice` (Python) automatically initialize WireTap and bind the `safe-socket` telemetry hook (`safesocket.SetTelemetryHook`).
       - `go/pkg/teleremote` (`client.go`), `go/pkg/notification` (`client.go`), `go/pkg/network` (`grpc.go` unary and stream server interceptors), and `go/pkg/messaging` (`connector.go` NATS wrapper) automatically emit real-time `EdgeReport`s with segregated sub-channels (`ChannelStat` with `frames` and `bytes`) when WireTap is enabled.
       - External clients and gateways (such as `antigravity_ide` MCP requests in `09-RAG-Engine` and `telegram_cloud` Bot API calls in `tele-remote` / `notif-server`) report live edges with `Layer: "EXT"`.
+13. **Polyglot Local-First Workspace Resolution & Clean Manifests (`go.work`, `.cargo/config.toml`, `_bastien_workspace.pth`)**:
+    - **Zero Local Path Pollution**: Committed `go.mod`, `Cargo.toml`, `pyproject.toml`, and `requirements*.txt` files MUST use canonical GitHub module paths / Git URLs (`github.com/Bastien-Antigravity/...`, `git = "https://github.com/..."`, `git+https://github.com/...#subdirectory=...`) and NEVER commit local filesystem path overrides (`GO_LOCAL_REPLACE_POLLUTION`, `RUST_LOCAL_PATH_POLLUTION`, `PYTHON_LOCAL_PATH_POLLUTION`).
+    - **Local-First Resolution**: When developing inside the `Bastien-Antigravity` workspace, local sibling code resolves first via root `go.work` (Go), root `.cargo/config.toml` `paths = [...]` (Rust), and `bootstrap_microservice` / `.venv` `_bastien_workspace.pth` (Python). Standalone CI and Docker builds omit those workspace-level overrides and resolve cleanly from GitHub.
 
 
