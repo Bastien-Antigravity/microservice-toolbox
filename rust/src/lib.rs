@@ -23,6 +23,7 @@ pub mod notification;
 pub mod version;
 pub mod contracts;
 pub mod spec;
+pub mod trace;
 pub mod wiretap;
 
 // Re-export logger at crate root for 100% parity with Go and Python

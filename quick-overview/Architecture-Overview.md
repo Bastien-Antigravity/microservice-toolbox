@@ -8,8 +8,8 @@ tags:
 - '#type/architecture'
 - '#state/active'
 - '#ai/ignore'
+- '#zone/3-fleet'
 ---
-
 # 🏗️ Architecture Overview
 
 ## Executive Summary

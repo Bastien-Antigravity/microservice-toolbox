@@ -8,8 +8,8 @@ tags:
 - '#type/features-behavior'
 - '#state/active'
 - '#ai/ignore'
+- '#zone/3-fleet'
 ---
-
 # 🛠️ Features & Behavior
 
 ## Core Infrastructure Capabilities

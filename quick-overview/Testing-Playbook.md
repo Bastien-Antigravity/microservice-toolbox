@@ -8,8 +8,8 @@ tags:
 - '#type/testing-playbook'
 - '#state/active'
 - '#ai/ignore'
+- '#zone/3-fleet'
 ---
-
 # 🧪 Testing Playbook
 
 ## Comprehensive Verification Framework

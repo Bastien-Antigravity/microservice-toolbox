@@ -149,6 +149,8 @@ def init_microservice(
     )
 
     config.set_logger(logger)
+    from ..trace import bind_from_env as bind_mission_from_env
+    bind_mission_from_env(logger)
     try:
         from ..wiretap import configure_from_config
         configure_from_config(app_name, config)

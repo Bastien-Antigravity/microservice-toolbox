@@ -8,8 +8,8 @@ tags:
 - '#type/general-misc'
 - '#state/active'
 - '#ai/ignore'
+- '#zone/3-fleet'
 ---
-
 # 📝 Microservice Toolbox — General & Miscellaneous
 
 Supplementary configuration and runtime environment notes for the `microservice-toolbox`.

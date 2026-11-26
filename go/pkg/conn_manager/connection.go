@@ -148,7 +148,17 @@ func (mc *ManagedConnection) Write(p []byte) (n int, err error) {
 		return n, nil
 	}
 
-	// Hot-path recovery: atomically clear only the failed socket, reconnect, and retry once
+	// Partial-write guard: if n > 0 bytes already left the process before failing,
+	// re-sending full buffer p would corrupt framed protocols. Close & invalidate only.
+	if n > 0 {
+		mc.nm.Logger.Error("ManagedConnection: Partial write (%d/%d bytes) failed (%v). Closing corrupted stream without replay.", n, len(p), err)
+		if mc.currentConn.CompareAndSwap(connPtr, nil) && *connPtr != nil {
+			_ = (*connPtr).Close()
+		}
+		return n, fmt.Errorf("%w: partial write (%d/%d bytes) cannot safely auto-retry: %v", ErrWriteFailed, n, len(p), err)
+	}
+
+	// Hot-path recovery (n == 0): atomically clear only the failed socket, reconnect, and retry once
 	mc.nm.Logger.Warning("ManagedConnection: Write failed (%v). Reconnecting...", err)
 	if mc.currentConn.CompareAndSwap(connPtr, nil) && *connPtr != nil {
 		_ = (*connPtr).Close()

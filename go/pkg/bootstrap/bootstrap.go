@@ -19,6 +19,7 @@ import (
 	"os"
 
 	toolbox_config "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/config"
+	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/trace"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/wiretap"
 	unilog "github.com/Bastien-Antigravity/universal-logger/src/bootstrap"
 	unilog_config "github.com/Bastien-Antigravity/universal-logger/src/config"
@@ -63,6 +64,7 @@ func BootstrapServiceSafe(serviceName string, specificFlags ...string) (*toolbox
 	}
 
 	appConfig.Logger = appLogger
+	trace.BindFromEnv(appLogger)
 	wiretap.ConfigureFromConfig(serviceName, appConfig)
 	appLogger.Info(fmt.Sprintf("%s : Initialized via microservice-toolbox (version: %s)", serviceName, appConfig.GetVersion()))
 	return appConfig, appLogger, nil

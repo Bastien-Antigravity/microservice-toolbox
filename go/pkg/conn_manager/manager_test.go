@@ -468,3 +468,75 @@ func TestNetworkManager_WithPolicy_ClampingAndConnectEndpointFailure(t *testing.
 		t.Errorf("Expected OnError to be triggered once on ModeBlocking failure with MaxRetries=0, got %d", onErrorCount.Load())
 	}
 }
+
+type partialFailWriteCloser struct {
+	partialBytes int
+	closed       atomic.Bool
+}
+
+func (pf *partialFailWriteCloser) Write(p []byte) (int, error) {
+	return pf.partialBytes, io.ErrShortWrite
+}
+
+func (pf *partialFailWriteCloser) Close() error {
+	pf.closed.Store(true)
+	return nil
+}
+
+type recordingWriteCloser struct {
+	writes [][]byte
+	closed atomic.Bool
+}
+
+func (rw *recordingWriteCloser) Write(p []byte) (int, error) {
+	cp := append([]byte(nil), p...)
+	rw.writes = append(rw.writes, cp)
+	return len(p), nil
+}
+
+func (rw *recordingWriteCloser) Close() error {
+	rw.closed.Store(true)
+	return nil
+}
+
+func TestManagedConnection_PartialWrite_DoesNotReplayCorruptedFrame(t *testing.T) {
+	nm := NewNetworkManager(nil, nil)
+	nm.MaxRetries = 3
+	nm.BaseDelay = time.Millisecond
+	nm.MaxDelay = 5 * time.Millisecond
+
+	freshConn := &recordingWriteCloser{}
+	nm.Dialer = func(ep *Endpoint) (io.WriteCloser, error) {
+		return freshConn, nil
+	}
+
+	ep := NewEndpoint("127.0.0.1", "9020", "", "tcp")
+	mc := NewManagedConnection(nm, ep)
+
+	broken := &partialFailWriteCloser{partialBytes: 4}
+	var wc io.WriteCloser = broken
+	mc.currentConn.Store(&wc)
+
+	n, err := mc.Write([]byte("frame-001"))
+	if err == nil {
+		t.Fatal("Expected error on partial write, got nil")
+	}
+	if n != 4 {
+		t.Fatalf("Expected partial byte count 4 returned, got %d", n)
+	}
+	if !broken.closed.Load() {
+		t.Fatal("Expected corrupted socket to be closed after partial write")
+	}
+	if len(freshConn.writes) != 0 {
+		t.Fatalf("Partial write MUST NOT auto-replay buffer on fresh stream, got %d writes", len(freshConn.writes))
+	}
+
+	// Next independent frame reconnects cleanly onto freshConn
+	n2, err2 := mc.Write([]byte("frame-002"))
+	if err2 != nil || n2 != len("frame-002") {
+		t.Fatalf("Expected subsequent frame to reconnect cleanly, got n=%d err=%v", n2, err2)
+	}
+	if len(freshConn.writes) != 1 || string(freshConn.writes[0]) != "frame-002" {
+		t.Fatalf("Expected only 'frame-002' on fresh stream, got %q", freshConn.writes)
+	}
+}

@@ -208,6 +208,11 @@ def __getattr__(name):
         mod = importlib.import_module(".wiretap", __name__)
         globals()["wiretap"] = mod
         return mod
+    if name == "trace":
+        import importlib
+        mod = importlib.import_module(".trace", __name__)
+        globals()["trace"] = mod
+        return mod
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -260,6 +265,7 @@ __all__ = [
     "wrap_market_event",
     "system_timestamp",
     "wiretap",
+    "trace",
     "NatsConfig",
     "JetStreamConfig",
     "connect",
