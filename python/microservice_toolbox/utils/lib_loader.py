@@ -20,13 +20,14 @@ KEY PARAMETERS:
 
 from ctypes import (
     CDLL as ctypesCDLL,
-    CFUNCTYPE,
-    c_char_p,
+    CFUNCTYPE as ctypesCFUNCTYPE,
+    c_char_p as ctypesC_char_p,
     c_double as ctypesC_double,
-    c_int,
-    c_longlong,
-    c_size_t,
-    c_void_p,
+    c_int as ctypesC_int,
+    c_longlong as ctypesC_longlong,
+    c_size_t as ctypesC_size_t,
+    c_void_p as ctypesC_void_p,
+    string_at as ctypesStringAt,
 )
 from ctypes.util import find_library as ctypesFindLibrary
 from os import environ as osEnviron, getenv as osGetenv
@@ -41,20 +42,31 @@ from sys import (
     stderr as sysStderr,
     version_info as sysVersionInfo,
 )
-from typing import Dict as typeDict, List as typeList, Optional as typeOptional
+from typing import Any as typeAny, Dict as typeDict, List as typeList, Optional as typeOptional
 
 # -----------------------------------------------------------------------------------------------
 # Callback Types matching C Header Signatures
 # -----------------------------------------------------------------------------------------------
 
 # typedef void (*config_update_cb)(GoUintptr handle, const char* json_data);
-CONFIG_CALLBACK_TYPE = CFUNCTYPE(None, c_void_p, c_char_p)
+CONFIG_CALLBACK_TYPE = ctypesCFUNCTYPE(None, ctypesC_void_p, ctypesC_char_p)
 
 # typedef void (*logger_callback_cb)(const char* json_data);
-LOGGER_CALLBACK_TYPE = CFUNCTYPE(None, c_char_p)
+LOGGER_CALLBACK_TYPE = ctypesCFUNCTYPE(None, ctypesC_char_p)
 
 # Generic callback alias for backward compatibility
 CALLBACK_TYPE = CONFIG_CALLBACK_TYPE
+
+
+def ffi_ptr_to_str(handle: typeOptional[ctypesCDLL], ptr: typeAny) -> typeOptional[str]:
+    """Converts a heap-allocated C string pointer (c_void_p) to str and frees it via DistConf_FreeString."""
+    if not ptr:
+        return None
+    try:
+        return ctypesStringAt(ptr).decode("utf-8")
+    finally:
+        if handle is not None and hasattr(handle, "DistConf_FreeString"):
+            handle.DistConf_FreeString(ptr)
 
 # -----------------------------------------------------------------------------------------------
 # Dynamic Shared Library Discovery Engine
@@ -286,40 +298,40 @@ def load_libunilog() -> typeOptional[ctypesCDLL]:
         handle = ctypesCDLL(lib_path)
 
         # Core UniLog signatures
-        handle.UniLog_Init.argtypes = [c_char_p, c_char_p, c_char_p, c_int, c_int, c_size_t]
-        handle.UniLog_Init.restype = c_size_t
+        handle.UniLog_Init.argtypes = [ctypesC_char_p, ctypesC_char_p, ctypesC_char_p, ctypesC_int, ctypesC_int, ctypesC_size_t]
+        handle.UniLog_Init.restype = ctypesC_size_t
 
-        handle.UniLog_Close.argtypes = [c_size_t]
+        handle.UniLog_Close.argtypes = [ctypesC_size_t]
         handle.UniLog_Close.restype = None
 
-        handle.UniLog_LogWithMetadata.argtypes = [c_size_t, c_longlong, c_char_p, c_char_p, c_char_p, c_char_p, c_char_p]
+        handle.UniLog_LogWithMetadata.argtypes = [ctypesC_size_t, ctypesC_longlong, ctypesC_char_p, ctypesC_char_p, ctypesC_char_p, ctypesC_char_p, ctypesC_char_p]
         handle.UniLog_LogWithMetadata.restype = None
 
-        handle.UniLog_SetLevel.argtypes = [c_size_t, c_longlong]
+        handle.UniLog_SetLevel.argtypes = [ctypesC_size_t, ctypesC_longlong]
         handle.UniLog_SetLevel.restype = None
 
-        handle.UniLog_GetLevel.argtypes = [c_size_t]
-        handle.UniLog_GetLevel.restype = c_int
+        handle.UniLog_GetLevel.argtypes = [ctypesC_size_t]
+        handle.UniLog_GetLevel.restype = ctypesC_int
 
-        handle.UniLog_AddMetadata.argtypes = [c_size_t, c_char_p, c_char_p]
+        handle.UniLog_AddMetadata.argtypes = [ctypesC_size_t, ctypesC_char_p, ctypesC_char_p]
         handle.UniLog_AddMetadata.restype = None
 
-        handle.UniLog_SetMetadata.argtypes = [c_size_t, c_char_p]
+        handle.UniLog_SetMetadata.argtypes = [ctypesC_size_t, ctypesC_char_p]
         handle.UniLog_SetMetadata.restype = None
 
-        handle.DistConf_FreeString.argtypes = [c_void_p]
+        handle.DistConf_FreeString.argtypes = [ctypesC_void_p]
         handle.DistConf_FreeString.restype = None
 
-        handle.UniLog_Config_Get.argtypes = [c_size_t, c_char_p, c_char_p]
-        handle.UniLog_Config_Get.restype = c_void_p
+        handle.UniLog_Config_Get.argtypes = [ctypesC_size_t, ctypesC_char_p, ctypesC_char_p]
+        handle.UniLog_Config_Get.restype = ctypesC_void_p
 
-        handle.UniLog_Config_Set.argtypes = [c_size_t, c_char_p, c_char_p, c_char_p]
-        handle.UniLog_Config_Set.restype = c_int
+        handle.UniLog_Config_Set.argtypes = [ctypesC_size_t, ctypesC_char_p, ctypesC_char_p, ctypesC_char_p]
+        handle.UniLog_Config_Set.restype = ctypesC_int
 
-        handle.UniLog_OnConfigUpdate.argtypes = [c_size_t, LOGGER_CALLBACK_TYPE]
+        handle.UniLog_OnConfigUpdate.argtypes = [ctypesC_size_t, LOGGER_CALLBACK_TYPE]
         handle.UniLog_OnConfigUpdate.restype = None
 
-        handle.UniLog_RegisterNotifCallback.argtypes = [c_size_t, LOGGER_CALLBACK_TYPE]
+        handle.UniLog_RegisterNotifCallback.argtypes = [ctypesC_size_t, LOGGER_CALLBACK_TYPE]
         handle.UniLog_RegisterNotifCallback.restype = None
 
         # Bind DistConf symbols if present on consolidated library
@@ -342,55 +354,56 @@ _distconf_handle: typeOptional[ctypesCDLL] = None
 def _bind_distconf_signatures(handle: ctypesCDLL) -> None:
     """Binds standard DistConf function signatures to a ctypesCDLL handle safely."""
     try:
-        handle.DistConf_New.argtypes = [c_char_p]
-        handle.DistConf_New.restype = c_void_p
+        handle.DistConf_New.argtypes = [ctypesC_char_p]
+        handle.DistConf_New.restype = ctypesC_void_p
 
-        handle.DistConf_Close.argtypes = [c_void_p]
+        handle.DistConf_Close.argtypes = [ctypesC_void_p]
         handle.DistConf_Close.restype = None
 
-        handle.DistConf_Get.argtypes = [c_void_p, c_char_p, c_char_p]
-        handle.DistConf_Get.restype = c_char_p
+        handle.DistConf_Get.argtypes = [ctypesC_void_p, ctypesC_char_p, ctypesC_char_p]
+        handle.DistConf_Get.restype = ctypesC_void_p
 
-        handle.DistConf_Set.argtypes = [c_void_p, c_char_p, c_char_p, c_char_p]
-        handle.DistConf_Set.restype = c_int
+        handle.DistConf_Set.argtypes = [ctypesC_void_p, ctypesC_char_p, ctypesC_char_p, ctypesC_char_p]
+        handle.DistConf_Set.restype = ctypesC_int
 
-        handle.DistConf_Sync.argtypes = [c_void_p]
-        handle.DistConf_Sync.restype = c_int
+        handle.DistConf_Sync.argtypes = [ctypesC_void_p]
+        handle.DistConf_Sync.restype = ctypesC_int
 
-        handle.DistConf_OnLiveConfUpdate.argtypes = [c_void_p, CONFIG_CALLBACK_TYPE]
+        handle.DistConf_OnLiveConfUpdate.argtypes = [ctypesC_void_p, CONFIG_CALLBACK_TYPE]
         handle.DistConf_OnLiveConfUpdate.restype = None
 
+        # DistConf_GetLastError returns a pointer to a static C buffer (must NOT be freed)
         handle.DistConf_GetLastError.argtypes = []
-        handle.DistConf_GetLastError.restype = c_char_p
+        handle.DistConf_GetLastError.restype = ctypesC_char_p
 
-        handle.DistConf_OnRegistryUpdate.argtypes = [c_void_p, CONFIG_CALLBACK_TYPE]
+        handle.DistConf_OnRegistryUpdate.argtypes = [ctypesC_void_p, CONFIG_CALLBACK_TYPE]
         handle.DistConf_OnRegistryUpdate.restype = None
 
-        handle.DistConf_GetAddress.argtypes = [c_void_p, c_char_p]
-        handle.DistConf_GetAddress.restype = c_char_p
+        handle.DistConf_GetAddress.argtypes = [ctypesC_void_p, ctypesC_char_p]
+        handle.DistConf_GetAddress.restype = ctypesC_void_p
 
-        handle.DistConf_GetGRPCAddress.argtypes = [c_void_p, c_char_p]
-        handle.DistConf_GetGRPCAddress.restype = c_char_p
+        handle.DistConf_GetGRPCAddress.argtypes = [ctypesC_void_p, ctypesC_char_p]
+        handle.DistConf_GetGRPCAddress.restype = ctypesC_void_p
 
-        handle.DistConf_GetRESTAddress.argtypes = [c_void_p, c_char_p]
-        handle.DistConf_GetRESTAddress.restype = c_char_p
+        handle.DistConf_GetRESTAddress.argtypes = [ctypesC_void_p, ctypesC_char_p]
+        handle.DistConf_GetRESTAddress.restype = ctypesC_void_p
 
-        handle.DistConf_GetCapability.argtypes = [c_void_p, c_char_p]
-        handle.DistConf_GetCapability.restype = c_char_p
+        handle.DistConf_GetCapability.argtypes = [ctypesC_void_p, ctypesC_char_p]
+        handle.DistConf_GetCapability.restype = ctypesC_void_p
 
-        handle.DistConf_GetFullConfig.argtypes = [c_void_p]
-        handle.DistConf_GetFullConfig.restype = c_char_p
+        handle.DistConf_GetFullConfig.argtypes = [ctypesC_void_p]
+        handle.DistConf_GetFullConfig.restype = ctypesC_void_p
 
-        handle.DistConf_Decrypt.argtypes = [c_void_p, c_char_p]
-        handle.DistConf_Decrypt.restype = c_char_p
+        handle.DistConf_Decrypt.argtypes = [ctypesC_void_p, ctypesC_char_p]
+        handle.DistConf_Decrypt.restype = ctypesC_void_p
 
-        handle.DistConf_ApplyFileOverride.argtypes = [c_void_p, c_char_p]
-        handle.DistConf_ApplyFileOverride.restype = c_char_p
+        handle.DistConf_ApplyFileOverride.argtypes = [ctypesC_void_p, ctypesC_char_p]
+        handle.DistConf_ApplyFileOverride.restype = ctypesC_void_p
 
-        handle.DistConf_ShareConfig.argtypes = [c_void_p, c_char_p]
-        handle.DistConf_ShareConfig.restype = c_int
+        handle.DistConf_ShareConfig.argtypes = [ctypesC_void_p, ctypesC_char_p]
+        handle.DistConf_ShareConfig.restype = ctypesC_int
 
-        handle.DistConf_FreeString.argtypes = [c_char_p]
+        handle.DistConf_FreeString.argtypes = [ctypesC_void_p]
         handle.DistConf_FreeString.restype = None
     except AttributeError:
         # Not all shared libraries may contain all symbols (e.g. standalone non-consolidated)
@@ -455,16 +468,16 @@ def load_libnotif() -> typeOptional[ctypesCDLL]:
     try:
         handle = ctypesCDLL(lib_path)
 
-        handle.Notif_Send.argtypes = [c_char_p, c_char_p, c_char_p, c_char_p, c_char_p]
-        handle.Notif_Send.restype = c_int
+        handle.Notif_Send.argtypes = [ctypesC_char_p, ctypesC_char_p, ctypesC_char_p, ctypesC_char_p, ctypesC_char_p]
+        handle.Notif_Send.restype = ctypesC_int
 
-        handle.Notif_SendWithTimeout.argtypes = [c_char_p, c_char_p, c_char_p, c_char_p, c_char_p, ctypesC_double]
-        handle.Notif_SendWithTimeout.restype = c_int
+        handle.Notif_SendWithTimeout.argtypes = [ctypesC_char_p, ctypesC_char_p, ctypesC_char_p, ctypesC_char_p, ctypesC_char_p, ctypesC_double]
+        handle.Notif_SendWithTimeout.restype = ctypesC_int
 
         handle.Notif_GetLastError.argtypes = []
-        handle.Notif_GetLastError.restype = c_void_p
+        handle.Notif_GetLastError.restype = ctypesC_void_p
 
-        handle.Notif_FreeString.argtypes = [c_void_p]
+        handle.Notif_FreeString.argtypes = [ctypesC_void_p]
         handle.Notif_FreeString.restype = None
 
         handle.Notif_Close.argtypes = []

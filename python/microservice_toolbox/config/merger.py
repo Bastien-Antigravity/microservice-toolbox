@@ -16,12 +16,12 @@ KEY PARAMETERS:
 - src: The source dictionary containing override values.
 """
 
-from typing import Any, Dict
+from typing import Any as typeAny, Dict as typeDict
 
 # -----------------------------------------------------------------------------------------------
 
 
-def deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
+def deep_merge(dst: typeDict[str, typeAny], src: typeDict[str, typeAny]) -> None:
     """
     Recursive deep merge of src into dst.
     - If keys match and both values are dicts, it recurses.

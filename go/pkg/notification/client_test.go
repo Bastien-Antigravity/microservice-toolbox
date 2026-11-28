@@ -14,6 +14,7 @@ package notification
 import (
 	"context"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,12 +29,15 @@ import (
 // mockServer implements grpc_client.NotifServiceServer for unit testing
 type mockServer struct {
 	grpc_client.UnimplementedNotifServiceServer
+	mu          sync.Mutex
 	receivedReq *grpc_client.NotifRequest
 	success     bool
 }
 
 func (m *mockServer) SendNotification(ctx context.Context, req *grpc_client.NotifRequest) (*grpc_client.NotifResponse, error) {
+	m.mu.Lock()
 	m.receivedReq = req
+	m.mu.Unlock()
 	return &grpc_client.NotifResponse{Success: m.success}, nil
 }
 
@@ -204,4 +208,26 @@ func TestNotificationClient_MissingCapabilityFailsFast(t *testing.T) {
 	assert.Error(t, err)
 	assert.Nil(t, client)
 	assert.Contains(t, err.Error(), "failed to resolve notif_server gRPC address")
+}
+
+// -----------------------------------------------------------------------------
+
+func TestNotificationClient_ConcurrentSetTimeoutAndSend(t *testing.T) {
+	_, addr, cleanup := startMockServer(t, true)
+	defer cleanup()
+
+	client := NewClientWithTarget(addr, nil)
+	defer client.Close()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			client.SetTimeout(time.Duration(idx+1) * 500 * time.Millisecond)
+			err := client.Send(context.Background(), "concurrent message", "telegram")
+			assert.NoError(t, err)
+		}(i)
+	}
+	wg.Wait()
 }

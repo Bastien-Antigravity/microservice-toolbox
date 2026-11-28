@@ -14,6 +14,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -118,14 +119,20 @@ func LoadConfigWithLogger(profile string, l logger.Logger, specificFlags []strin
 	}
 
 	// Phase 2: Local Overrides (Developer-Intent Parity)
-	// We re-apply the local file as a hard override to ensure the 'local' section
-	// and any local overrides are loaded across all profiles.
-	overrideFile := actualProfile + ".yaml"
-	if cliArgs.Conf != "" {
-		overrideFile = cliArgs.Conf
+	// In standalone mode without an explicit --conf override, distributed-config already
+	// loaded and expanded the resolved YAML file (including Local) on the cold path.
+	if actualProfile == "standalone" && cliArgs.Conf == "" {
+		if len(dConf.Local) > 0 {
+			ac.Local = DeepMerge(make(map[string]interface{}), dConf.Local)
+		}
+	} else {
+		overrideFile := actualProfile + ".yaml"
+		if cliArgs.Conf != "" {
+			overrideFile = cliArgs.Conf
+		}
+		ac.Logger.Info("Applying Local File as Hard Override (Ecosystem Parity): %s", overrideFile)
+		ac.applyFileOverride(overrideFile)
 	}
-	ac.Logger.Info("Applying Local File as Hard Override (Ecosystem Parity): %s", overrideFile)
-	ac.applyFileOverride(overrideFile)
 
 	// Phase 3: CLI Arguments (Highest Priority)
 	ac.applyCLIOverrides(cliArgs)
@@ -204,14 +211,23 @@ func (ac *AppConfig) applyFileOverride(filename string) {
 	}
 
 	// Extract sections
+	isSeedFallback := (ac.Profile == "production" || ac.Profile == "staging") &&
+		(ac.Args == nil || ac.Args.Conf == "") &&
+		filepath.Base(path) == "standalone.yaml"
+
 	if caps, ok := raw["capabilities"].(map[string]interface{}); ok {
-		ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
+		if isSeedFallback {
+			// Preserve server-synced scalar values as authoritative while hydrating any missing nested sub-maps
+			ac.Config.Capabilities = DeepMerge(caps, ac.Config.Capabilities)
+		} else {
+			ac.Config.Capabilities = DeepMerge(ac.Config.Capabilities, caps)
+		}
 	}
 	if comm, ok := raw["common"].(map[string]interface{}); ok {
-		if name, ok := comm["name"].(string); ok {
+		if name, ok := comm["name"].(string); ok && (!isSeedFallback || ac.Config.Common.Name == "") {
 			ac.Config.Common.Name = name
 		}
-		if pubIP, ok := comm["public_ip"].(string); ok && strings.TrimSpace(pubIP) != "" {
+		if pubIP, ok := comm["public_ip"].(string); ok && strings.TrimSpace(pubIP) != "" && (!isSeedFallback || ac.Config.Common.PublicIP == "") {
 			ac.Config.Common.PublicIP = strings.TrimSpace(pubIP)
 		}
 	}
@@ -527,11 +543,16 @@ type endpointKey struct {
 }
 
 func normalizeIP(ip string) string {
-	ip = strings.TrimSpace(strings.ToLower(ip))
+	ip = strings.TrimSpace(strings.Trim(ip, "[]"))
+	ip = strings.ToLower(ip)
 	if ip == "localhost" {
 		return "127.0.0.1"
 	}
 	return ip
+}
+
+func isWildcardIP(ip string) bool {
+	return ip == "0.0.0.0" || ip == "::"
 }
 
 func (ac *AppConfig) ValidateUniquePorts() error {
@@ -545,12 +566,19 @@ func (ac *AppConfig) ValidateUniquePorts() error {
 		if addr == "" {
 			return nil
 		}
-		idx := strings.LastIndex(addr, ":")
-		if idx == -1 {
-			return nil
+		var ip, portStr string
+		if h, p, err := net.SplitHostPort(addr); err == nil {
+			ip = h
+			portStr = p
+		} else {
+			idx := strings.LastIndex(addr, ":")
+			if idx == -1 {
+				return nil
+			}
+			ip = addr[:idx]
+			portStr = addr[idx+1:]
 		}
-		ip := addr[:idx]
-		port, err := strconv.Atoi(addr[idx+1:])
+		port, err := strconv.Atoi(strings.TrimSpace(portStr))
 		if err != nil || port <= 0 {
 			return nil
 		}
@@ -558,7 +586,7 @@ func (ac *AppConfig) ValidateUniquePorts() error {
 		nip := normalizeIP(ip)
 		for seenKey, seenDesc := range seen {
 			if seenKey.Port == port {
-				if nip == seenKey.IP || nip == "0.0.0.0" || seenKey.IP == "0.0.0.0" {
+				if nip == seenKey.IP || isWildcardIP(nip) || isWildcardIP(seenKey.IP) {
 					return fmt.Errorf("duplicate endpoint detected: %s:%d for %s conflicts with %s:%d for %s", ip, port, desc, seenKey.IP, seenKey.Port, seenDesc)
 				}
 			}

@@ -16,21 +16,21 @@ KEY PARAMETERS:
 - jetstream: Optional JetStream stream and consumer configuration.
 """
 
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass as dcDataclass, field as dcField
+from typing import List as typeList, Optional as typeOptional
 
 # -----------------------------------------------------------------------------------------------
 # ### JETSTREAM CONFIGURATION ###
 # -----------------------------------------------------------------------------------------------
 
-@dataclass
+@dcDataclass
 class JetStreamConfig:
     """
     Configuration parameters for NATS JetStream persistence and consumer policies.
     """
     enabled: bool = False
     stream_name: str = ""
-    subjects: List[str] = field(default_factory=list)
+    subjects: typeList[str] = dcField(default_factory=list)
     retention: str = "limits"
     storage: str = "file"
     replicas: int = 1
@@ -45,12 +45,12 @@ class JetStreamConfig:
 # ### NATS CONFIGURATION ###
 # -----------------------------------------------------------------------------------------------
 
-@dataclass
+@dcDataclass
 class NatsConfig:
     """
     Configuration parameters for core NATS client connections and reconnect policies.
     """
-    servers: List[str] = field(default_factory=list)
+    servers: typeList[str] = dcField(default_factory=list)
     subject: str = ""
     cluster_id: str = ""
     client_id: str = ""
@@ -59,14 +59,14 @@ class NatsConfig:
     max_reconnects: int = 60
     flush_timeout: float = 10.0  # seconds
     subject_prefix: str = ""
-    jetstream: Optional[JetStreamConfig] = None
-    tls: Optional["TLSConfig"] = None
+    jetstream: typeOptional[JetStreamConfig] = None
+    tls: typeOptional["TLSConfig"] = None
 
 # -----------------------------------------------------------------------------------------------
 # ### TLS CONFIGURATION ###
 # -----------------------------------------------------------------------------------------------
 
-@dataclass
+@dcDataclass
 class TLSConfig:
     """
     Configuration parameters for NATS TLS wire encryption and mutual authentication.

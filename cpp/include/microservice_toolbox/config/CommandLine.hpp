@@ -119,6 +119,14 @@ public:
       }
     }
 
+    const char *docker_env = std::getenv("DOCKER_ENV");
+    if (docker_env && std::string(docker_env) == "true") {
+      args.host.clear();
+      args.port = 0;
+      args.grpc_host.clear();
+      args.grpc_port = 0;
+    }
+
     return args;
   }
 

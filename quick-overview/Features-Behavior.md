@@ -27,7 +27,7 @@ graph TD
 
 - **Local Overrides namespace (local:)**: Enables developers to declare sandbox-specific variables that are never synchronized or checked in to the remote configuration server.
 - **Universal Override Policy**: The local file override acts as an authoritative, unconditional override across all profiles (including production and staging environments) to ensure absolute alignment.
-- **UnmarshalLocal Mapping**: Maps raw local sections directly into native structures in Go, Python, and Rust.
+- **UnmarshalLocal Mapping & LocalTLSConfig**: Maps raw local sections directly into native structures in Go, Python, Rust, and C++, and resolves `local.tls` via `GetLocalTLSConfig` (`cert_file`, `key_file`, `ca_file`, `verify_client`).
 
 ### 2. The CLI Docker Guard & Config-Only Bindings (Networking)
 To prevent CLI overrides from breaking automated container orchestration while preserving explicit YAML configuration:

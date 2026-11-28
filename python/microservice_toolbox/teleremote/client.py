@@ -283,6 +283,14 @@ class TeleClient:
 
     # -------------------------------------------------------------------------------------------
 
+    async def push_menu_update(self) -> None:
+        """Pushes the updated dynamic menu JSON over the active gRPC stream when connected."""
+        stream = self._stream
+        if stream is not None and not self._closed:
+            await self._send_registration(stream)
+
+    # -------------------------------------------------------------------------------------------
+
     async def send_telemetry(self, msg: str) -> None:
         """Streams an arbitrary text message to the Telegram admin chat."""
         if not self._stream:
@@ -304,18 +312,6 @@ class TeleClient:
                 payload_summary=msg,
                 bytes_count=len(msg),
             )
-
-    # -------------------------------------------------------------------------------------------
-
-    def send_log(self, text: str) -> None:
-        """Pushes a raw string update to the channel."""
-        pass
-
-    # -------------------------------------------------------------------------------------------
-
-    def send_log_tree(self, root: Action) -> None:
-        """Pushes a menu tree update to the channel."""
-        pass
 
     # -------------------------------------------------------------------------------------------
 

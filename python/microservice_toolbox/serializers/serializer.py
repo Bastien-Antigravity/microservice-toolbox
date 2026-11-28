@@ -15,15 +15,15 @@ KEY PARAMETERS:
 - cls: The target type for deserialization.
 """
 
-from abc import ABC, abstractmethod
-from typing import Any, Type, TypeVar
+from abc import ABC as abcABC, abstractmethod as abcAbstractmethod
+from typing import Any as typeAny, Type as typeType, TypeVar as typeTypeVar
 
-T = TypeVar("T")
+T = typeTypeVar("T")
 
 # -----------------------------------------------------------------------------------------------
 
 
-class Serializer(ABC):
+class Serializer(abcABC):
     """
     Serializer manages transforming generic objects to bytes and vice-versa.
     """
@@ -32,8 +32,8 @@ class Serializer(ABC):
 
     # -----------------------------------------------------------------------------------------------
 
-    @abstractmethod
-    def marshal(self, data: Any) -> bytes:
+    @abcAbstractmethod
+    def marshal(self, data: typeAny) -> bytes:
         """
         Transforms data into a byte representation.
         """
@@ -41,8 +41,8 @@ class Serializer(ABC):
 
     # -----------------------------------------------------------------------------------------------
 
-    @abstractmethod
-    def unmarshal(self, data: bytes, cls: Type[T]) -> T:
+    @abcAbstractmethod
+    def unmarshal(self, data: bytes, cls: typeType[T]) -> T:
         """
         Transforms a byte representation back into an object of type cls.
         """

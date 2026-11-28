@@ -20,7 +20,7 @@ KEY PARAMETERS:
 - extract_capnp_operations: Extracts enum and struct definitions from .capnp IDL.
 """
 
-import re as reMod
+from re import MULTILINE as reMULTILINE, compile as reCompile, search as reSearch
 from dataclasses import asdict as dcAsdict, dataclass as dcDataclass, field as dcField
 from datetime import datetime as dtDatetime, timezone as dtTimezone
 from pathlib import Path as pathPath
@@ -364,10 +364,10 @@ def extract_proto_operations(proto_text: str) -> typeList[ContractOperation]:
     ops: typeList[ContractOperation] = []
     if not proto_text:
         return ops
-    pkg_match = reMod.search(r"^\s*package\s+([A-Za-z0-9_.]+)\s*;", proto_text, reMod.MULTILINE)
+    pkg_match = reSearch(r"^\s*package\s+([A-Za-z0-9_.]+)\s*;", proto_text, reMULTILINE)
     pkg_prefix = f"{pkg_match.group(1)}." if pkg_match else ""
-    svc_head_re = reMod.compile(r"\bservice\s+([A-Za-z0-9_]+)\s*\{")
-    rpc_re = reMod.compile(
+    svc_head_re = reCompile(r"\bservice\s+([A-Za-z0-9_]+)\s*\{")
+    rpc_re = reCompile(
         r"rpc\s+([A-Za-z0-9_]+)\s*\(\s*(stream\s+)?([A-Za-z0-9_.]+)\s*\)\s+returns\s*\(\s*(stream\s+)?([A-Za-z0-9_.]+)\s*\)"
     )
 
@@ -427,7 +427,7 @@ def extract_capnp_operations(capnp_text: str) -> typeList[ContractOperation]:
         ("enum", "ENUM", "enum ", True, "Cap'n Proto enum definition"),
         ("struct", "STRUCT", "struct ", False, "Cap'n Proto wire struct definition"),
     ):
-        head_re = reMod.compile(rf"\b{kw}\s+([A-Za-z0-9_]+)\s*\{{")
+        head_re = reCompile(rf"\b{kw}\s+([A-Za-z0-9_]+)\s*\{{")
         pos = 0
         while pos < len(capnp_text):
             match = head_re.search(capnp_text, pos)

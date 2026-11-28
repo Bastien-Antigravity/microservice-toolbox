@@ -21,7 +21,7 @@ from ssl import (
     SSLContext as sslSSLContext,
     create_default_context as sslCreateDefaultContext,
 )
-from typing import Optional
+from typing import Optional as typeOptional
 
 from nats import NATS as natsNATS, connect as natsConnect
 
@@ -33,7 +33,7 @@ from .config import NatsConfig
 # -----------------------------------------------------------------------------------------------
 
 
-async def connect(cfg: NatsConfig, logger: Optional[Logger] = None) -> natsNATS:
+async def connect(cfg: NatsConfig, logger: typeOptional[Logger] = None) -> natsNATS:
     """
     Establishes an asynchronous connection to the NATS server and configures event logging.
 
@@ -61,7 +61,7 @@ async def connect(cfg: NatsConfig, logger: Optional[Logger] = None) -> natsNATS:
     async def closed_cb():
         log.error(f"[{cfg.client_id}] NATS connection closed unexpectedly")
 
-    tls_ctx: Optional[sslSSLContext] = None
+    tls_ctx: typeOptional[sslSSLContext] = None
     has_tls_scheme = any(s.lower().startswith("tls://") for s in cfg.servers)
     if (cfg.tls and cfg.tls.enabled) or has_tls_scheme:
         tls_ctx = sslCreateDefaultContext(

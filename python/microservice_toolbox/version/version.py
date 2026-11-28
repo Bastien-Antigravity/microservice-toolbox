@@ -15,18 +15,18 @@ KEY PARAMETERS:
 """
 
 from inspect import stack as inspectStack
-from pathlib import Path
-from threading import Lock
-from typing import Optional
+from pathlib import Path as pathPath
+from threading import Lock as thLock
+from typing import Optional as typeOptional
 
-_THIS_FILE = str(Path(__file__).resolve())
-_cached_version: Optional[str] = None
-_lock = Lock()
+_THIS_FILE = str(pathPath(__file__).resolve())
+_cached_version: typeOptional[str] = None
+_lock = thLock()
 
 # -----------------------------------------------------------------------------------------------
 
 
-def get_version(caller_file: Optional[str] = None) -> str:
+def get_version(caller_file: typeOptional[str] = None) -> str:
     """
     Returns the dynamic semantic version resolved strictly from VERSION.txt.
     Caches the result after first resolution and raises RuntimeError if missing.
@@ -47,7 +47,7 @@ def get_version(caller_file: Optional[str] = None) -> str:
 # -----------------------------------------------------------------------------------------------
 
 
-def resolve_version(caller_file: Optional[str] = None) -> str:
+def resolve_version(caller_file: typeOptional[str] = None) -> str:
     """
     Resolves semantic version strictly from VERSION.txt without caching.
     Raises RuntimeError if no non-empty VERSION.txt is found.
@@ -56,19 +56,19 @@ def resolve_version(caller_file: Optional[str] = None) -> str:
     start_dirs = []
 
     if caller_file:
-        start_dirs.append(Path(caller_file).resolve().parent)
+        start_dirs.append(pathPath(caller_file).resolve().parent)
     else:
         stk = inspectStack()
         for frame_info in stk[1:]:
             fn = frame_info.filename
             if not fn or fn.startswith("<"):
                 continue
-            resolved_fn = str(Path(fn).resolve())
+            resolved_fn = str(pathPath(fn).resolve())
             if resolved_fn != _THIS_FILE and "threading.py" not in fn and "importlib" not in fn:
-                start_dirs.append(Path(resolved_fn).parent)
+                start_dirs.append(pathPath(resolved_fn).parent)
                 break
 
-    start_dirs.append(Path.cwd().resolve())
+    start_dirs.append(pathPath.cwd().resolve())
 
     # 2. Climb directory tree looking for VERSION.txt
     for start_dir in start_dirs:

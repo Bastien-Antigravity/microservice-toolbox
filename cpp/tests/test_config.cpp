@@ -79,16 +79,27 @@ void test_decrypt_secret_logic() {
 }
 
 void test_get_local() {
-  std::cout << "Testing GetLocal..." << std::endl;
+  std::cout << "Testing GetLocal & GetLocalTLSConfig..." << std::endl;
   ensure_config_dir();
 
-  std::ofstream ofs("config/standalone.yaml");
-  ofs << "common: {name: test}\n"
+  const std::string local_cfg_path = "config/test_local_override.yaml";
+  std::ofstream ofs(local_cfg_path);
+  ofs << "common:\n  name: test\n"
+      << "capabilities:\n"
+      << "  svc_local:\n    ip: '127.0.0.2'\n    port: '8090'\n"
       << "local:\n  local_setting: value_xyz\n  nested:\n    val: 123\n    "
-         "key: nested_value";
+      << "key: nested_value\n"
+      << "  tls:\n"
+      << "    cert_file: /tmp/test.crt\n"
+      << "    key_file: /tmp/test.key\n"
+      << "    ca_file: /tmp/ca.crt\n"
+      << "    verify_client: false\n";
   ofs.close();
 
+  setenv("CONFIG_PATH", local_cfg_path.c_str(), 1);
   auto ac = LoadConfig("standalone");
+  unsetenv("CONFIG_PATH");
+
   if (ac->GetLocal("local_setting") != "value_xyz") {
     std::cerr << "  FAILED: Expected 'value_xyz', got '"
               << ac->GetLocal("local_setting") << "'" << std::endl;
@@ -106,7 +117,15 @@ void test_get_local() {
   }
   assert(ac->GetLocal("missing") == "");
 
-  std::remove("config/standalone.yaml");
+  LocalTLSConfig tls = ac->GetLocalTLSConfig();
+  assert(tls.cert_file == "/tmp/test.crt");
+  assert(tls.key_file == "/tmp/test.key");
+  assert(tls.ca_file == "/tmp/ca.crt");
+  assert(tls.verify_client.has_value() && *tls.verify_client == false);
+  assert(!tls.ShouldVerifyClient());
+  assert(!tls.IsEmpty());
+
+  std::remove(local_cfg_path.c_str());
   std::cout << "  Passed." << std::endl;
 }
 
@@ -207,7 +226,49 @@ void test_validate_unique_ports() {
   }
   std::remove("config/test.yaml");
   assert(caught);
-  std::cout << "  Passed (Duplicate endpoint caught)." << std::endl;
+
+  // Also test IPv6 wildcard :::8080 colliding with ::1:8080
+  std::ofstream ofs6("config/test.yaml");
+  ofs6 << "common:\n  name: test-dup-v6\n"
+       << "capabilities:\n"
+       << "  svc1:\n    ip: '::'\n    port: '8080'\n"
+       << "  svc2:\n    ip: '::1'\n    port: '8080'\n";
+  ofs6.close();
+
+  bool caught_v6 = false;
+  try {
+    auto ac = LoadConfig("test");
+  } catch (const std::exception &e) {
+    caught_v6 = true;
+    std::string msg = e.what();
+    assert(msg.find("Duplicate endpoint detected") != std::string::npos);
+  }
+  std::remove("config/test.yaml");
+  assert(caught_v6);
+  std::cout << "  Passed (Duplicate endpoint caught for IPv4 and IPv6)." << std::endl;
+}
+
+void test_command_line_docker_guard() {
+  std::cout << "Testing CommandLine Docker Guard..." << std::endl;
+  const char *argv[] = {"test-app", "--host", "10.0.0.2", "--port", "9001",
+                        "--grpc_host", "10.0.0.3", "--grpc_port", "9002"};
+  int argc = static_cast<int>(sizeof(argv) / sizeof(argv[0]));
+
+  unsetenv("DOCKER_ENV");
+  CLIArgs host_args = CommandLine::Parse(argc, const_cast<char **>(argv));
+  assert(host_args.host == "10.0.0.2");
+  assert(host_args.port == 9001);
+  assert(host_args.grpc_host == "10.0.0.3");
+  assert(host_args.grpc_port == 9002);
+
+  setenv("DOCKER_ENV", "true", 1);
+  CLIArgs docker_args = CommandLine::Parse(argc, const_cast<char **>(argv));
+  unsetenv("DOCKER_ENV");
+  assert(docker_args.host.empty());
+  assert(docker_args.port == 0);
+  assert(docker_args.grpc_host.empty());
+  assert(docker_args.grpc_port == 0);
+  std::cout << "  Passed." << std::endl;
 }
 
 int main() {
@@ -227,6 +288,7 @@ int main() {
     test_env_expansion();
     test_mirror_integrity();
     test_validate_unique_ports();
+    test_command_line_docker_guard();
 
     std::cout << "\n=======================================" << std::endl;
     std::cout << "  All C++ Toolbox Parity Tests Passed!" << std::endl;

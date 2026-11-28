@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -78,16 +80,27 @@ func TestOnErrorUnifiedHook(t *testing.T) {
 	}
 }
 
+func newIsolatedTestDistConf(t *testing.T, caps map[string]interface{}) *distributed_config.Config {
+	t.Helper()
+	tmpPath := filepath.Join(t.TempDir(), "conn_mgr_test.yaml")
+	if err := os.WriteFile(tmpPath, []byte("common:\n  name: conn-mgr-test\n"), 0644); err != nil {
+		t.Fatalf("failed to write temp config fixture: %v", err)
+	}
+	t.Setenv("CONFIG_PATH", tmpPath)
+	dConf := distributed_config.New("standalone")
+	dConf.Capabilities = caps
+	return dConf
+}
+
 func TestNetworkManager_ConnectCapability_Resolution(t *testing.T) {
-	dConf := distributed_config.New("test")
-	dConf.Capabilities = map[string]interface{}{
+	dConf := newIsolatedTestDistConf(t, map[string]interface{}{
 		"log-server": map[string]interface{}{
 			"ip":   "127.0.0.1",
 			"port": "7070",
 		},
-	}
+	})
 	ac := &config.AppConfig{
-		Profile: "test",
+		Profile: "standalone",
 		Config:  dConf,
 	}
 
@@ -101,6 +114,7 @@ func TestNetworkManager_ConnectCapability_Resolution(t *testing.T) {
 	if mc == nil {
 		t.Fatal("Expected non-nil ManagedConnection")
 	}
+	defer func() { _ = mc.Close() }()
 
 	ip, port := mc.GetEndpoint()
 	if ip != "127.0.0.1" || port != "7070" {
@@ -109,29 +123,32 @@ func TestNetworkManager_ConnectCapability_Resolution(t *testing.T) {
 }
 
 func TestNetworkManager_ConnectCapability_LiveConfigRefresh(t *testing.T) {
-	dConf := distributed_config.New("test")
-	dConf.Capabilities = map[string]interface{}{
+	dConf := newIsolatedTestDistConf(t, map[string]interface{}{
 		"log-server": map[string]interface{}{
 			"ip":   "127.0.0.1",
 			"port": "5000",
 		},
-	}
+	})
 	ac := &config.AppConfig{
-		Profile: "test",
+		Profile: "standalone",
 		Config:  dConf,
 	}
 
 	nm := NewNetworkManagerWithConfig(ac)
 	nm.MaxRetries = 1
 	nm.BaseDelay = 5 * time.Millisecond
+	nm.Dialer = func(ep *Endpoint) (io.WriteCloser, error) {
+		return nil, fmt.Errorf("mock dial refused for %s", ep.Address)
+	}
 
 	mc, err := nm.ConnectCapability("log-server", ModeNonBlocking)
 	if err != nil {
 		t.Fatalf("ConnectCapability failed: %v", err)
 	}
+	defer func() { _ = mc.Close() }()
 
 	// Update capability in LiveConfig simulating config-server broadcast
-	dConf.Set(map[string]map[string]string{
+	_ = dConf.Set(map[string]map[string]string{
 		"log-server": {
 			"ip":   "10.0.0.99",
 			"port": "9999",
@@ -148,15 +165,14 @@ func TestNetworkManager_ConnectCapability_LiveConfigRefresh(t *testing.T) {
 }
 
 func TestNetworkManager_UnifiedConstructor_And_LockFreeEndpoint(t *testing.T) {
-	dConf := distributed_config.New("test")
-	dConf.Capabilities = map[string]interface{}{
+	dConf := newIsolatedTestDistConf(t, map[string]interface{}{
 		"log-server": map[string]interface{}{
 			"ip":   "127.0.0.1",
 			"port": "7070",
 		},
-	}
+	})
 	ac := &config.AppConfig{
-		Profile: "test",
+		Profile: "standalone",
 		Config:  dConf,
 	}
 
@@ -221,16 +237,15 @@ func TestRealWorld_DynamicFailover_And_3TryReload(t *testing.T) {
 	server2Port := "9002"
 
 	// 2. Configure AppConfig pointing to Server 1 (port 9001)
-	dConf := distributed_config.New("test")
-	dConf.Capabilities = map[string]interface{}{
+	dConf := newIsolatedTestDistConf(t, map[string]interface{}{
 		"trade-engine": map[string]interface{}{
 			"ip":      "127.0.0.1",
 			"port":    server1Port,
 			"profile": "tcp",
 		},
-	}
+	})
 	ac := &config.AppConfig{
-		Profile: "test",
+		Profile: "standalone",
 		Config:  dConf,
 	}
 

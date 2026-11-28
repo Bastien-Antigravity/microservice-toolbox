@@ -13,6 +13,7 @@
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use tokio::time::sleep;
 use crate::conn_manager::manager::NetworkManager;
@@ -51,6 +52,8 @@ pub struct ManagedConnection {
     pub app_config: Option<Arc<std::sync::Mutex<crate::config::loader::AppConfig>>>,
     pub capability: Option<String>,
     pub current_conn: Arc<Mutex<Option<TcpStream>>>,
+    closed: Arc<AtomicBool>,
+    reconnecting: Arc<Mutex<()>>,
 }
 
 impl ManagedConnection {
@@ -66,6 +69,8 @@ impl ManagedConnection {
             app_config,
             capability: None,
             current_conn: Arc::new(Mutex::new(None)),
+            closed: Arc::new(AtomicBool::new(false)),
+            reconnecting: Arc::new(Mutex::new(())),
         }
     }
 
@@ -110,12 +115,19 @@ impl ManagedConnection {
     }
 
     pub async fn write(&self, data: &[u8]) -> Result<usize, Error> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(Error::NoConnection("ManagedConnection is closed".to_string()));
+        }
+
         let mut conn_lock = self.current_conn.lock().await;
 
         // If no connection, try to reconnect immediately (blocking)
         if conn_lock.is_none() {
             drop(conn_lock); // Release lock before reconnecting
             self.reconnect().await?;
+            if self.closed.load(Ordering::Acquire) {
+                return Err(Error::NoConnection("ManagedConnection is closed".to_string()));
+            }
             conn_lock = self.current_conn.lock().await;
         }
 
@@ -131,7 +143,10 @@ impl ManagedConnection {
 
                 // Reconnect and retry once
                 self.reconnect().await?;
-                
+                if self.closed.load(Ordering::Acquire) {
+                    return Err(Error::NoConnection("ManagedConnection is closed".to_string()));
+                }
+
                 let mut conn_lock = self.current_conn.lock().await;
                 let stream = conn_lock.as_mut().ok_or_else(|| {
                     Error::WriteFailed("ManagedConnection: stream is not connected after reconnect".to_string())
@@ -145,14 +160,33 @@ impl ManagedConnection {
     }
 
     pub async fn reconnect(&self) -> Result<(), Error> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(Error::NoConnection("ManagedConnection is closed".to_string()));
+        }
+
+        let _reconn_guard = self.reconnecting.lock().await;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(Error::NoConnection("ManagedConnection is closed".to_string()));
+        }
+        if self.current_conn.lock().await.is_some() {
+            return Ok(());
+        }
+
         let mut i = 0;
 
         loop {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(Error::NoConnection("ManagedConnection is closed".to_string()));
+            }
+
             let attempt = i + 1;
             let ep = self.current_endpoint();
 
             match self.nm.establish_connection(&ep.address).await {
                 Ok(stream) => {
+                    if self.closed.load(Ordering::Acquire) {
+                        return Err(Error::NoConnection("ManagedConnection is closed".to_string()));
+                    }
                     self.nm.logger.info(&format!("ManagedConnection: Reconnected to {}", ep.address));
                     let mut conn_lock = self.current_conn.lock().await;
                     *conn_lock = Some(stream);
@@ -179,6 +213,7 @@ impl ManagedConnection {
     }
 
     pub async fn close(&self) {
+        self.closed.store(true, Ordering::Release);
         let mut conn_lock = self.current_conn.lock().await;
         *conn_lock = None;
     }

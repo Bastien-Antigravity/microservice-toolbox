@@ -18,7 +18,7 @@ The `microservice-toolbox` is guarded by a multi-layered verification framework 
 ### 1. Go Unit Testing
 Ensures reference logic correctness for the core engine:
 - **Framework**: `testing` (Standard Library) + `testify/assert`.
-- **Command**: `cd go && go test -v ./pkg/...`
+- **Command**: `cd go && go test -count=1 -v -race ./pkg/...` (or from `microservice-toolbox/` root: `go test -count=1 -v -race ./go/...`)
 - **Key Focus**: Config layering, deep merging, TCP connection management, and **MsgPack/JSON round-trips**.
 
 ### 2. Python Unit Testing
@@ -36,7 +36,7 @@ Verifies memory-safe Cargo compilation and unit coverage:
 
 ### 4. C++17 & C11 Parity Testing
 Validates C++17 headers, pure C11 contract headers, and `libdistconf`/`libnotif` FFI links:
-- **Command**: `cd cpp && make test`
+- **Command**: `make -C cpp test && make -C cpp clean`
 - **Key Focus**: `test_config`, `test_modules` (Connectivity, Lifecycle, Business, Serializers, Logger, WireTap), `test_notification`, `test_version`, `test_spec`, and `test_contracts_c` (`-std=c11 -Werror`).
 
 ### 5. Multi-Language Serialization Integration Matrix

@@ -32,6 +32,10 @@ Private m_mirror As Object ' Scripting.Dictionary (In-Memory Mirror)
 ' -----------------------------------------------------------------------------------------------
 
 ' LoadConfig initializes the configuration based on the requested Profile logic.
+Public Sub Init(ByVal profile As String)
+    LoadConfig profile
+End Sub
+
 Public Sub LoadConfig(ByVal profile As String)
     m_profile = profile
     Set m_local = CreateObject("Scripting.Dictionary")
@@ -102,7 +106,7 @@ Public Function DecryptSecret(ByVal ciphertext As String) As String
         Dim errMsg As String
         errPtr = DistConf.DistConf_GetLastError()
         If errPtr <> 0 Then
-            errMsg = Toolbox.PtrToString(errPtr)
+            errMsg = Toolbox.StaticPtrToString(errPtr)
             Err.Raise 514, "AppConfig", "Decryption failed: " & errMsg
         Else
             Err.Raise 514, "AppConfig", "Decryption failed (bridge error)"

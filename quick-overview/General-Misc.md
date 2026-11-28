@@ -15,12 +15,12 @@ tags:
 Supplementary configuration and runtime environment notes for the `microservice-toolbox`.
 
 ## Dynamic FFI Loading
-To run wrappers that depend on the Go reference implementation (Python, C++), the shared Go binary `libdistconf.dylib` must be built:
-```bash
-cd go
-make build-cgo
-```
-This outputs `libdistconf.dylib` under `go/pkg/config/cgo/` which is imported by native wrappers at startup.
+To run wrappers that depend on the C-ABI shared libraries (Python, Rust, C++, VBA), ensure the workspace shared libraries are built and discoverable:
+- `libdistconf` (from `distributed-config`, override via `LIBDISTCONF_PATH`)
+- `libunilog` (from `universal-logger`, override via `LIBUNILOG_PATH`)
+- `libnotif` (from `notif-server`, override via `LIBNOTIF_PATH`)
+
+`microservice_toolbox.utils.lib_loader` (Python), `DistConf.hpp` / `NotificationClient.hpp` (C++), `config::ffi` / `notification::ffi` (Rust), and `Toolbox.bas` (VBA) resolve these libraries automatically from workspace candidates or explicit environment overrides.
 
 ## Local Configuration overrides
 - The namespace prefix `local:` can be declared inside any profile YAML config (e.g. `standalone.yaml`).

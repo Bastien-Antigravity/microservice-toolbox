@@ -28,7 +28,9 @@
  */
 
 #include <atomic>
+#include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -343,6 +345,114 @@ struct CanvasSpec {
  * ServiceSpec is the canonical specification of a microservice.
  * Microservices must explicitly provide their own domain metadata; zero dummy defaults are permitted.
  */
+namespace detail {
+inline bool IsDockerInternalHost(const std::string& host) {
+    std::string trimmed = detail::TrimStr(host);
+    if (trimmed.size() >= 2 && trimmed.front() == '[' && trimmed.back() == ']') {
+        trimmed = trimmed.substr(1, trimmed.size() - 2);
+    }
+    if (trimmed.empty() || trimmed == "0.0.0.0" || trimmed == "::") {
+        return true;
+    }
+    std::string lower = trimmed;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (lower == "localhost") {
+        return false;
+    }
+    if (trimmed.find(':') != std::string::npos) {
+        return false; // IPv6 literal
+    }
+    // Check IPv4 dotted quad
+    bool all_ipv4_chars = !trimmed.empty();
+    int dots = 0;
+    for (unsigned char ch : trimmed) {
+        if (ch == '.') {
+            dots++;
+        } else if (!std::isdigit(ch)) {
+            all_ipv4_chars = false;
+            break;
+        }
+    }
+    if (all_ipv4_chars && dots == 3) {
+        return false;
+    }
+    return trimmed.find('.') == std::string::npos;
+}
+} // namespace detail
+
+/**
+ * ResolveMFEURL rewrites wildcard (0.0.0.0, ::, empty) or single-label Docker DNS hosts
+ * to a browser-reachable host from HOST_IP or appConfig.GetPublicIP() when DOCKER_ENV=true.
+ */
+inline std::string ResolveMFEURL(const config::AppConfig& appConfig, const std::string& rawUrl) {
+    std::string trimmed = detail::TrimStr(rawUrl);
+    const char* dockerEnv = std::getenv("DOCKER_ENV");
+    if (trimmed.empty() || !dockerEnv || std::string(dockerEnv) != "true") {
+        return rawUrl;
+    }
+    std::string lowerPrefix = trimmed.substr(0, std::min<size_t>(trimmed.size(), 8));
+    std::transform(lowerPrefix.begin(), lowerPrefix.end(), lowerPrefix.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    size_t schemeEnd = std::string::npos;
+    if (lowerPrefix.rfind("http://", 0) == 0) {
+        schemeEnd = 7;
+    } else if (lowerPrefix.rfind("https://", 0) == 0) {
+        schemeEnd = 8;
+    } else {
+        return rawUrl;
+    }
+
+    size_t pathStart = trimmed.find_first_of("/?#", schemeEnd);
+    std::string authority = (pathStart == std::string::npos)
+                                ? trimmed.substr(schemeEnd)
+                                : trimmed.substr(schemeEnd, pathStart - schemeEnd);
+    std::string suffix = (pathStart == std::string::npos) ? "" : trimmed.substr(pathStart);
+    if (authority.empty()) {
+        return rawUrl;
+    }
+
+    std::string hostname = authority;
+    std::string port;
+    if (authority.front() == '[') {
+        size_t closeBracket = authority.find(']');
+        if (closeBracket == std::string::npos) {
+            return rawUrl;
+        }
+        hostname = authority.substr(1, closeBracket - 1);
+        if (closeBracket + 1 < authority.size() && authority[closeBracket + 1] == ':') {
+            port = authority.substr(closeBracket + 2);
+        }
+    } else {
+        size_t colon = authority.rfind(':');
+        if (colon != std::string::npos) {
+            hostname = authority.substr(0, colon);
+            port = authority.substr(colon + 1);
+        }
+    }
+
+    if (!detail::IsDockerInternalHost(hostname)) {
+        return rawUrl;
+    }
+
+    std::string publicHost;
+    if (const char* envHost = std::getenv("HOST_IP")) {
+        publicHost = detail::TrimStr(std::string(envHost));
+    }
+    if (publicHost.empty()) {
+        publicHost = detail::TrimStr(appConfig.GetPublicIP());
+    }
+    if (publicHost.empty() || publicHost == "0.0.0.0" || publicHost == "::") {
+        return rawUrl;
+    }
+
+    std::string formattedHost = (publicHost.find(':') != std::string::npos && publicHost.front() != '[')
+                                    ? ("[" + publicHost + "]")
+                                    : publicHost;
+    std::string newAuthority = port.empty() ? formattedHost : (formattedHost + ":" + port);
+    return trimmed.substr(0, schemeEnd) + newAuthority + suffix;
+}
+
 struct ServiceSpec {
     std::string name;
     std::string tag;
@@ -355,6 +465,7 @@ struct ServiceSpec {
     std::string color;
     bool requiresAuth{false};
     std::string capability;
+    std::string brainId;
     std::string description;
     std::string protocol;
     std::string framing;
@@ -393,6 +504,9 @@ struct ServiceSpec {
         };
         if (!color.empty()) {
             j["color"] = color;
+        }
+        if (!detail::TrimStr(brainId).empty()) {
+            j["brain_id"] = detail::TrimStr(brainId);
         }
         if (!navRoute.empty()) {
             j["navRoute"] = navRoute;
@@ -443,6 +557,7 @@ struct ServiceSpec {
         s.color = j.value("color", "");
         s.requiresAuth = j.value("requiresAuth", false);
         s.capability = j.value("capability", "");
+        s.brainId = j.value("brain_id", "");
         s.description = j.value("desc", j.value("description", ""));
         s.protocol = j.value("protocol", "");
         s.framing = j.value("framing", "");
@@ -527,6 +642,19 @@ public:
 
         ServiceSpec spec = base;
         spec.capability = cap;
+        if (contracts_detail_trim(spec.brainId).empty()) {
+            std::string b = contracts_detail_trim(appConfig.GetCapabilityString("squad_agent", "target_brain_id"));
+            if (b.empty()) b = contracts_detail_trim(appConfig.GetCapabilityString("watchdog_agent", "brain_id"));
+            if (b.empty()) {
+                if (const char* envBrain = std::getenv("BRAIN_ID")) b = contracts_detail_trim(std::string(envBrain));
+            }
+            if (b.empty()) {
+                if (const char* envTarget = std::getenv("TARGET_BRAIN_ID")) b = contracts_detail_trim(std::string(envTarget));
+            }
+            spec.brainId = b;
+        } else {
+            spec.brainId = contracts_detail_trim(spec.brainId);
+        }
         if (contracts_detail_trim(spec.navTitle).empty()) {
             spec.navTitle = spec.name;
         }
@@ -562,6 +690,7 @@ public:
                 throw std::runtime_error("spec.BuildSpecFromConfig: unable to resolve URL for capability '" + cap + "' (FAIL-FAST)");
             }
         }
+        spec.url = ResolveMFEURL(appConfig, spec.url);
 
         // Framing port interpolation
         if (spec.framing.find("%s") != std::string::npos) {

@@ -15,6 +15,7 @@
 #ifndef MICROSERVICE_TOOLBOX_NOTIFICATION_CLIENT_HPP
 #define MICROSERVICE_TOOLBOX_NOTIFICATION_CLIENT_HPP
 
+#include <atomic>
 #include <cstdlib>
 #include <future>
 #include <iostream>
@@ -167,7 +168,8 @@ public:
                               std::shared_ptr<Logger> logger = nullptr)
       : target_addr_(target_addr),
         logger_(microservice_toolbox::utils::EnsureSafeLogger(logger)),
-        timeout_sec_(5.0), closed_(false) {
+        timeout_sec_(std::make_shared<std::atomic<double>>(5.0)),
+        closed_(std::make_shared<std::atomic<bool>>(false)) {
     if (target_addr_.empty()) {
       throw std::invalid_argument("target_addr cannot be empty");
     }
@@ -198,7 +200,7 @@ public:
   /// Sets default RPC dispatch timeout in seconds.
   void SetTimeout(double seconds) {
     if (seconds > 0) {
-      timeout_sec_ = seconds;
+      timeout_sec_->store(seconds, std::memory_order_release);
     }
   }
 
@@ -227,7 +229,7 @@ public:
   bool SendWithAttachment(const std::string &level, const std::string &message,
                           const std::string &attachment,
                           const std::vector<std::string> &tags = {}) {
-    if (closed_) {
+    if (closed_->load(std::memory_order_acquire)) {
       logger_->Warning("NotificationClient dispatch rejected: client is closed");
       return false;
     }
@@ -248,7 +250,7 @@ public:
 
     auto fnSend = NotifBridgeLoader::Instance().FnSend();
     std::string targetAddr = target_addr_;
-    double timeoutSec = timeout_sec_;
+    double timeoutSec = timeout_sec_->load(std::memory_order_acquire);
     auto fut = std::async(std::launch::async, [fnSend, targetAddr, level, message, attachment, tagsCSV, timeoutSec]() {
       return fnSend(targetAddr.c_str(), level.c_str(), message.c_str(),
                     attachment.c_str(), tagsCSV.c_str(), timeoutSec);
@@ -279,7 +281,7 @@ public:
   // ---------------------------------------------------------------------------
 
   /// Marks the client as closed.
-  void Close() { closed_ = true; }
+  void Close() { closed_->store(true, std::memory_order_release); }
 
   // ---------------------------------------------------------------------------
 
@@ -288,8 +290,8 @@ public:
 private:
   std::string target_addr_;
   std::shared_ptr<Logger> logger_;
-  double timeout_sec_;
-  bool closed_;
+  std::shared_ptr<std::atomic<double>> timeout_sec_;
+  std::shared_ptr<std::atomic<bool>> closed_;
 };
 
 } // namespace notification

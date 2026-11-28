@@ -59,7 +59,7 @@ Public Declare PtrSafe Sub Notif_Close Lib NOTIF_LIB_PATH ()
 ' LoadConfig factory method.
 Public Function LoadConfig(ByVal profile As String) As AppConfig
     Dim cfg As New AppConfig
-    cfg.Init profile
+    cfg.LoadConfig profile
     Set LoadConfig = cfg
 End Function
 
@@ -106,6 +106,29 @@ Public Function PtrToString(ByVal ptr As LongPtr) As String
     DistConf.DistConf_FreeString ptr
     
     PtrToString = res
+End Function
+
+' Helper to convert a static/non-owned libdistconf C-string pointer (char*) to a VBA String WITHOUT freeing it.
+Public Function StaticPtrToString(ByVal ptr As LongPtr) As String
+    If ptr = 0 Then
+        StaticPtrToString = ""
+        Exit Function
+    End If
+
+    Dim length As Long
+    Dim res As String
+
+    #If Mac Then
+        length = strlen(ptr)
+        res = Space(length)
+        strlcpy res, ptr, length + 1
+    #Else
+        length = lstrlenA(ptr)
+        res = Space(length)
+        lstrcpynA res, ptr, length + 1
+    #End If
+
+    StaticPtrToString = res
 End Function
 
 ' Helper to convert a libnotif C-string pointer (char*) to a VBA String and free it.

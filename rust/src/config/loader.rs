@@ -161,7 +161,10 @@ impl AppConfig {
             std::path::Path::new("config").join(&filename_base),
             std::path::Path::new(&filename_base).to_path_buf(),
         ];
-        if actual_profile != "standalone" {
+        if matches!(
+            actual_profile.as_str(),
+            "test" | "staging" | "stage" | "production" | "prod" | "devel" | "dev" | "development"
+        ) {
             candidates.push(std::path::Path::new(&base_dir).join("config").join("standalone.yaml"));
             candidates.push(std::path::Path::new(&base_dir).join("standalone.yaml"));
             candidates.push(std::path::Path::new("config").join("standalone.yaml"));
@@ -190,12 +193,7 @@ impl AppConfig {
             }
         }
 
-        // Phase 1: Load base config from file (Native Fallback / Base Layer)
-        if let Some(path) = &found_path {
-            ac.load_from_file(path);
-        }
-
-        // Phase 2: Bridge Layer
+        // Phase 1/2: Initialize Bridge Layer first; fall back to native file load only when bridge is absent
         if let Some(lib) = crate::config::ffi::get_lib() {
             let profile_c = CString::new(actual_profile.clone()).unwrap();
             let handle = (lib.dist_conf_new)(profile_c.as_ptr());
@@ -203,6 +201,11 @@ impl AppConfig {
                 ac._handle = Some(handle);
                 ac.logger.info(&format!("libdistconf session initialized (handle: {})", handle));
                 ac.sync_from_bridge();
+            }
+        }
+        if ac._handle.is_none() {
+            if let Some(path) = &found_path {
+                ac.load_from_file(path);
             }
         }
 
@@ -350,8 +353,9 @@ impl AppConfig {
         let content = fs::read_to_string(filename).ok()?;
         
         // Expand Environment Variables: ${VAR}, ${VAR:default}, or ${VAR:-default}
+        static ENV_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let re = ENV_RE.get_or_init(|| regex::Regex::new(r"\$\{([^}]+)\}").unwrap());
         let mut expanded = content.clone();
-        let re = regex::Regex::new(r"\$\{([^}]+)\}").unwrap();
         
         for cap in re.captures_iter(&content) {
             let token = &cap[1];
@@ -740,12 +744,16 @@ impl AppConfig {
         };
 
         let normalize_ip = |ip: &str| -> String {
-            let ip = ip.trim().to_lowercase();
+            let ip = ip.trim().trim_matches(&['[', ']'][..]).to_lowercase();
             if ip == "localhost" {
                 "127.0.0.1".to_string()
             } else {
                 ip
             }
+        };
+
+        let is_wildcard_ip = |ip: &str| -> bool {
+            ip == "0.0.0.0" || ip == "::"
         };
 
         let mut seen = std::collections::HashMap::new();
@@ -755,7 +763,7 @@ impl AppConfig {
             for (seen_key, seen_desc) in &seen {
                 let (seen_ip, seen_port): &(String, i64) = seen_key;
                 if *seen_port == port {
-                    if nip == *seen_ip || nip == "0.0.0.0" || seen_ip == "0.0.0.0" {
+                    if nip == *seen_ip || is_wildcard_ip(&nip) || is_wildcard_ip(seen_ip) {
                         return Err(format!(
                             "duplicate endpoint detected: {}:{} for {} conflicts with {}:{} for {}",
                             ip, port, desc, seen_ip, seen_port, seen_desc
@@ -1054,7 +1062,7 @@ mod tests {
         let yaml_str = "local:\n  host: \"${TEST_HOST:localhost}\"\n  port: \"${TEST_PORT:8080}\"\n  ls_port: \"${LS_PORT:-9020}\"";
         let dir = std::env::temp_dir().join("rust_toolbox_env");
         let _ = std::fs::create_dir_all(&dir);
-        let config_path = dir.join("standalone.yaml");
+        let config_path = dir.join("env-test.yaml");
         std::fs::write(&config_path, yaml_str).unwrap();
 
         unsafe {
@@ -1066,7 +1074,7 @@ mod tests {
         let old_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
 
-        let ac = load_config("standalone").unwrap();
+        let ac = load_config("env-test").unwrap();
         std::env::set_current_dir(&old_dir).unwrap();
         let _ = std::fs::remove_file(&config_path);
 

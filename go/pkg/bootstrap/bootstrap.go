@@ -17,6 +17,7 @@ package bootstrap
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	toolbox_config "github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/config"
 	"github.com/Bastien-Antigravity/microservice-toolbox/go/pkg/trace"
@@ -37,6 +38,9 @@ func BootstrapServiceSafe(serviceName string, specificFlags ...string) (*toolbox
 		profile = "production"
 		loggerProfile = "cloud"
 	}
+	if cp := strings.TrimSpace(os.Getenv("CONFIG_PROFILE")); cp != "" {
+		profile = cp
+	}
 	if lp := os.Getenv("LOGGER_PROFILE"); lp != "" {
 		loggerProfile = lp
 	}
@@ -51,12 +55,14 @@ func BootstrapServiceSafe(serviceName string, specificFlags ...string) (*toolbox
 		logLevel = "INFO"
 	}
 
+	useLocalNotif := serviceName == "notif-server" || serviceName == "notif_server"
+
 	_, appLogger := unilog.InitWithOptions(unilog.BootstrapOptions{
 		Name:             serviceName,
 		ConfigProfile:    appConfig.Profile,
 		LoggerProfile:    loggerProfile,
 		InitialLogLevel:  unilog_utils.GetLogLevel(logLevel),
-		UseLocalNotifier: true,
+		UseLocalNotifier: useLocalNotif,
 		ExistingConfig:   &unilog_config.DistConfig{Config: appConfig.Config},
 	})
 	if appLogger == nil {
@@ -66,7 +72,7 @@ func BootstrapServiceSafe(serviceName string, specificFlags ...string) (*toolbox
 	appConfig.Logger = appLogger
 	trace.BindFromEnv(appLogger)
 	wiretap.ConfigureFromConfig(serviceName, appConfig)
-	appLogger.Info(fmt.Sprintf("%s : Initialized via microservice-toolbox (version: %s)", serviceName, appConfig.GetVersion()))
+	appLogger.Info("%s : Initialized via microservice-toolbox (version: %s)", serviceName, appConfig.GetVersion())
 	return appConfig, appLogger, nil
 }
 

@@ -20,16 +20,19 @@ KEY PARAMETERS:
 - _lock: Synchronizes `_edges` and channel mutations across worker threads.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime as dtDateTime, timezone as dtTimezone
 from json import dumps as jsonDumps, loads as jsonLoads
 from threading import Lock as threadingLock, Thread as threadingThread, local as threadingLocal
-from time import sleep as timeSleep
-from typing import Any, Dict, List
+from time import sleep as timeSleep, time as timeTime
+from typing import Any as typeAny, Dict as typeDict, List as typeList
 from urllib.request import Request as urllibRequest, urlopen as urllibUrlopen
 
 # -----------------------------------------------------------------------------------------------
 # Switch, Thread-Safe Store & Bitmask Sampling State
 # -----------------------------------------------------------------------------------------------
+
+MAX_PAYLOAD_SUMMARY_BYTES = 256
+_REDACTED_ENC_TOKEN = "ENC([REDACTED])"
 
 _enabled: bool = True
 _local_service: str = "unknown_service"
@@ -39,7 +42,37 @@ _lock = threadingLock()
 _sample_tls = threadingLocal()
 
 # _edges maps "source|target|protocol" -> dict of edge metrics and channels dict
-_edges: Dict[str, Dict[str, Any]] = {}
+_edges: typeDict[str, typeDict[str, typeAny]] = {}
+
+
+def sanitize_payload_summary(raw: str) -> str:
+    """Redacts ENC(...) secret tokens and caps summary length to 256 bytes."""
+    if not raw:
+        return ""
+    s = raw
+    if "ENC(" in s:
+        parts: typeList[str] = []
+        rem = s
+        while True:
+            idx = rem.find("ENC(")
+            if idx == -1:
+                parts.append(rem)
+                break
+            parts.append(rem[:idx])
+            after_prefix = rem[idx + 4 :]
+            close_idx = after_prefix.find(")")
+            parts.append(_REDACTED_ENC_TOKEN)
+            if close_idx == -1:
+                break
+            rem = after_prefix[close_idx + 1 :]
+        s = "".join(parts)
+    if len(s) > MAX_PAYLOAD_SUMMARY_BYTES:
+        return s[: MAX_PAYLOAD_SUMMARY_BYTES - 3] + "..."
+    return s
+
+
+def _format_iso_ts(ts: float) -> str:
+    return dtDateTime.fromtimestamp(ts, tz=dtTimezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def set_enabled(on: bool) -> None:
@@ -106,7 +139,7 @@ def normalize_service_id(raw: str) -> str:
 # -----------------------------------------------------------------------------------------------
 
 
-def configure_from_config(service_name: str, config: Any) -> None:
+def configure_from_config(service_name: str, config: typeAny) -> None:
     """
     Initializes WireTap from validated AppConfig and starts the background reporter daemon thread.
     Zero silent fallback: reads web_interface capability and wiretap_enabled strictly from AppConfig.
@@ -168,7 +201,7 @@ def record_event(
     ch_name = channel or f"{proto_upper.lower()}:default"
     frame_val = framing or "raw"
     edge_key = f"{src_norm}|{tgt_norm}|{proto_upper}"
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now_ts = timeTime()
 
     with _lock:
         edge = _edges.get(edge_key)
@@ -182,13 +215,13 @@ def record_event(
                 "total_frames": 0,
                 "total_bytes": 0,
                 "total_errors": 0,
-                "last_seen": now_iso,
+                "last_seen_ts": now_ts,
                 "is_external": bool(is_external),
                 "channels": {},
             }
             _edges[edge_key] = edge
         else:
-            if framing:
+            if framing and framing != "raw":
                 edge["framing"] = framing
             if is_external:
                 edge["is_external"] = True
@@ -202,9 +235,9 @@ def record_event(
             edge["total_bytes"] = int(edge.get("total_bytes", 0)) + int(bytes_count)
         if is_err:
             edge["total_errors"] = int(edge.get("total_errors", 0)) + 1
-        edge["last_seen"] = now_iso
+        edge["last_seen_ts"] = now_ts
 
-        channels_map: Dict[str, Dict[str, Any]] = edge["channels"]
+        channels_map: typeDict[str, typeDict[str, typeAny]] = edge["channels"]
         ch_entry = channels_map.get(ch_name)
         if ch_entry is None:
             ch_entry = {
@@ -217,7 +250,7 @@ def record_event(
                 "total_lat_ms": 0.0,
                 "lat_samples": 0,
                 "avg_latency_ms": 0.0,
-                "last_seen": now_iso,
+                "last_seen_ts": now_ts,
                 "last_payload": "",
             }
             channels_map[ch_name] = ch_entry
@@ -231,23 +264,24 @@ def record_event(
             ch_entry["total_lat_ms"] = float(ch_entry["total_lat_ms"]) + float(latency_ms)
             ch_entry["lat_samples"] = int(ch_entry["lat_samples"]) + 1
             ch_entry["avg_latency_ms"] = ch_entry["total_lat_ms"] / max(1, ch_entry["lat_samples"])
-        ch_entry["last_seen"] = now_iso
+        ch_entry["last_seen_ts"] = now_ts
         if payload_summary:
-            ch_entry["last_payload"] = str(payload_summary)
+            ch_entry["last_payload"] = sanitize_payload_summary(str(payload_summary))
 
 
 record_event_with_conn_delta = record_event
 
 
-def snapshot() -> List[Dict[str, Any]]:
+def snapshot() -> typeList[typeDict[str, typeAny]]:
     """Returns a serializable list of EdgeReport dicts."""
-    out: List[Dict[str, Any]] = []
+    out: typeList[typeDict[str, typeAny]] = []
     with _lock:
         edges_copy = list(_edges.values())
         for edge in edges_copy:
             ch_list = []
             for ch in list(edge.get("channels", {}).values()):
-                item: Dict[str, Any] = {
+                ch_last_seen = _format_iso_ts(float(ch["last_seen_ts"])) if "last_seen_ts" in ch else str(ch.get("last_seen", ""))
+                item: typeDict[str, typeAny] = {
                     "channel": ch["channel"],
                     "category": ch["category"],
                     "direction": ch["direction"],
@@ -255,12 +289,13 @@ def snapshot() -> List[Dict[str, Any]]:
                     "bytes": ch["bytes"],
                     "errors": ch["errors"],
                     "avg_latency_ms": ch["avg_latency_ms"],
-                    "last_seen": ch["last_seen"],
+                    "last_seen": ch_last_seen,
                 }
                 if ch.get("last_payload"):
-                    item["last_payload"] = ch["last_payload"]
+                    item["last_payload"] = sanitize_payload_summary(str(ch["last_payload"]))
                 ch_list.append(item)
             ch_list.sort(key=lambda x: x["channel"])
+            edge_last_seen = _format_iso_ts(float(edge["last_seen_ts"])) if "last_seen_ts" in edge else str(edge.get("last_seen", ""))
             out.append({
                 "source": edge["source"],
                 "target": edge["target"],
@@ -270,7 +305,7 @@ def snapshot() -> List[Dict[str, Any]]:
                 "total_frames": edge["total_frames"],
                 "total_bytes": edge["total_bytes"],
                 "total_errors": edge["total_errors"],
-                "last_seen": edge["last_seen"],
+                "last_seen": edge_last_seen,
                 "is_external": edge["is_external"],
                 "channels": ch_list,
             })
@@ -278,11 +313,11 @@ def snapshot() -> List[Dict[str, Any]]:
     return out
 
 
-def merge_remote_snapshot(incoming: List[Dict[str, Any]]) -> None:
+def merge_remote_snapshot(incoming: typeList[typeDict[str, typeAny]]) -> None:
     """Merges a batch of remote EdgeReport dicts into the local store."""
     if not _enabled:
         return
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now_ts = timeTime()
     with _lock:
         for rep in incoming or []:
             src_norm = normalize_service_id(str(rep.get("source", "")))
@@ -302,12 +337,12 @@ def merge_remote_snapshot(incoming: List[Dict[str, Any]]) -> None:
                     "total_frames": 0,
                     "total_bytes": 0,
                     "total_errors": 0,
-                    "last_seen": now_iso,
+                    "last_seen_ts": now_ts,
                     "is_external": False,
                     "channels": {},
                 }
                 _edges[edge_key] = edge
-            if rep.get("framing"):
+            if rep.get("framing") and rep.get("framing") != "raw":
                 edge["framing"] = str(rep["framing"])
             if rep.get("is_external"):
                 edge["is_external"] = True
@@ -318,9 +353,9 @@ def merge_remote_snapshot(incoming: List[Dict[str, Any]]) -> None:
             if int(rep.get("total_bytes") or 0) >= int(edge["total_bytes"]):
                 edge["total_bytes"] = int(rep["total_bytes"])
             edge["total_errors"] = int(rep.get("total_errors") or 0)
-            edge["last_seen"] = now_iso
+            edge["last_seen_ts"] = now_ts
 
-            channels_map: Dict[str, Dict[str, Any]] = edge["channels"]
+            channels_map: typeDict[str, typeDict[str, typeAny]] = edge["channels"]
             for ch in rep.get("channels") or []:
                 ch_name = str(ch.get("channel", ""))
                 if not ch_name:
@@ -337,7 +372,7 @@ def merge_remote_snapshot(incoming: List[Dict[str, Any]]) -> None:
                         "total_lat_ms": 0.0,
                         "lat_samples": 0,
                         "avg_latency_ms": 0.0,
-                        "last_seen": now_iso,
+                        "last_seen_ts": now_ts,
                         "last_payload": "",
                     }
                     channels_map[ch_name] = ch_entry
@@ -351,9 +386,9 @@ def merge_remote_snapshot(incoming: List[Dict[str, Any]]) -> None:
                     ch_entry["total_lat_ms"] = avg_lat
                     ch_entry["lat_samples"] = 1
                     ch_entry["avg_latency_ms"] = avg_lat
-                ch_entry["last_seen"] = now_iso
+                ch_entry["last_seen_ts"] = now_ts
                 if ch.get("last_payload"):
-                    ch_entry["last_payload"] = str(ch["last_payload"])
+                    ch_entry["last_payload"] = sanitize_payload_summary(str(ch["last_payload"]))
 
 
 def reset() -> None:
@@ -405,7 +440,7 @@ def _reporter_loop() -> None:
             edges_data = snapshot() if _enabled else []
             payload = {
                 "reporter": get_local_service(),
-                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "timestamp": dtDateTime.now(dtTimezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "enabled": _enabled,
                 "edges": edges_data,
             }

@@ -22,13 +22,18 @@ from signal import (
     signal as sigSignal,
 )
 from threading import Event as threadingEvent, Lock as threadingLock
-from typing import Callable, List, Optional, Tuple
+from typing import (
+    Callable as typeCallable,
+    List as typeList,
+    Optional as typeOptional,
+    Tuple as typeTuple,
+)
 
 from ..logger import Logger, ensure_safe_logger
 
 # -----------------------------------------------------------------------------------------------
 
-ShutdownFunc = Callable[[], None]
+ShutdownFunc = typeCallable[[], None]
 
 # -----------------------------------------------------------------------------------------------
 
@@ -43,9 +48,9 @@ class LifecycleManager:
 
     # -----------------------------------------------------------------------------------------------
 
-    def __init__(self, logger: Optional[Logger] = None):
+    def __init__(self, logger: typeOptional[Logger] = None):
         self._lock = threadingLock()
-        self._cleanups: List[Tuple[str, ShutdownFunc]] = []
+        self._cleanups: typeList[typeTuple[str, ShutdownFunc]] = []
         self.logger = ensure_safe_logger(logger)
         self._shutdown_event = threadingEvent()
 

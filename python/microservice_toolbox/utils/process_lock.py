@@ -28,7 +28,7 @@ from os import (
 from os.path import exists as osPathExists, join as osPathJoin
 from sys import exit as sysExit, stderr as sysStderr
 from tempfile import gettempdir as tempfileGetTempDir
-from typing import Any, Optional
+from typing import Any as typeAny, Optional as typeOptional
 
 if osName == "nt":
     from ctypes import windll as ctypesWindll
@@ -55,7 +55,7 @@ class ProcessLock:
     def __init__(self, service_name: str) -> None:
         self.service_name = service_name
         self.lock_path = osPathJoin(tempfileGetTempDir(), f"antigravity_{service_name}.lock")
-        self.lock_file: Optional[Any] = None
+        self.lock_file: typeOptional[typeAny] = None
 
     def acquire(self) -> bool:
         """
@@ -131,7 +131,7 @@ class ProcessLock:
             raise RuntimeError(f"Could not acquire process lock for '{self.service_name}'. Another instance is running.")
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def __exit__(self, exc_type: typeAny, exc_val: typeAny, exc_tb: typeAny) -> None:
         self.release()
 
 
@@ -169,7 +169,7 @@ def is_pid_alive(pid: int) -> bool:
 # -----------------------------------------------------------------------------------------------
 
 
-def is_process_running(service_name: str) -> Optional[dict]:
+def is_process_running(service_name: str) -> typeOptional[dict]:
     """
     Non-destructively inspects whether a service is currently running.
     Returns None if not running.
@@ -230,7 +230,7 @@ def is_process_running(service_name: str) -> Optional[dict]:
 # -----------------------------------------------------------------------------------------------
 
 
-def prevent_double_start(service_name: str, logger: Optional[Any] = None) -> ProcessLock:
+def prevent_double_start(service_name: str, logger: typeOptional[typeAny] = None) -> ProcessLock:
     """
     Ensures that only a single instance of the service is running.
     If already running, logs/prints a message and exits the program.

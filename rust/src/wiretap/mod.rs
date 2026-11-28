@@ -25,8 +25,45 @@ use std::sync::{Arc, Once, OnceLock, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // -----------------------------------------------------------------------------
-// Wire Data Contracts (100% parity with Go, Python & C++)
+// Payload Sanitization & Wire Data Contracts (100% parity with Go, Python & C++)
 // -----------------------------------------------------------------------------
+
+pub const MAX_PAYLOAD_SUMMARY_BYTES: usize = 256;
+const REDACTED_ENC_TOKEN: &str = "ENC([REDACTED])";
+
+pub fn sanitize_payload_summary(raw: &str) -> String {
+    if raw.is_empty() {
+        return String::new();
+    }
+    let sanitized = if raw.contains("ENC(") {
+        let mut out = String::with_capacity(raw.len());
+        let mut rem = raw;
+        while let Some(idx) = rem.find("ENC(") {
+            out.push_str(&rem[..idx]);
+            out.push_str(REDACTED_ENC_TOKEN);
+            let after = &rem[idx + 4..];
+            if let Some(close_idx) = after.find(')') {
+                rem = &after[close_idx + 1..];
+            } else {
+                rem = "";
+                break;
+            }
+        }
+        out.push_str(rem);
+        out
+    } else {
+        raw.to_string()
+    };
+
+    if sanitized.len() <= MAX_PAYLOAD_SUMMARY_BYTES {
+        return sanitized;
+    }
+    let mut cut = MAX_PAYLOAD_SUMMARY_BYTES - 3;
+    while cut > 0 && !sanitized.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}...", &sanitized[..cut])
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ChannelMetric {
@@ -122,8 +159,9 @@ impl AtomicChannelEntry {
 
         if let Some(p) = payload {
             if !p.is_empty() {
+                let sanitized = sanitize_payload_summary(p);
                 if let Ok(mut lock) = self.last_payload.write() {
-                    *lock = Some(p.to_string());
+                    *lock = Some(sanitized);
                 }
             }
         }
@@ -483,10 +521,17 @@ pub fn record_event_with_conn_delta(
         }
     };
 
-    if !framing.is_empty() {
-        if let Ok(mut fguard) = edge_arc.framing.write() {
-            if *fguard != framing {
-                *fguard = framing.to_string();
+    if !framing.is_empty() && framing != "raw" {
+        let needs_update = edge_arc
+            .framing
+            .read()
+            .map(|fg| *fg != framing)
+            .unwrap_or(false);
+        if needs_update {
+            if let Ok(mut fguard) = edge_arc.framing.write() {
+                if *fguard != framing {
+                    *fguard = framing.to_string();
+                }
             }
         }
     }
@@ -721,8 +766,9 @@ pub fn merge_remote_snapshot(incoming: &[EdgeReport]) {
             ch_arc.last_seen_ms.store(now_ms, Ordering::Relaxed);
             if let Some(ref lp) = ch.last_payload {
                 if !lp.is_empty() {
+                    let sanitized = sanitize_payload_summary(lp);
                     if let Ok(mut guard) = ch_arc.last_payload.write() {
-                        *guard = Some(lp.clone());
+                        *guard = Some(sanitized);
                     }
                 }
             }

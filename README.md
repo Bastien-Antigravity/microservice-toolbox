@@ -87,7 +87,9 @@ Lock-free, real-time inter-service connection and segregated channel telemetry a
 | CLI Flag Overrides & Docker Guard (`config`) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Environment Var Expansion & RSA Decryption | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **Error Transparency (`GetLastError`)** | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **In-Memory Mirroring & `UnmarshalLocal`** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **In-Memory Mirroring & `UnmarshalLocal`** | ✅ | ✅ | ✅ | ✅ | ✅ (`GetLocal`) |
+| **Local TLS Config (`GetLocalTLSConfig`)** | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Mission Trace Correlation (`trace`)** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **Config-Verbatim Connectivity (`Resolver`)** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **LIFO Graceful Shutdown (`LifecycleManager`)** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **Business Data Models & Helpers (`WrapMarketEvent`)** | ✅ | ✅ | ✅ | ✅ | ❌ |
@@ -164,10 +166,10 @@ This repository uses a comprehensive, cross-language test suite to ensure archit
 
 ### Running Unit Tests
 - **All Languages (Root)**: `make test`
-- **Go**: `go test -v ./go/...`
-- **Python**: `pytest python/`
+- **Go**: `go test -count=1 -v -race ./go/...`
+- **Python**: `cd python && pytest -v`
 - **Rust**: `cd rust && cargo test`
-- **C++**: `cd cpp && make test`
+- **C++**: `make -C cpp test && make -C cpp clean`
 
 ### Integration Tests
 Cross-language compatibility (e.g., Go -> Python serialization) is validated via the integration runner:

@@ -199,25 +199,98 @@ mod tests {
     fn generate_test_certs(dir: &Path, service: &str) {
         let tool = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../distributed-config/bin/config-tool");
-        let ca_status = Command::new(&tool)
-            .args(["tlsgen", "--dir", &dir.to_string_lossy(), "--ca"])
-            .status()
-            .expect("failed to execute config-tool tlsgen --ca");
-        assert!(ca_status.success(), "config-tool tlsgen --ca failed");
+        if tool.is_file() {
+            let ca_status = Command::new(&tool)
+                .args(["tlsgen", "--dir", &dir.to_string_lossy(), "--ca"])
+                .status()
+                .expect("failed to execute config-tool tlsgen --ca");
+            assert!(ca_status.success(), "config-tool tlsgen --ca failed");
 
-        let svc_status = Command::new(&tool)
+            let svc_status = Command::new(&tool)
+                .args([
+                    "tlsgen",
+                    "--dir",
+                    &dir.to_string_lossy(),
+                    "--service",
+                    service,
+                    "--hosts",
+                    "127.0.0.1,localhost",
+                ])
+                .status()
+                .expect("failed to execute config-tool tlsgen --service");
+            assert!(svc_status.success(), "config-tool tlsgen --service failed");
+            return;
+        }
+
+        // Zone-1 standalone fallback when sibling distributed-config binary is absent
+        let ca_key = dir.join("ca.key");
+        let ca_crt = dir.join("ca.crt");
+        let svc_key = dir.join(format!("{}.key", service));
+        let svc_csr = dir.join(format!("{}.csr", service));
+        let svc_crt = dir.join(format!("{}.crt", service));
+        let svc_ext = dir.join(format!("{}.ext", service));
+        std::fs::write(&svc_ext, "subjectAltName=IP:127.0.0.1,DNS:localhost\n")
+            .expect("failed to write test openssl extfile");
+
+        let ca_status = Command::new("openssl")
             .args([
-                "tlsgen",
-                "--dir",
-                &dir.to_string_lossy(),
-                "--service",
-                service,
-                "--hosts",
-                "127.0.0.1,localhost",
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-keyout",
+                &ca_key.to_string_lossy(),
+                "-out",
+                &ca_crt.to_string_lossy(),
+                "-days",
+                "1",
+                "-subj",
+                "/CN=bastien-test-ca",
             ])
             .status()
-            .expect("failed to execute config-tool tlsgen --service");
-        assert!(svc_status.success(), "config-tool tlsgen --service failed");
+            .expect("failed to execute openssl ca generation");
+        assert!(ca_status.success(), "openssl ca generation failed");
+
+        let csr_subj = format!("/CN={}", service);
+        let csr_status = Command::new("openssl")
+            .args([
+                "req",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-keyout",
+                &svc_key.to_string_lossy(),
+                "-out",
+                &svc_csr.to_string_lossy(),
+                "-subj",
+                &csr_subj,
+            ])
+            .status()
+            .expect("failed to execute openssl csr generation");
+        assert!(csr_status.success(), "openssl csr generation failed");
+
+        let sign_status = Command::new("openssl")
+            .args([
+                "x509",
+                "-req",
+                "-in",
+                &svc_csr.to_string_lossy(),
+                "-CA",
+                &ca_crt.to_string_lossy(),
+                "-CAkey",
+                &ca_key.to_string_lossy(),
+                "-CAcreateserial",
+                "-out",
+                &svc_crt.to_string_lossy(),
+                "-days",
+                "1",
+                "-extfile",
+                &svc_ext.to_string_lossy(),
+            ])
+            .status()
+            .expect("failed to execute openssl x509 signing");
+        assert!(sign_status.success(), "openssl x509 signing failed");
     }
 
     #[test]

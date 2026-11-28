@@ -24,11 +24,20 @@ from asyncio import (
     get_event_loop as asyncioGetEventLoop,
     get_running_loop as asyncioGetRunningLoop,
 )
-from ctypes import c_int as ctypeC_int
+from ctypes import c_int as ctypeC_int, string_at as ctypesStringAt
 from json import dumps as jsonDumps, loads as jsonLoads
 from os.path import basename as osPathBasename
-from sys import _getframe as sysGetFrame
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from sys import _getframe as sysGetFrame, stderr as sysStderr
+from typing import (
+    Any as typeAny,
+    Callable as typeCallable,
+    Dict as typeDict,
+    List as typeList,
+    Optional as typeOptional,
+    Set as typeSet,
+    Tuple as typeTuple,
+    Union as typeUnion,
+)
 
 from ..utils.lib_loader import LOGGER_CALLBACK_TYPE, load_libunilog
 from .logger import Logger
@@ -47,7 +56,7 @@ class ConfigUpdateListener:
 
     def __init__(self, parent: 'UniLog') -> None:
         self._parent: 'UniLog' = parent
-        self._queue: asyncioQueue[Dict[str, Any]] = asyncioQueue()
+        self._queue: asyncioQueue[typeDict[str, typeAny]] = asyncioQueue()
 
         # Capture the active event loop to ensure thread-safe dispatching
         try:
@@ -55,14 +64,14 @@ class ConfigUpdateListener:
         except RuntimeError:
             self._loop = asyncioGetEventLoop()
 
-    def _put(self, data: Dict[str, Any]) -> None:
+    def _put(self, data: typeDict[str, typeAny]) -> None:
         self._loop.call_soon_threadsafe(self._queue.put_nowait, data)
 
     def __aiter__(self) -> 'ConfigUpdateListener':
         self._parent._async_listeners.add(self)
         return self
 
-    async def __anext__(self) -> Dict[str, Any]:
+    async def __anext__(self) -> typeDict[str, typeAny]:
         try:
             return await self._queue.get()
         except asyncioCancelledError:
@@ -81,7 +90,7 @@ class UniLog(Logger):
     """
 
     def __init__(self, app_name: str = "python-app", config_profile: str = "standalone",
-                 logger_profile: str = "standard", log_level: Union[str, int, LogLevel] = "info",
+                 logger_profile: str = "standard", log_level: typeUnion[str, int, LogLevel] = "info",
                  use_local_notifier: bool = False, config_handle: int = 0) -> None:
         if not lib:
             raise RuntimeError("libunilog shared library not found. Please ensure it is built.")
@@ -97,9 +106,12 @@ class UniLog(Logger):
             ctypeC_int(1 if use_local_notifier else 0),
             config_handle
         )
-        self._callback_ref: Optional[Any] = None  # Keep reference to avoid GC
-        self._sync_subscribers: List[Callable[[Dict[str, Any]], None]] = []
-        self._async_listeners: Set[ConfigUpdateListener] = set()
+        if not self._handle:
+            raise RuntimeError("UniLog_Init returned invalid null handle.")
+        self._min_level: int = level_val
+        self._callback_ref: typeOptional[typeAny] = None  # Keep reference to avoid GC
+        self._sync_subscribers: typeList[typeCallable[[typeDict[str, typeAny]], None]] = []
+        self._async_listeners: typeSet[ConfigUpdateListener] = set()
         self._initialized_bridge: bool = False
 
     ##########################################################################
@@ -135,11 +147,12 @@ class UniLog(Logger):
 
 
     # Log level accessors
-    def set_level(self, level: Union[str, int, LogLevel]) -> None:
+    def set_level(self, level: typeUnion[str, int, LogLevel]) -> None:
         """Change the current log level dynamically."""
         if isinstance(level, str):
             level = LogLevel.from_str(level)
-        lib.UniLog_SetLevel(self._handle, int(level))
+        self._min_level = int(level)
+        lib.UniLog_SetLevel(self._handle, self._min_level)
 
     def get_level(self) -> LogLevel:
         """Retrieve the current log level from the Go core."""
@@ -152,7 +165,7 @@ class UniLog(Logger):
         """Add a single key-value pair to all future logs."""
         lib.UniLog_AddMetadata(self._handle, key.encode('utf-8'), value.encode('utf-8'))
 
-    def set_metadata(self, metadata: Dict[str, Any]) -> None:
+    def set_metadata(self, metadata: typeDict[str, typeAny]) -> None:
         """Replace all existing metadata with the provided dictionary."""
         json_data = jsonDumps(metadata)
         lib.UniLog_SetMetadata(self._handle, json_data.encode('utf-8'))
@@ -160,14 +173,13 @@ class UniLog(Logger):
     ##########################################################################
     # Config Methods
 
-    def get_config(self, section: str, key: str, default: Optional[str] = None) -> Optional[str]:
+    def get_config(self, section: str, key: str, default: typeOptional[str] = None) -> typeOptional[str]:
         """Retrieve a configuration value from the distributed config service (Zero-Leak FFI)."""
         res_ptr = lib.UniLog_Config_Get(self._handle, section.encode('utf-8'), key.encode('utf-8'))
         if not res_ptr:
             return default
         try:
-            from ctypes import string_at
-            return string_at(res_ptr).decode('utf-8')
+            return ctypesStringAt(res_ptr).decode('utf-8')
         finally:
             if hasattr(lib, "DistConf_FreeString"):
                 lib.DistConf_FreeString(res_ptr)
@@ -187,15 +199,15 @@ class UniLog(Logger):
                 try:
                     cb(data)
                 except Exception as e:
-                    print(f"!!! Sync subscriber error: {e}")
+                    sysStderr.write(f"!!! Sync subscriber error: {e}\n")
 
             # 2. Dispatch to asynchronous listeners (thread-safe)
             for listener in list(self._async_listeners):
                 listener._put(data)
         except Exception as e:
-            print(f"!!! _dispatch_update EXCEPTION: {e}")
+            sysStderr.write(f"!!! _dispatch_update EXCEPTION: {e}\n")
 
-    def on_config_update(self, callback: Optional[Callable[[Dict[str, Any]], None]] = None) -> Optional[ConfigUpdateListener]:
+    def on_config_update(self, callback: typeOptional[typeCallable[[typeDict[str, typeAny]], None]] = None) -> typeOptional[ConfigUpdateListener]:
         """
         Registers a mechanism for configuration updates.
         """
@@ -210,7 +222,7 @@ class UniLog(Logger):
 
         return ConfigUpdateListener(self)
 
-    def on_notification(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+    def on_notification(self, callback: typeCallable[[typeDict[str, typeAny]], None]) -> None:
         """
         Registers a callback for local notifications.
         """
@@ -219,7 +231,7 @@ class UniLog(Logger):
                 data = jsonLoads(json_data.decode('utf-8'))
                 callback(data)
             except Exception as e:
-                print(f"!!! on_notification EXCEPTION: {e}")
+                sysStderr.write(f"!!! on_notification EXCEPTION: {e}\n")
 
         self._notif_callback_ref = LOGGER_CALLBACK_TYPE(_bridge_cb)
         lib.UniLog_RegisterNotifCallback(self._handle, self._notif_callback_ref)
@@ -227,14 +239,18 @@ class UniLog(Logger):
     ##########################################################################
     # Internal sync Logging Method
 
-    def _log(self, level: Union[int, LogLevel], msg: str) -> None:
+    def _log(self, level: typeUnion[int, LogLevel], msg: str) -> None:
+        if int(level) < self._min_level:
+            return
         caller_info = self._get_caller_info(3)
         self._dispatch_log_to_cgo(level, msg, *caller_info)
 
     ##########################################################################
     # Internal async Logging Method
 
-    async def _async_log(self, level: Union[int, LogLevel], msg: str) -> None:
+    async def _async_log(self, level: typeUnion[int, LogLevel], msg: str) -> None:
+        if int(level) < self._min_level:
+            return
         caller_info = self._get_caller_info(3)
         await asyncioGetRunningLoop().run_in_executor(
             None,
@@ -244,7 +260,7 @@ class UniLog(Logger):
             *caller_info
         )
 
-    def _get_caller_info(self, depth: int) -> Tuple[str, str, str, str]:
+    def _get_caller_info(self, depth: int) -> typeTuple[str, str, str, str]:
         try:
             frame = sysGetFrame(depth)
             filename = osPathBasename(frame.f_code.co_filename)
@@ -255,7 +271,7 @@ class UniLog(Logger):
         except Exception:
             return "unknown_file", "0", "unknown_func", "unknown_mod"
 
-    def _dispatch_log_to_cgo(self, level: Union[int, LogLevel], msg: str, filename: str, lineno: str, function: str, module: str) -> None:
+    def _dispatch_log_to_cgo(self, level: typeUnion[int, LogLevel], msg: str, filename: str, lineno: str, function: str, module: str) -> None:
         lib.UniLog_LogWithMetadata(
             self._handle,
             int(level),
@@ -278,11 +294,11 @@ class UniLog(Logger):
     def __enter__(self) -> 'UniLog':
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    def __exit__(self, exc_type: typeAny, exc_val: typeAny, exc_tb: typeAny) -> None:
         self.close()
 
     async def __aenter__(self) -> 'UniLog':
         return self.__enter__()
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(self, exc_type: typeAny, exc_val: typeAny, exc_tb: typeAny) -> None:
         return self.__exit__(exc_type, exc_val, exc_tb)

@@ -14,10 +14,10 @@ KEY PARAMETERS:
 - None (Enumeration Definitions).
 """
 
-from enum import IntEnum
+from enum import IntEnum as enumIntEnum
 
 
-class LogLevel(IntEnum):
+class LogLevel(enumIntEnum):
     """
     LogLevel constants matching the Go logger_models.Level.
     """

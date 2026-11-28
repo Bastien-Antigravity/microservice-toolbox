@@ -17,11 +17,11 @@ KEY PARAMETERS:
 
 from threading import Lock as threadingLock
 from time import sleep as timeSleep
-from typing import TYPE_CHECKING, Any, Optional, Tuple
+from typing import TYPE_CHECKING as typeChecking, Any as typeAny, Optional as typeOptional, Tuple as typeTuple
 
-from .errors import MaxRetriesReachedError, WriteFailedError
+from .errors import MaxRetriesReachedError, NoConnectionError, WriteFailedError
 
-if TYPE_CHECKING:
+if typeChecking:
     from .manager import NetworkManager
 
 # -----------------------------------------------------------------------------------------------
@@ -59,8 +59,8 @@ class ManagedConnection:
         public_ip: str,
         profile: str,
         nm: "NetworkManager",
-        app_config: Optional[Any] = None,
-        capability: Optional[str] = None,
+        app_config: typeOptional[typeAny] = None,
+        capability: typeOptional[str] = None,
     ):
         self.endpoint = Endpoint(ip, port, public_ip, profile)
         self.nm = nm
@@ -68,6 +68,7 @@ class ManagedConnection:
         self.capability = capability
         self.current_conn = None
         self._reconnecting = False
+        self._closed = False
         self._lock = threadingLock()
 
     # -----------------------------------------------------------------------------------------------
@@ -79,7 +80,7 @@ class ManagedConnection:
 
     # -----------------------------------------------------------------------------------------------
 
-    def get_endpoint(self) -> Tuple[str, str]:
+    def get_endpoint(self) -> typeTuple[str, str]:
         """Returns current target coordinates."""
         ep = self.endpoint
         return ep.ip, ep.port
@@ -102,10 +103,13 @@ class ManagedConnection:
 
     # -----------------------------------------------------------------------------------------------
 
-    def write(self, data: bytes) -> Any:
+    def write(self, data: bytes) -> typeAny:
         """
         Writes data to the connection, attempting reconnection if it fails.
         """
+        if self._closed:
+            raise NoConnectionError(f"{self.Name} : connection is closed")
+
         conn = self.current_conn
 
         # If no connection, try to reconnect immediately (blocking)
@@ -148,6 +152,7 @@ class ManagedConnection:
         Closes the underlying connection.
         """
         with self._lock:
+            self._closed = True
             if self.current_conn:
                 try:
                     self.current_conn.close()
@@ -160,8 +165,13 @@ class ManagedConnection:
         """
         Indefinitely attempts to reconnect with exponential backoff.
         """
+        if self._closed:
+            raise NoConnectionError(f"{self.Name} : connection is closed")
+
         while True:
             with self._lock:
+                if self._closed:
+                    raise NoConnectionError(f"{self.Name} : connection is closed")
                 if not self._reconnecting:
                     self._reconnecting = True
                     break
@@ -172,15 +182,27 @@ class ManagedConnection:
         i = 0
 
         while True:
+            if self._closed:
+                with self._lock:
+                    self._reconnecting = False
+                raise NoConnectionError(f"{self.Name} : connection is closed")
+
             attempt = i + 1
             ep = self._current_endpoint()
 
             try:
                 conn = self.nm.establish_connection(ep.ip, ep.port, ep.public_ip, ep.profile)
-                self.nm.logger.info(f"{self.Name} : Reconnected to {ep.address}")
                 with self._lock:
+                    if self._closed:
+                        self._reconnecting = False
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                        raise NoConnectionError(f"{self.Name} : connection closed during reconnect")
                     self.current_conn = conn
                     self._reconnecting = False
+                self.nm.logger.info(f"{self.Name} : Reconnected to {ep.address}")
                 return
             except Exception as e:
                 # Check if we reached max retries (if not infinite)

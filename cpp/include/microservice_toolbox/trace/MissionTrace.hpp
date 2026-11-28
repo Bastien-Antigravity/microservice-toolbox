@@ -16,6 +16,8 @@
 #ifndef MICROSERVICE_TOOLBOX_TRACE_MISSION_TRACE_HPP
 #define MICROSERVICE_TOOLBOX_TRACE_MISSION_TRACE_HPP
 
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <map>
 #include <memory>
@@ -82,6 +84,29 @@ inline void InjectHeaders(std::map<std::string, std::string>& headers, const std
     if (!clean.empty()) {
         headers[kHeaderMissionId] = clean;
     }
+}
+
+// -----------------------------------------------------------------------------
+
+inline std::string ExtractHeaders(const std::map<std::string, std::string>& headers) {
+    std::string target = kHeaderMissionId;
+    std::transform(target.begin(), target.end(), target.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    for (const auto& kv : headers) {
+        std::string key = kv.first;
+        std::transform(key.begin(), key.end(), key.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (key == target) {
+            return SanitizeMissionId(kv.second);
+        }
+    }
+    return "";
+}
+
+// -----------------------------------------------------------------------------
+
+inline std::string ExtractMissionId(const std::map<std::string, std::string>& headers) {
+    return ExtractHeaders(headers);
 }
 
 } // namespace trace

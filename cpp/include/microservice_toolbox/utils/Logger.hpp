@@ -67,14 +67,14 @@ class StdOutLogger : public Logger {
 public:
     void Debug(const std::string& msg) override { std::cout << "[DEBUG] " << msg << std::endl; }
     void Info(const std::string& msg) override { std::cout << "[INFO] " << msg << std::endl; }
-    void Warning(const std::string& msg) override { std::cout << "[WARN] " << msg << std::endl; }
+    void Warning(const std::string& msg) override { std::cout << "[WARNING] " << msg << std::endl; }
     void Error(const std::string& msg) override { std::cerr << "[ERROR] " << msg << std::endl; }
-    void Critical(const std::string& msg) override { std::cerr << "[CRIT] " << msg << std::endl; }
+    void Critical(const std::string& msg) override { std::cerr << "[CRITICAL] " << msg << std::endl; }
     
     void Logon(const std::string& msg) override { std::cout << "[LOGON] " << msg << std::endl; }
     void Logout(const std::string& msg) override { std::cout << "[LOGOUT] " << msg << std::endl; }
     void Trade(const std::string& msg) override { std::cout << "[TRADE] " << msg << std::endl; }
-    void Schedule(const std::string& msg) override { std::cout << "[SCHED] " << msg << std::endl; }
+    void Schedule(const std::string& msg) override { std::cout << "[SCHEDULE] " << msg << std::endl; }
     void Report(const std::string& msg) override { std::cout << "[REPORT] " << msg << std::endl; }
     void Stream(const std::string& msg) override { std::cout << "[STREAM] " << msg << std::endl; }
     void AddMetadata(const std::string& key, const std::string& value) override {

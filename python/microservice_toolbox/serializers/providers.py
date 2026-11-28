@@ -15,7 +15,7 @@ KEY PARAMETERS:
 """
 
 from json import JSONDecodeError as jsonJSONDecodeError, dumps as jsonDumps, loads as jsonLoads
-from typing import Any, Type
+from typing import Any as typeAny, Type as typeType
 
 from msgpack import packb as msgpackPackb, unpackb as msgpackUnpackb
 
@@ -33,7 +33,7 @@ class JSONSerializer(Serializer):
 
     # -----------------------------------------------------------------------------------------------
 
-    def marshal(self, data: Any) -> bytes:
+    def marshal(self, data: typeAny) -> bytes:
         try:
             return jsonDumps(data).encode("utf-8")
         except (TypeError, ValueError) as e:
@@ -41,7 +41,7 @@ class JSONSerializer(Serializer):
 
     # -----------------------------------------------------------------------------------------------
 
-    def unmarshal(self, data: bytes, cls: Type[T]) -> T:
+    def unmarshal(self, data: bytes, cls: typeType[T]) -> T:
         try:
             return jsonLoads(data.decode("utf-8"))
         except (TypeError, ValueError, jsonJSONDecodeError) as e:
@@ -61,7 +61,7 @@ class BinSerializer(Serializer):
 
     # -----------------------------------------------------------------------------------------------
 
-    def marshal(self, data: Any) -> bytes:
+    def marshal(self, data: typeAny) -> bytes:
         try:
             return msgpackPackb(data, use_bin_type=True)
         except (TypeError, ValueError, Exception) as e:
@@ -69,7 +69,7 @@ class BinSerializer(Serializer):
 
     # -----------------------------------------------------------------------------------------------
 
-    def unmarshal(self, data: bytes, cls: Type[T]) -> T:
+    def unmarshal(self, data: bytes, cls: typeType[T]) -> T:
         try:
             return msgpackUnpackb(data, raw=False)
         except (TypeError, ValueError, Exception) as e:

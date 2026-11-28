@@ -17,12 +17,16 @@ KEY PARAMETERS:
 - jitter: Randomness factor (0.0 to 1.0).
 """
 
-from enum import IntEnum
+from enum import IntEnum as enumIntEnum
 from math import pow as mathPow
 from random import uniform as randomUniform
 from threading import Thread as threadingThread
 from time import sleep as timeSleep
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import (
+    Any as typeAny,
+    Callable as typeCallable,
+    Optional as typeOptional,
+)
 
 try:
     from safesocket import safesocket
@@ -36,12 +40,12 @@ from .errors import MaxRetriesReachedError
 
 # -----------------------------------------------------------------------------------------------
 
-OnErrorHandler = Callable[[int, Exception, str, str], None]
+OnErrorHandler = typeCallable[[int, Exception, str, str], None]
 
 # -----------------------------------------------------------------------------------------------
 
 
-class ConnectionMode(IntEnum):
+class ConnectionMode(enumIntEnum):
     """
     Defines how the manager handles the initial connection.
     """
@@ -65,15 +69,15 @@ class NetworkManager:
 
     def __init__(
         self,
-        max_retries: int = 5,
+        max_retries: int = -1,
         base_delay_ms: int = 200,
         max_delay_ms: int = 5000,
         connect_timeout_ms: int = 2000,
         backoff: float = 2.0,
         jitter: float = 0.0,
-        on_error: Optional[OnErrorHandler] = None,
-        logger: Optional[Logger] = None,
-        app_config: Optional[Any] = None,
+        on_error: typeOptional[OnErrorHandler] = None,
+        logger: typeOptional[Logger] = None,
+        app_config: typeOptional[typeAny] = None,
     ):
         self.max_retries = max_retries
         self.base_delay = base_delay_ms / 1000.0
@@ -103,8 +107,8 @@ class NetworkManager:
     # -----------------------------------------------------------------------------------------------
 
     def establish_connection(
-        self, endpoint_or_ip: Any, port: Optional[str] = None, public_ip: str = "", profile: str = ""
-    ) -> Any:
+        self, endpoint_or_ip: typeAny, port: typeOptional[str] = None, public_ip: str = "", profile: str = ""
+    ) -> typeAny:
         """
         Attempts a single connection using immutable Endpoint pointer or raw coordinates.
         Zero temporary variables, zero defensive nil-checks, and zero string formatting overhead.
@@ -269,15 +273,15 @@ class NetworkManager:
 
 
 def new_network_manager(
-    app_config: Optional[Any] = None,
-    logger: Optional[Logger] = None,
-    max_retries: int = 5,
+    app_config: typeOptional[typeAny] = None,
+    logger: typeOptional[Logger] = None,
+    max_retries: int = -1,
     base_delay_ms: int = 200,
     max_delay_ms: int = 5000,
     connect_timeout_ms: int = 2000,
     backoff: float = 2.0,
     jitter: float = 0.0,
-    on_error: Optional[OnErrorHandler] = None,
+    on_error: typeOptional[OnErrorHandler] = None,
 ) -> NetworkManager:
     """
     Creates a resilient NetworkManager combining AppConfig and Logger in one function with pointers.
@@ -303,8 +307,8 @@ def new_network_manager(
 
 
 def new_network_manager_with_config(
-    app_config: Any,
-    logger: Optional[Logger] = None,
+    app_config: typeAny,
+    logger: typeOptional[Logger] = None,
 ) -> NetworkManager:
     """Semantic helper to match Go NewNetworkManagerWithConfig()."""
     return new_network_manager(app_config=app_config, logger=logger)
@@ -314,15 +318,15 @@ def new_network_manager_with_config(
 
 
 def new_network_manager_with_logger(
-    max_retries: int = 5,
+    max_retries: int = -1,
     base_delay_ms: int = 200,
     max_delay_ms: int = 5000,
     connect_timeout_ms: int = 2000,
     backoff: float = 2.0,
     jitter: float = 0.0,
-    on_error: Optional[OnErrorHandler] = None,
-    logger: Optional[Logger] = None,
-    app_config: Optional[Any] = None,
+    on_error: typeOptional[OnErrorHandler] = None,
+    logger: typeOptional[Logger] = None,
+    app_config: typeOptional[typeAny] = None,
 ) -> NetworkManager:
     """Semantic helper to match Go NewNetworkManagerWithLogger()."""
     return new_network_manager(
@@ -343,7 +347,7 @@ def new_network_manager_with_logger(
 # -----------------------------------------------------------------------------------------------
 
 
-def new_critical_strategy(logger: Optional[Logger] = None) -> NetworkManager:
+def new_critical_strategy(logger: typeOptional[Logger] = None) -> NetworkManager:
     """
     Creates a manager configured for critical services with infinite retries.
     """
@@ -353,7 +357,7 @@ def new_critical_strategy(logger: Optional[Logger] = None) -> NetworkManager:
 # -----------------------------------------------------------------------------------------------
 
 
-def new_standard_strategy(logger: Optional[Logger] = None) -> NetworkManager:
+def new_standard_strategy(logger: typeOptional[Logger] = None) -> NetworkManager:
     """
     Creates a manager for standard services with limited retries.
     """
@@ -363,7 +367,7 @@ def new_standard_strategy(logger: Optional[Logger] = None) -> NetworkManager:
 # -----------------------------------------------------------------------------------------------
 
 
-def new_performance_strategy(logger: Optional[Logger] = None) -> NetworkManager:
+def new_performance_strategy(logger: typeOptional[Logger] = None) -> NetworkManager:
     """
     Creates a manager for high-performance services with background reconnection.
     """

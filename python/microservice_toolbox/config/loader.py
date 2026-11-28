@@ -17,15 +17,16 @@ KEY PARAMETERS:
 """
 
 from json import dumps as jsonDumps, loads as jsonLoads
-from os import getenv as osGetenv
-from os.path import exists as osPathExists, join as osPathJoin
+from os import environ as osEnviron, getenv as osGetenv
+from os.path import basename as osPathBasename, exists as osPathExists, join as osPathJoin
 from re import sub as reSub
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any as typeAny, Callable as typeCallable, Dict as typeDict, List as typeList, Optional as typeOptional
 
 from yaml import safe_load as yamlSafeLoad
 
 from ..logger import Logger, ensure_safe_logger
-from ..utils.lib_loader import CALLBACK_TYPE, load_libdistconf
+from ..utils.helpers import get_base_dir
+from ..utils.lib_loader import CALLBACK_TYPE, ffi_ptr_to_str, load_libdistconf
 from .args import parse_cli_args
 from .local_tls import LocalTLSConfig, extract_local_tls_config
 from .merger import deep_merge
@@ -36,7 +37,7 @@ lib = load_libdistconf()
 
 
 def load_config(
-    profile: str, specific_flags: Optional[List[str]] = None, input_args: Optional[List[str]] = None
+    profile: str, specific_flags: typeOptional[typeList[str]] = None, input_args: typeOptional[typeList[str]] = None
 ) -> "AppConfig":
     """Semantic helper to match Go LoadConfig()."""
     return AppConfig(profile, specific_flags, input_args=input_args)
@@ -46,7 +47,7 @@ def load_config(
 
 
 def load_config_with_logger(
-    profile: str, logger: Optional[Logger], specific_flags: Optional[List[str]] = None
+    profile: str, logger: typeOptional[Logger], specific_flags: typeOptional[typeList[str]] = None
 ) -> "AppConfig":
     """Semantic helper to match Go LoadConfigWithLogger()."""
     return AppConfig(profile, specific_flags, logger=logger)
@@ -69,19 +70,18 @@ class AppConfig:
     def __init__(
         self,
         profile: str,
-        specific_flags: Optional[List[str]] = None,
-        logger: Optional[Logger] = None,
-        input_args: Optional[List[str]] = None,
+        specific_flags: typeOptional[typeList[str]] = None,
+        logger: typeOptional[Logger] = None,
+        input_args: typeOptional[typeList[str]] = None,
     ):
         self.cli_args = parse_cli_args(specific_flags, input_args=input_args)
         if self.cli_args.profile:
             profile = self.cli_args.profile
 
         self.profile = profile
-        self.data: Dict[str, Any] = {}
+        self.data: typeDict[str, typeAny] = {}
         self.logger = ensure_safe_logger(logger)
         self.args = self.cli_args  # Expose as self.args for consistency with Go
-        from microservice_toolbox.utils.helpers import get_base_dir
         base_dir = get_base_dir()
         filename = f"{profile}.yaml"
         candidates = []
@@ -94,6 +94,13 @@ class AppConfig:
             osPathJoin(base_dir, filename),
             osPathJoin(base_dir, "config", filename),
         ])
+        if profile != "standalone":
+            candidates.extend([
+                "standalone.yaml",
+                "config/standalone.yaml",
+                osPathJoin(base_dir, "standalone.yaml"),
+                osPathJoin(base_dir, "config", "standalone.yaml"),
+            ])
 
         # ### PHASE 1: Initialize Bridge (The Master Source of Truth) ###
         self._handle = None
@@ -134,14 +141,35 @@ class AppConfig:
         self.logger.info("{0} : Applying Local File as Hard Override (Ecosystem Parity).".format(self.Name))
 
         # Determine which file to use for override
-        override_file = None
-        for path in candidates:
-            if osPathExists(path):
-                override_file = path
-                break
+        override_file = self.cli_args.conf if getattr(self.cli_args, "conf", None) else None
+        if not override_file:
+            for path in candidates:
+                if osPathExists(path):
+                    override_file = path
+                    break
 
         if override_file:
-            self._apply_file_override(override_file)
+            is_seed_fallback = (
+                profile in ("production", "staging")
+                and self._handle is not None
+                and not getattr(self.cli_args, "conf", None)
+                and not custom_config_path
+                and osPathBasename(override_file) == "standalone.yaml"
+            )
+            if is_seed_fallback:
+                seed_data = self._read_and_expand_yaml(override_file)
+                if seed_data:
+                    if isinstance(seed_data.get("local"), dict):
+                        self.data["local"] = self.data.get("local") or {}
+                        self.deep_merge(self.data["local"], seed_data["local"])
+                    if isinstance(seed_data.get("capabilities"), dict):
+                        # Preserve server-synced scalar values while hydrating nested YAML blocks
+                        merged_caps = {}
+                        self.deep_merge(merged_caps, seed_data["capabilities"])
+                        self.deep_merge(merged_caps, self.data.get("capabilities") or {})
+                        self.data["capabilities"] = merged_caps
+            else:
+                self._apply_file_override(override_file)
         else:
             # Fallback to current behavior if nothing found locally
             self._apply_file_override(filename)
@@ -151,8 +179,7 @@ class AppConfig:
 
         # If --key flag provided, set it as ENV override for the Private Key (decryption engine)
         if self.cli_args.key:
-            from os import environ as os_environ
-            os_environ["BASTIEN_PRIVATE_KEY_PATH"] = self.cli_args.key
+            osEnviron["BASTIEN_PRIVATE_KEY_PATH"] = self.cli_args.key
 
         # ### PHASE 4: Load Public Key ###
         self._load_public_key()
@@ -185,7 +212,7 @@ class AppConfig:
     # -----------------------------------------------------------------------------------------------
 
     @property
-    def common(self) -> Dict[str, Any]:
+    def common(self) -> typeDict[str, typeAny]:
         """Provides direct access to the 'common' configuration block."""
         return self.data.get("common", {})
 
@@ -227,12 +254,12 @@ class AppConfig:
 
         if self._handle:
             try:
-                res = lib.DistConf_Decrypt(self._handle, ciphertext.encode('utf-8'))
-                if res:
-                    val = res.decode('utf-8')
+                res_ptr = lib.DistConf_Decrypt(self._handle, ciphertext.encode('utf-8'))
+                val = ffi_ptr_to_str(lib, res_ptr)
+                if val is not None:
                     return val
                 else:
-                    # Fetch raw error from bridge
+                    # Fetch raw error from bridge (static buffer, do not free)
                     err = lib.DistConf_GetLastError()
                     msg = err.decode('utf-8') if err else "Unknown decryption error"
                     raise ValueError(msg)
@@ -274,9 +301,9 @@ class AppConfig:
 
         # Attempt override via bridge
         try:
-            res = lib.DistConf_ApplyFileOverride(self._handle, filename.encode('utf-8'))
-            if res:
-                local_json = res.decode('utf-8')
+            res_ptr = lib.DistConf_ApplyFileOverride(self._handle, filename.encode('utf-8'))
+            local_json = ffi_ptr_to_str(lib, res_ptr)
+            if local_json is not None:
                 if local_json and local_json != "{}":
                     local_data = jsonLoads(local_json)
                     self.data["local"] = self.data.get("local") or {}
@@ -291,7 +318,7 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def _read_and_expand_yaml(self, filename: str) -> Dict[str, Any]:
+    def _read_and_expand_yaml(self, filename: str) -> typeDict[str, typeAny]:
         """Helper to read YAML file with environment variable expansion."""
         if not osPathExists(filename):
             return {}
@@ -354,7 +381,7 @@ class AppConfig:
     # -----------------------------------------------------------------------------------------------
 
     @staticmethod
-    def deep_merge(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
+    def deep_merge(dst: typeDict[str, typeAny], src: typeDict[str, typeAny]) -> None:
         """Wrapper around standalone deep_merge for backward compatibility."""
         deep_merge(dst, src)
 
@@ -367,9 +394,10 @@ class AppConfig:
         """
         if self._handle:
             try:
-                res = lib.DistConf_GetAddress(self._handle, capability.encode('utf-8'))
-                if res:
-                    return res.decode('utf-8')
+                res_ptr = lib.DistConf_GetAddress(self._handle, capability.encode('utf-8'))
+                val = ffi_ptr_to_str(lib, res_ptr)
+                if val is not None:
+                    return val
             except Exception as e:
                 self.logger.warning(f"{self.Name} : Bridge GetAddress failed: {e}")
 
@@ -384,9 +412,10 @@ class AppConfig:
         """
         if self._handle and lib:
             try:
-                res = lib.DistConf_GetGRPCAddress(self._handle, capability.encode('utf-8'))
-                if res:
-                    return res.decode('utf-8')
+                res_ptr = lib.DistConf_GetGRPCAddress(self._handle, capability.encode('utf-8'))
+                val = ffi_ptr_to_str(lib, res_ptr)
+                if val is not None:
+                    return val
             except Exception as e:
                 self.logger.warning(f"{self.Name} : Bridge GetGRPCAddress failed: {e}")
 
@@ -399,9 +428,10 @@ class AppConfig:
         """
         if self._handle and lib:
             try:
-                res = lib.DistConf_GetRESTAddress(self._handle, capability.encode('utf-8'))
-                if res:
-                    return res.decode('utf-8')
+                res_ptr = lib.DistConf_GetRESTAddress(self._handle, capability.encode('utf-8'))
+                val = ffi_ptr_to_str(lib, res_ptr)
+                if val is not None:
+                    return val
             except Exception as e:
                 self.logger.warning(f"{self.Name} : Bridge GetRESTAddress failed: {e}")
 
@@ -435,9 +465,10 @@ class AppConfig:
             return
 
         try:
-            full_json = lib.DistConf_GetFullConfig(self._handle)
+            full_ptr = lib.DistConf_GetFullConfig(self._handle)
+            full_json = ffi_ptr_to_str(lib, full_ptr)
             if full_json:
-                bridge_data = jsonLoads(full_json.decode('utf-8'))
+                bridge_data = jsonLoads(full_json)
                 # Merge bridge data into local mirror instead of overwriting
                 # This ensures natively loaded keys (Phase 2) are preserved if the bridge doesn't have them
                 self.deep_merge(self.data, bridge_data)
@@ -462,12 +493,13 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def get_config(self, section: str, key: str, default: Any = None) -> Any:
+    def get_config(self, section: str, key: str, default: typeAny = None) -> typeAny:
         """Retrieves a value from the bridge or local data."""
         if self._handle:
-            res = lib.DistConf_Get(self._handle, section.encode('utf-8'), key.encode('utf-8'))
-            if res is not None:
-                return res.decode('utf-8')
+            res_ptr = lib.DistConf_Get(self._handle, section.encode('utf-8'), key.encode('utf-8'))
+            val = ffi_ptr_to_str(lib, res_ptr)
+            if val is not None:
+                return val
 
         # Fallback to local data
         sect = self.data.get(section, {})
@@ -475,7 +507,7 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def get_capability(self, capability: str, default: Any = None) -> Dict[str, Any]:
+    def get_capability(self, capability: str, default: typeAny = None) -> typeDict[str, typeAny]:
         """Returns the dictionary for a named capability from the 'capabilities' section."""
         caps = self.data.get("capabilities")
         if isinstance(caps, dict) and capability in caps:
@@ -486,7 +518,7 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def get_local(self, key: str, default: Any = None) -> Any:
+    def get_local(self, key: str, default: typeAny = None) -> typeAny:
         """
         Returns a value from the 'local' configuration section.
         Supports nested lookups using dot notation (e.g., "database.host").
@@ -532,7 +564,7 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def unmarshal_local(self, target: Any) -> Any:
+    def unmarshal_local(self, target: typeAny) -> typeAny:
         """
         Unmarshals the 'local' configuration section into a target type or instance.
         Parity with Go's UnmarshalLocal.
@@ -555,14 +587,14 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def set_logger(self, logger: Any) -> None:
+    def set_logger(self, logger: typeAny) -> None:
         """Updates the logger after instantiation."""
         self.logger = ensure_safe_logger(logger)
         self.logger.info("{0} : Logger updated successfully".format(self.Name))
 
     # -----------------------------------------------------------------------------------------------
 
-    def on_live_conf_update(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+    def on_live_conf_update(self, callback: typeCallable[[typeDict[str, typeAny]], None]) -> None:
         """Registers a callback for live configuration updates (Dynamic Fleet Config)."""
         if not self._handle:
             self.logger.warning(f"{self.Name} : Live updates not supported (no bridge)")
@@ -581,7 +613,7 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def on_registry_update(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+    def on_registry_update(self, callback: typeCallable[[typeDict[str, typeAny]], None]) -> None:
         """Registers a callback for service registry changes (Service Discovery)."""
         if not self._handle:
             self.logger.warning(f"{self.Name} : Registry updates not supported (no bridge)")
@@ -600,13 +632,13 @@ class AppConfig:
 
     # -----------------------------------------------------------------------------------------------
 
-    def on_update(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+    def on_update(self, callback: typeCallable[[typeDict[str, typeAny]], None]) -> None:
         """Deprecated: Use on_live_conf_update(). Semantic alias for backward compatibility."""
         self.on_live_conf_update(callback)
 
     # -----------------------------------------------------------------------------------------------
 
-    def share_config(self, payload: Dict[str, Any]) -> bool:
+    def share_config(self, payload: typeDict[str, typeAny]) -> bool:
         """Shares service configuration with the ecosystem."""
         if not self._handle:
             return False
@@ -639,12 +671,15 @@ class AppConfig:
         seen_endpoints = {}
 
         def _normalize_ip(ip_val: str) -> str:
-            val = str(ip_val).strip().lower()
+            val = str(ip_val).strip().strip("[]").lower()
             if val == "localhost":
                 return "127.0.0.1"
             return val
 
-        def _check_and_add(ip_val: str, port_val: Any, desc: str) -> None:
+        def _is_wildcard(ip_val: str) -> bool:
+            return ip_val in ("0.0.0.0", "::")
+
+        def _check_and_add(ip_val: str, port_val: typeAny, desc: str) -> None:
             if not ip_val or port_val is None:
                 return
             try:
@@ -655,7 +690,7 @@ class AppConfig:
             nip = _normalize_ip(ip_val)
             for (seen_ip, seen_port), seen_desc in seen_endpoints.items():
                 if seen_port == port:
-                    if nip == seen_ip or nip == "0.0.0.0" or seen_ip == "0.0.0.0":
+                    if nip == seen_ip or _is_wildcard(nip) or _is_wildcard(seen_ip):
                         raise ValueError(
                             f"Duplicate endpoint detected: {ip_val}:{port} for {desc} "
                             f"conflicts with {seen_ip}:{seen_port} for {seen_desc}"

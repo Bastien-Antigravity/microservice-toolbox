@@ -218,6 +218,40 @@ struct IngestResponse {
 // Lock-Free Cache-Padded Atomic Structures
 // -----------------------------------------------------------------------------
 
+static constexpr size_t kMaxPayloadSummaryBytes = 256;
+static constexpr const char* kRedactedENCToken = "ENC([REDACTED])";
+
+inline std::string SanitizePayloadSummary(const std::string& raw) {
+    if (raw.empty()) {
+        return "";
+    }
+    std::string s;
+    if (raw.find("ENC(") != std::string::npos) {
+        s.reserve(raw.size());
+        size_t pos = 0;
+        while (pos < raw.size()) {
+            size_t idx = raw.find("ENC(", pos);
+            if (idx == std::string::npos) {
+                s.append(raw, pos, raw.size() - pos);
+                break;
+            }
+            s.append(raw, pos, idx - pos);
+            s.append(kRedactedENCToken);
+            size_t close_idx = raw.find(')', idx + 4);
+            if (close_idx == std::string::npos) {
+                break;
+            }
+            pos = close_idx + 1;
+        }
+    } else {
+        s = raw;
+    }
+    if (s.size() > kMaxPayloadSummaryBytes) {
+        return s.substr(0, kMaxPayloadSummaryBytes - 3) + "...";
+    }
+    return s;
+}
+
 struct alignas(64) AtomicChannelEntry {
     std::string channel;
     std::string category;
@@ -251,8 +285,9 @@ struct alignas(64) AtomicChannelEntry {
         last_seen_ms.store(now_ms, std::memory_order_relaxed);
 
         if (!payload.empty()) {
+            const std::string sanitized = SanitizePayloadSummary(payload);
             std::unique_lock<std::shared_mutex> lock(payload_mutex);
-            last_payload = payload;
+            last_payload = sanitized;
         }
     }
 };
@@ -475,10 +510,17 @@ inline void RecordEventWithConnDelta(
         edge_ptr = slot;
     }
 
-    if (!framing.empty()) {
-        std::unique_lock<std::shared_mutex> flock(edge_ptr->framing_mutex);
-        if (edge_ptr->framing != framing) {
-            edge_ptr->framing = framing;
+    if (!framing.empty() && framing != "raw") {
+        bool needs_update = false;
+        {
+            std::shared_lock<std::shared_mutex> rlock(edge_ptr->framing_mutex);
+            needs_update = (edge_ptr->framing != framing);
+        }
+        if (needs_update) {
+            std::unique_lock<std::shared_mutex> flock(edge_ptr->framing_mutex);
+            if (edge_ptr->framing != framing) {
+                edge_ptr->framing = framing;
+            }
         }
     }
 
@@ -722,8 +764,9 @@ inline void MergeRemoteSnapshot(const std::vector<EdgeReport>& incoming) {
             }
             ch_ptr->last_seen_ms.store(now_ms, std::memory_order_relaxed);
             if (!ch.last_payload.empty()) {
+                const std::string sanitized = SanitizePayloadSummary(ch.last_payload);
                 std::unique_lock<std::shared_mutex> plock(ch_ptr->payload_mutex);
-                ch_ptr->last_payload = ch.last_payload;
+                ch_ptr->last_payload = sanitized;
             }
         }
     }

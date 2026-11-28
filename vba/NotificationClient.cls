@@ -117,7 +117,7 @@ End Function
 
 ' SendAlert dispatches a categorized alert with level (e.g. TRADE, CRITICAL, WARNING, REPORT).
 Public Function SendAlert(ByVal level As String, ByVal message As String, Optional ByVal tagsCSV As String = "") As Boolean
-    Send = SendWithAttachment(level, message, "", tagsCSV)
+    SendAlert = SendWithAttachment(level, message, "", tagsCSV)
 End Function
 
 ' SendWithAttachment dispatches a full notification payload including attachments.

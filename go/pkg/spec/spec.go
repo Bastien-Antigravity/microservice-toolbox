@@ -367,37 +367,7 @@ func BuildSpecFromConfig(appConfig *toolbox_config.AppConfig, capability string,
 // Publish validates service specification synchronously (FAIL-FAST) and publishes
 // to web-interface in a non-blocking background goroutine with exponential backoff.
 func Publish(appConfig *toolbox_config.AppConfig, logger unilog_interfaces.Logger, capability string, s ServiceSpec) error {
-	// 1. Validate web-interface address synchronously (FAIL-FAST)
-	if appConfig == nil {
-		if logger != nil {
-			logger.Critical("spec.Publish: appConfig is strictly required (nil provided) (FAIL-FAST)")
-		}
-		return fmt.Errorf("spec.Publish: appConfig is strictly required (nil provided) (FAIL-FAST)")
-	}
-	webAddr, err := appConfig.GetListenAddr("web_interface")
-	if err != nil || strings.TrimSpace(webAddr) == "" {
-		if logger != nil {
-			logger.Critical("spec.Publish: Capability 'web_interface' is unresolvable from configuration: %v (FAIL-FAST)", err)
-		}
-		return fmt.Errorf("spec.Publish: capability 'web_interface' is unresolvable: %w (FAIL-FAST)", err)
-	}
-
-	// 2. Validate and enrich spec synchronously (FAIL-FAST)
-	enriched, err := BuildSpecFromConfig(appConfig, capability, s)
-	if err != nil {
-		if logger != nil {
-			logger.Critical("spec.Publish: Specification validation failed for %q: %v (FAIL-FAST)", capability, err)
-		}
-		return err
-	}
-
-	go func() {
-		for {
-			_ = PublishSync(context.Background(), appConfig, logger, capability, enriched)
-			time.Sleep(30 * time.Second)
-		}
-	}()
-	return nil
+	return PublishWithLifecycle(appConfig, logger, nil, capability, s)
 }
 
 // -----------------------------------------------------------------------------
@@ -420,8 +390,7 @@ func PublishWithLifecycle(appConfig *toolbox_config.AppConfig, logger unilog_int
 		return fmt.Errorf("spec.PublishWithLifecycle: capability 'web_interface' is unresolvable: %w (FAIL-FAST)", err)
 	}
 
-	enriched, err := BuildSpecFromConfig(appConfig, capability, s)
-	if err != nil {
+	if _, err := BuildSpecFromConfig(appConfig, capability, s); err != nil {
 		if logger != nil {
 			logger.Critical("spec.PublishWithLifecycle: Specification validation failed for %q: %v (FAIL-FAST)", capability, err)
 		}
@@ -438,7 +407,7 @@ func PublishWithLifecycle(appConfig *toolbox_config.AppConfig, logger unilog_int
 	go func() {
 		defer cancel()
 		for {
-			_ = PublishSync(ctx, appConfig, logger, capability, enriched)
+			_ = PublishSync(ctx, appConfig, logger, capability, s)
 			select {
 			case <-ctx.Done():
 				return

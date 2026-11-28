@@ -19,7 +19,7 @@ KEY PARAMETERS:
 
 from os import environ as osEnviron, execve as osExecve, name as osName
 from os.path import exists as osPathExists
-from pathlib import Path
+from pathlib import Path as pathPath
 from sys import (
     argv as sysArgv,
     executable as sysExecutable,
@@ -28,7 +28,7 @@ from sys import (
     prefix as sysPrefix,
     version_info as sysVersionInfo,
 )
-from typing import Any, Optional, Tuple
+from typing import Any as typeAny, Optional as typeOptional, Tuple as typeTuple
 
 from ..config.loader import load_config
 from ..logger import UniLog
@@ -50,9 +50,9 @@ from .lib_loader import load_libdistconf, resolve_library_path
 def init_microservice(
     app_name: str,
     config_profile: str = "standalone",
-    logger_profile: Optional[str] = None,
+    logger_profile: typeOptional[str] = None,
     log_level: str = "info"
-) -> Tuple[Any, Any]:
+) -> typeTuple[typeAny, typeAny]:
     """
     Standardized, reliable bootstrapper for Python microservices.
 
@@ -74,12 +74,17 @@ def init_microservice(
             or configuration cannot be loaded.
     """
     # 1. Resolve path components
-    script_dir = Path(sysArgv[0]).resolve().parent
+    script_dir = pathPath(sysArgv[0]).resolve().parent
     _venv_parent = _find_nearest_venv(str(script_dir))
     _venv_dir = _venv_parent / ".venv"
     _venv_python = get_venv_python(_venv_parent)
 
     vault_root = find_vault_root(str(script_dir))
+    repo_root = script_dir
+    for parent in [script_dir] + list(script_dir.parents):
+        if (parent / ".venv").exists() or (parent / "config").is_dir() or (parent / "VERSION.txt").is_file() or (parent / "go.mod").is_file():
+            repo_root = parent
+            break
 
     # Resolve the master libunilog shared library path
     _dylib_path = resolve_library_path("libunilog", "LIBUNILOG_PATH")
@@ -124,7 +129,7 @@ def init_microservice(
     if _site_packages.exists() and str(_site_packages) not in sysPath:
         sysPath.insert(0, str(_site_packages))
 
-    redirect_working_directory(script_dir)
+    redirect_working_directory(repo_root)
 
     load_libdistconf()
 

@@ -17,18 +17,18 @@ KEY PARAMETERS:
 """
 
 from argparse import ArgumentParser as argparseArgumentParser
-from collections import namedtuple
+from collections import namedtuple as collectionsNamedtuple
 from os import environ as osEnviron
-from typing import List, Optional
+from typing import List as typeList, Optional as typeOptional
 
 # -----------------------------------------------------------------------------------------------
 
-CLIArgs = namedtuple("CLIArgs", ["name", "host", "port", "grpc_host", "grpc_port", "conf", "log_level", "key", "profile", "extras"])
+CLIArgs = collectionsNamedtuple("CLIArgs", ["name", "host", "port", "grpc_host", "grpc_port", "conf", "log_level", "key", "profile", "extras"])
 
 # -----------------------------------------------------------------------------------------------
 
 
-def parse_cli_args(specific_args: Optional[List[str]] = None, input_args: Optional[List[str]] = None) -> CLIArgs:
+def parse_cli_args(specific_args: typeOptional[typeList[str]] = None, input_args: typeOptional[typeList[str]] = None) -> CLIArgs:
     """
     Parses standard and specific command line arguments.
     Standard: --name, --host, --port, --grpc_host, --grpc_port, --conf, --log_level

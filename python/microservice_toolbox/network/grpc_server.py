@@ -17,7 +17,7 @@ KEY PARAMETERS:
 """
 
 from concurrent.futures import ThreadPoolExecutor as concurrentThreadPoolExecutor
-from typing import Optional
+from typing import Optional as typeOptional
 
 from grpc import server as grpcServer
 
@@ -36,7 +36,7 @@ class GRPCServer:
 
     # -----------------------------------------------------------------------------------------------
 
-    def __init__(self, addr: str, logger: Optional[Logger] = None, max_workers: int = 10):
+    def __init__(self, addr: str, logger: typeOptional[Logger] = None, max_workers: int = 10):
         self.logger = ensure_safe_logger(logger)
         self.resolver = new_resolver()
 

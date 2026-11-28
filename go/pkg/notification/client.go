@@ -115,7 +115,7 @@ func (c *NotificationClient) SendAlert(ctx context.Context, level string, messag
 // SendWithAttachment dispatches a full notification payload including level, message,
 // file/data attachment reference, and destination tags.
 func (c *NotificationClient) SendWithAttachment(ctx context.Context, level, message, attachment string, tags ...string) error {
-	client, err := c.getOrCreateClient()
+	client, timeout, err := c.getOrCreateClient()
 	if err != nil {
 		c.logger.Warning("Notification dispatch failed (cannot connect to %s): %v", c.targetAddr, err)
 		return fmt.Errorf("notification client connection error: %w", err)
@@ -135,7 +135,7 @@ func (c *NotificationClient) SendWithAttachment(ctx context.Context, level, mess
 	}
 	if _, hasDeadline := reqCtx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
-		reqCtx, cancel = context.WithTimeout(reqCtx, c.timeout)
+		reqCtx, cancel = context.WithTimeout(reqCtx, timeout)
 		defer cancel()
 	}
 
@@ -173,16 +173,17 @@ func (c *NotificationClient) Close() error {
 
 // -----------------------------------------------------------------------------
 
-func (c *NotificationClient) getOrCreateClient() (grpc_client.NotifServiceClient, error) {
+func (c *NotificationClient) getOrCreateClient() (grpc_client.NotifServiceClient, time.Duration, error) {
 	c.mu.RLock()
 	if c.closed {
 		c.mu.RUnlock()
-		return nil, fmt.Errorf("notification client is closed")
+		return nil, 0, fmt.Errorf("notification client is closed")
 	}
 	if c.client != nil {
 		client := c.client
+		timeout := c.timeout
 		c.mu.RUnlock()
-		return client, nil
+		return client, timeout, nil
 	}
 	c.mu.RUnlock()
 
@@ -190,22 +191,22 @@ func (c *NotificationClient) getOrCreateClient() (grpc_client.NotifServiceClient
 	defer c.mu.Unlock()
 
 	if c.closed {
-		return nil, fmt.Errorf("notification client is closed")
+		return nil, 0, fmt.Errorf("notification client is closed")
 	}
 	if c.client != nil {
-		return c.client, nil
+		return c.client, c.timeout, nil
 	}
 
 	dialOpts := append(
 		[]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
 		wiretap.ClientDialOptions("notif_server")...,
 	)
-	conn, err := grpc.Dial(c.targetAddr, dialOpts...)
+	conn, err := grpc.NewClient(c.targetAddr, dialOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to dial %s: %w", c.targetAddr, err)
+		return nil, 0, fmt.Errorf("failed to create gRPC client for %s: %w", c.targetAddr, err)
 	}
 
 	c.conn = conn
 	c.client = grpc_client.NewNotifServiceClient(conn)
-	return c.client, nil
+	return c.client, c.timeout, nil
 }

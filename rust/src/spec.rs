@@ -365,18 +365,28 @@ pub fn extract_proto_operations(proto_text: &str) -> Vec<ContractOperation> {
         return ops;
     }
 
-    let pkg_re = Regex::new(r"(?m)^\s*package\s+([A-Za-z0-9_.]+)\s*;").expect("valid pkg regex");
+    static PKG_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    static SVC_HEAD_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    static RPC_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+
+    let pkg_re = PKG_RE.get_or_init(|| {
+        Regex::new(r"(?m)^\s*package\s+([A-Za-z0-9_.]+)\s*;").expect("valid pkg regex")
+    });
     let pkg_prefix = pkg_re
         .captures(proto_text)
         .and_then(|c| c.get(1))
         .map(|m| format!("{}.", m.as_str()))
         .unwrap_or_default();
 
-    let svc_head_re = Regex::new(r"\bservice\s+([A-Za-z0-9_]+)\s*\{").expect("valid svc regex");
-    let rpc_re = Regex::new(
-        r"rpc\s+([A-Za-z0-9_]+)\s*\(\s*(stream\s+)?([A-Za-z0-9_.]+)\s*\)\s+returns\s*\(\s*(stream\s+)?([A-Za-z0-9_.]+)\s*\)",
-    )
-    .expect("valid rpc regex");
+    let svc_head_re = SVC_HEAD_RE.get_or_init(|| {
+        Regex::new(r"\bservice\s+([A-Za-z0-9_]+)\s*\{").expect("valid svc regex")
+    });
+    let rpc_re = RPC_RE.get_or_init(|| {
+        Regex::new(
+            r"rpc\s+([A-Za-z0-9_]+)\s*\(\s*(stream\s+)?([A-Za-z0-9_.]+)\s*\)\s+returns\s*\(\s*(stream\s+)?([A-Za-z0-9_.]+)\s*\)",
+        )
+        .expect("valid rpc regex")
+    });
 
     let mut pos = 0usize;
     while pos < proto_text.len() {
@@ -445,12 +455,21 @@ pub fn extract_capnp_operations(capnp_text: &str) -> Vec<ContractOperation> {
         return ops;
     }
 
+    static CAPNP_ENUM_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    static CAPNP_STRUCT_RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+
     for (kw, kind, target_pfx, is_output, desc) in [
         ("enum", "ENUM", "enum ", true, "Cap'n Proto enum definition"),
         ("struct", "STRUCT", "struct ", false, "Cap'n Proto wire struct definition"),
     ] {
-        let pat = format!(r"\b{}\s+([A-Za-z0-9_]+)\s*\{{", kw);
-        let head_re = Regex::new(&pat).expect("valid capnp regex");
+        let head_re = match kw {
+            "enum" => CAPNP_ENUM_RE.get_or_init(|| {
+                Regex::new(r"\benum\s+([A-Za-z0-9_]+)\s*\{").expect("valid capnp enum regex")
+            }),
+            _ => CAPNP_STRUCT_RE.get_or_init(|| {
+                Regex::new(r"\bstruct\s+([A-Za-z0-9_]+)\s*\{").expect("valid capnp struct regex")
+            }),
+        };
         let mut pos = 0usize;
         while pos < capnp_text.len() {
             let Some(caps) = head_re.captures(&capnp_text[pos..]) else {

@@ -16,12 +16,12 @@ KEY PARAMETERS:
 
 from logging import getLogger as loggingGetLogger
 from os import environ as osEnviron
-from typing import Optional, Protocol, runtime_checkable
+from typing import Optional as typeOptional, Protocol as typeProtocol, runtime_checkable as typeRuntimeCheckable
 
 # -----------------------------------------------------------------------------------------------
 
-@runtime_checkable
-class Logger(Protocol):
+@typeRuntimeCheckable
+class Logger(typeProtocol):
     """
     Logger defines the standard interface for all logging operations in the ecosystem.
     """
@@ -67,7 +67,7 @@ class FallbackTestLogger:
 PythonLogger = FallbackTestLogger
 
 
-def ensure_safe_logger(logger: Optional[Logger]) -> Logger:
+def ensure_safe_logger(logger: typeOptional[Logger]) -> Logger:
     """
     Strictly validates the logger. If None, returns a FallbackTestLogger for offline test environments.
     In strict mode (STRICT_LOGGER=true), raises RuntimeError to prevent microservices from running dark.

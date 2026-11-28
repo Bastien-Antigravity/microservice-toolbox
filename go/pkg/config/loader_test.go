@@ -28,9 +28,10 @@ func TestAppConfig_LoadConfigFactory(t *testing.T) {
 common:
   name: factory-app
 `
-	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
+	yamlPath := filepath.Join(t.TempDir(), "test.yaml")
+	err := os.WriteFile(yamlPath, []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer func() { _ = os.Remove("test.yaml") }()
+	t.Setenv("CONFIG_PATH", yamlPath)
 
 	ac, err := LoadConfig("test", nil)
 	if err != nil {
@@ -60,9 +61,10 @@ capabilities:
     grpc_port: "9091"
     rest_port: "9092"
 `
-	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
+	yamlPath := filepath.Join(t.TempDir(), "test.yaml")
+	err := os.WriteFile(yamlPath, []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer func() { _ = os.Remove("test.yaml") }()
+	t.Setenv("CONFIG_PATH", yamlPath)
 
 	ac, err := LoadConfig("test", nil)
 	if err != nil {
@@ -164,9 +166,10 @@ iADG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZ9N0jG1J2o6B8G8W6w8QZAiADG
 	// (Note: In a real test we'd use crypto/rsa to encrypt, but we want to keep it simple)
 	// We'll just verify the decryption logic works if we provide a valid ENC()
 
-	err := os.WriteFile("private.pem", []byte(privPEM), 0600)
+	tempDir := t.TempDir()
+	privPath := filepath.Join(tempDir, "private.pem")
+	err := os.WriteFile(privPath, []byte(privPEM), 0600)
 	assert.NoError(t, err)
-	defer func() { _ = os.Remove("private.pem") }()
 
 	// We'll mock the encrypted value in an isolated temporary test yaml
 	yamlContent := `
@@ -174,17 +177,12 @@ capabilities:
   db:
     password: ENC(dummy)
 `
-	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "decrypt_test.yaml")
 	err = os.WriteFile(configPath, []byte(yamlContent), 0644)
 	assert.NoError(t, err)
 
-	_ = os.Setenv("CONFIG_PATH", configPath)
-	defer func() { _ = os.Unsetenv("CONFIG_PATH") }()
-
-	// Set env to use our local key
-	_ = os.Setenv("BASTIEN_PRIVATE_KEY_PATH", "private.pem")
-	defer func() { _ = os.Unsetenv("BASTIEN_PRIVATE_KEY_PATH") }()
+	t.Setenv("CONFIG_PATH", configPath)
+	t.Setenv("BASTIEN_PRIVATE_KEY_PATH", privPath)
 
 	// Load
 	ac, _ := LoadConfig("standalone", nil)
@@ -203,9 +201,10 @@ capabilities:
 
 func TestAppConfig_KeyFlag(t *testing.T) {
 	yamlContent := "common: {name: key-test}"
-	err := os.WriteFile("keytest.yaml", []byte(yamlContent), 0644)
+	yamlPath := filepath.Join(t.TempDir(), "keytest.yaml")
+	err := os.WriteFile(yamlPath, []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer func() { _ = os.Remove("keytest.yaml") }()
+	t.Setenv("CONFIG_PATH", yamlPath)
 
 	// Mock os.Args
 	oldArgs := os.Args
@@ -224,14 +223,18 @@ func TestAppConfig_KeyFlag(t *testing.T) {
 }
 
 func TestAppConfig_AutoLoadPublicKey(t *testing.T) {
-	// Create a dummy public.pem
+	tmpDir := t.TempDir()
+	pubPath := filepath.Join(tmpDir, "public.pem")
 	keyContent := "test-key-content"
-	err := os.WriteFile("public.pem", []byte(keyContent), 0644)
+	err := os.WriteFile(pubPath, []byte(keyContent), 0644)
 	assert.NoError(t, err)
-	defer func() { _ = os.Remove("public.pem") }()
 
-	_ = os.Setenv("BASTIEN_PUBLIC_KEY_PATH", "public.pem")
-	defer func() { _ = os.Unsetenv("BASTIEN_PUBLIC_KEY_PATH") }()
+	yamlPath := filepath.Join(tmpDir, "standalone.yaml")
+	err = os.WriteFile(yamlPath, []byte("common:\n  name: pubkey-test\n"), 0644)
+	assert.NoError(t, err)
+
+	t.Setenv("CONFIG_PATH", yamlPath)
+	t.Setenv("BASTIEN_PUBLIC_KEY_PATH", pubPath)
 
 	// Load config - it should automatically find public.pem
 	ac, err := LoadConfig("standalone", nil)
@@ -339,9 +342,10 @@ capabilities:
     ip: 1.2.3.4
     port: "8080"
 `
-	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
+	yamlPath := filepath.Join(t.TempDir(), "test.yaml")
+	err := os.WriteFile(yamlPath, []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer func() { _ = os.Remove("test.yaml") }()
+	t.Setenv("CONFIG_PATH", yamlPath)
 
 	ac, err := LoadConfig("test", nil)
 	if err != nil {
@@ -377,9 +381,10 @@ capabilities:
     ip: "0.0.0.0"
     port: "9001"
 `
-	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
+	yamlPath := filepath.Join(t.TempDir(), "test.yaml")
+	err := os.WriteFile(yamlPath, []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer func() { _ = os.Remove("test.yaml") }()
+	t.Setenv("CONFIG_PATH", yamlPath)
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
@@ -414,9 +419,31 @@ capabilities:
     ip: "127.0.0.1"
     port: "8080"
 `
-	err := os.WriteFile("test.yaml", []byte(yamlContent), 0644)
+	yamlPath := filepath.Join(t.TempDir(), "test.yaml")
+	err := os.WriteFile(yamlPath, []byte(yamlContent), 0644)
 	assert.NoError(t, err)
-	defer func() { _ = os.Remove("test.yaml") }()
+	t.Setenv("CONFIG_PATH", yamlPath)
+
+	_, err = LoadConfig("test", nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate endpoint detected")
+
+	// Verify IPv6 wildcard collision detection
+	yamlV6 := `
+common:
+  name: test-app-v6
+capabilities:
+  svc1:
+    ip: "[::]"
+    port: "8090"
+  svc2:
+    ip: "[::1]"
+    port: "8090"
+`
+	yamlV6Path := filepath.Join(t.TempDir(), "test_v6.yaml")
+	err = os.WriteFile(yamlV6Path, []byte(yamlV6), 0644)
+	assert.NoError(t, err)
+	t.Setenv("CONFIG_PATH", yamlV6Path)
 
 	_, err = LoadConfig("test", nil)
 	assert.Error(t, err)

@@ -13,10 +13,12 @@
 #define MICROSERVICE_TOOLBOX_APP_CONFIG_HPP
 
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -36,6 +38,25 @@ using NoOpLogger = microservice_toolbox::utils::NoOpLogger;
 using StdOutLogger = microservice_toolbox::utils::StdOutLogger;
 
 /**
+ * LocalTLSConfig holds non-secret certificate paths and verify toggles from `local.tls`.
+ */
+struct LocalTLSConfig {
+  std::string cert_file;
+  std::string key_file;
+  std::string ca_file;
+  std::optional<bool> verify_client;
+
+  bool ShouldVerifyClient() const {
+    return !verify_client.has_value() || verify_client.value();
+  }
+
+  bool IsEmpty() const {
+    return cert_file.empty() && key_file.empty() && ca_file.empty() &&
+           !verify_client.has_value();
+  }
+};
+
+/**
  * AppConfig is the C++ implementation of the Microservice Toolbox configuration
  * loader. It provides a unified, hardened API across the polyglot ecosystem.
  */
@@ -49,6 +70,8 @@ public:
         args_(args) {
 
     try {
+      LoadPublicKey();
+
       config_ = std::make_unique<distconf::DistConfig>(profile_);
       logger_->Info("libdistconf session initialized for profile: " + profile_);
 
@@ -185,6 +208,58 @@ public:
   }
 
   /**
+   * Resolves TLS configuration strictly from `local.tls` (or service-scoped `local.<service>.tls`).
+   */
+  LocalTLSConfig GetLocalTLSConfig(const std::string &service_key = "") const {
+    LocalTLSConfig out;
+    if (!local_data_.is_object()) {
+      return out;
+    }
+    auto apply_tls_obj = [&](const nlohmann::json &tls_obj) {
+      if (!tls_obj.is_object()) return;
+      if (tls_obj.contains("cert_file") && tls_obj["cert_file"].is_string()) {
+        out.cert_file = tls_obj["cert_file"].get<std::string>();
+      }
+      if (tls_obj.contains("key_file") && tls_obj["key_file"].is_string()) {
+        out.key_file = tls_obj["key_file"].get<std::string>();
+      }
+      if (tls_obj.contains("ca_file") && tls_obj["ca_file"].is_string()) {
+        out.ca_file = tls_obj["ca_file"].get<std::string>();
+      }
+      if (tls_obj.contains("verify_client") && tls_obj["verify_client"].is_boolean()) {
+        out.verify_client = tls_obj["verify_client"].get<bool>();
+      }
+    };
+    if (local_data_.contains("tls")) {
+      apply_tls_obj(local_data_["tls"]);
+    }
+    if (!service_key.empty() && local_data_.contains(service_key) &&
+        local_data_[service_key].is_object() &&
+        local_data_[service_key].contains("tls")) {
+      apply_tls_obj(local_data_[service_key]["tls"]);
+    }
+    return out;
+  }
+
+  /**
+   * Reads an optional string setting from capabilities.<capName>.<key>.
+   */
+  std::string GetCapabilityString(const std::string &cap_name, const std::string &key) const {
+    if (!data_.is_object() || !data_.contains("capabilities") || !data_["capabilities"].is_object()) {
+      return "";
+    }
+    const auto &caps = data_["capabilities"];
+    if (!caps.contains(cap_name) || !caps[cap_name].is_object()) {
+      return "";
+    }
+    const auto &cap = caps[cap_name];
+    if (cap.contains(key) && cap[key].is_string()) {
+      return cap[key].get<std::string>();
+    }
+    return "";
+  }
+
+  /**
    * Access the 'common' configuration block.
    */
   nlohmann::json GetCommon() const {
@@ -232,9 +307,20 @@ public:
 
     auto normalize_ip = [](const std::string &ip_in) {
       std::string s = ip_in;
+      auto first = s.find_first_not_of(" \t\r\n");
+      if (first == std::string::npos) return std::string();
+      auto last = s.find_last_not_of(" \t\r\n");
+      s = s.substr(first, last - first + 1);
+      if (s.size() >= 2 && s.front() == '[' && s.back() == ']') {
+        s = s.substr(1, s.size() - 2);
+      }
       std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
       if (s == "localhost") return std::string("127.0.0.1");
       return s;
+    };
+
+    auto is_wildcard_ip = [](const std::string &ip) {
+      return ip == "0.0.0.0" || ip == "::";
     };
 
     std::map<Endpoint, std::string> seen;
@@ -244,7 +330,7 @@ public:
       std::string nip = normalize_ip(ip_val);
       for (const auto &kv : seen) {
         if (kv.first.port == port_val) {
-          if (nip == kv.first.ip || nip == "0.0.0.0" || kv.first.ip == "0.0.0.0") {
+          if (nip == kv.first.ip || is_wildcard_ip(nip) || is_wildcard_ip(kv.first.ip)) {
             throw std::runtime_error("Duplicate endpoint detected: " + ip_val + ":" + std::to_string(port_val) +
                                      " for " + desc + " conflicts with " + kv.first.ip + ":" +
                                      std::to_string(kv.first.port) + " for " + kv.second);
@@ -259,6 +345,10 @@ public:
       auto colon = addr.rfind(':');
       if (colon == std::string::npos) return;
       std::string host = addr.substr(0, colon);
+      if (host.empty()) return;
+      if (host.front() != '[' && host.find(':') != std::string::npos) {
+        return; // Unbracketed IPv6 literal without port
+      }
       int p = 0;
       try {
         p = std::stoi(addr.substr(colon + 1));
@@ -302,10 +392,39 @@ private:
     }
   }
 
+  void LoadPublicKey() const {
+    const char *existing = std::getenv("BASTIEN_PUBLIC_KEY_PATH");
+    if (existing && std::string(existing).size() > 0) {
+      return;
+    }
+    std::vector<std::string> candidates = {"/etc/bastien/public.pem", "./public.pem"};
+    const char *home = std::getenv("HOME");
+    if (home && std::string(home).size() > 0) {
+      candidates.push_back(std::string(home) + "/.bastien/keys/public.pem");
+    }
+    for (const auto &path : candidates) {
+      std::ifstream f(path);
+      if (f.good()) {
+#ifdef _WIN32
+        _putenv_s("BASTIEN_PUBLIC_KEY_PATH", path.c_str());
+#else
+        setenv("BASTIEN_PUBLIC_KEY_PATH", path.c_str(), 1);
+#endif
+        return;
+      }
+    }
+  }
+
   void LoadLocalOverrides() {
     std::vector<std::string> candidates;
     if (!args_.conf.empty()) {
       candidates.push_back(args_.conf);
+    }
+    if (const char *cfg_path = std::getenv("CONFIG_PATH"); cfg_path && std::string(cfg_path).size() > 0) {
+      candidates.push_back(cfg_path);
+    }
+    if (const char *shared_path = std::getenv("SHARED_CONFIG_PATH"); shared_path && std::string(shared_path).size() > 0) {
+      candidates.push_back(shared_path);
     }
     candidates.push_back(profile_ + ".yaml");
     candidates.push_back("config/" + profile_ + ".yaml");

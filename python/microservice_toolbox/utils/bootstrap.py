@@ -23,7 +23,7 @@ from os import (
     pathsep as osPathsep,
 )
 from os.path import exists as osPathExists, samefile as osPathSamefile
-from pathlib import Path
+from pathlib import Path as pathPath
 from sys import (
     argv as sysArgv,
     executable as sysExecutable,
@@ -47,7 +47,7 @@ WORKSPACE_PYTHON_SDK_RELPATHS = (
 # -----------------------------------------------------------------------------------------------
 
 
-def sync_workspace_python_paths(workspace_root: Path, venv_dir: Path = None) -> list:
+def sync_workspace_python_paths(workspace_root: pathPath, venv_dir: pathPath = None) -> list:
     """Synchronize local-first workspace Python SDK paths onto sys.path and venv .pth hooks.
 
     1. Locates .venv/lib/python*/site-packages (if venv_dir exists) and ensures it is on sys.path.
@@ -56,11 +56,11 @@ def sync_workspace_python_paths(workspace_root: Path, venv_dir: Path = None) -> 
        so local workspace source code always takes priority over site-packages while falling
        back automatically to site-packages when a local SDK directory does not exist.
     """
-    ws_root = Path(workspace_root).resolve()
+    ws_root = pathPath(workspace_root).resolve()
     candidate_paths = []
     seen_paths = set()
 
-    def _add_candidate(path: Path) -> None:
+    def _add_candidate(path: pathPath) -> None:
         resolved = path.resolve()
         key = str(resolved)
         if key not in seen_paths:
@@ -97,7 +97,7 @@ def sync_workspace_python_paths(workspace_root: Path, venv_dir: Path = None) -> 
     candidate_strs = [str(p) for p in candidate_paths]
 
     if venv_dir is not None:
-        venv_path = Path(venv_dir)
+        venv_path = pathPath(venv_dir)
         site_packages_dir = None
         venv_lib_dir = venv_path / "lib"
         if venv_lib_dir.exists():
@@ -142,15 +142,15 @@ def sync_workspace_python_paths(workspace_root: Path, venv_dir: Path = None) -> 
 # -----------------------------------------------------------------------------------------------
 
 
-def find_vault_root(start_dir: str) -> Path:
+def find_vault_root(start_dir: str) -> pathPath:
     """Walk up from the start directory until the vault root (obsidian-brain) is found.
     Identifies the vault by the presence of '08-Squad-Agent' or '00-AI-Orchestration' subdirectories."""
-    current = Path(start_dir).resolve()
+    current = pathPath(start_dir).resolve()
     for parent in [current] + list(current.parents):
         if (parent / "08-Squad-Agent").is_dir() and (parent / "00-AI-Orchestration").is_dir():
             return parent
     # Fallback: walk up until a .venv is found (legacy behavior)
-    current = Path(start_dir).resolve()
+    current = pathPath(start_dir).resolve()
     for parent in [current] + list(current.parents):
         if (parent / ".venv").exists():
             return parent
@@ -160,19 +160,19 @@ def find_vault_root(start_dir: str) -> Path:
 # -----------------------------------------------------------------------------------------------
 
 
-def _find_nearest_venv(start_dir: str) -> Path:
+def _find_nearest_venv(start_dir: str) -> pathPath:
     """Walk up from the start directory until a directory containing .venv is found."""
-    current = Path(start_dir).resolve()
+    current = pathPath(start_dir).resolve()
     for parent in [current] + list(current.parents):
         if (parent / ".venv").exists():
             return parent
-    return Path(start_dir).resolve()
+    return pathPath(start_dir).resolve()
 
 
 # -----------------------------------------------------------------------------------------------
 
 
-def get_venv_python(vault_root: Path) -> str:
+def get_venv_python(vault_root: pathPath) -> str:
     """Return the expected virtualenv python executable path for the current OS."""
     if osName == "nt":
         return str(vault_root / ".venv" / "Scripts" / "python.exe")
@@ -182,7 +182,7 @@ def get_venv_python(vault_root: Path) -> str:
 # -----------------------------------------------------------------------------------------------
 
 
-def ensure_virtualenv(start_dir: str) -> Path:
+def ensure_virtualenv(start_dir: str) -> pathPath:
     """Re-launch the current script using the nearest virtualenv Python if available.
     Returns the vault root (obsidian-brain), not necessarily the .venv parent."""
     venv_dir = _find_nearest_venv(start_dir)
@@ -201,7 +201,7 @@ def ensure_virtualenv(start_dir: str) -> Path:
 # -----------------------------------------------------------------------------------------------
 
 
-def prepend_venv_bin(vault_root: Path) -> None:
+def prepend_venv_bin(vault_root: pathPath) -> None:
     """Ensure the vault virtualenv bin/Scripts directory is on PATH."""
     if osName == "nt":
         venv_bin = vault_root / ".venv" / "Scripts"
@@ -214,7 +214,7 @@ def prepend_venv_bin(vault_root: Path) -> None:
 # -----------------------------------------------------------------------------------------------
 
 
-def ensure_import_paths(script_dir: Path, vault_root: Path) -> None:
+def ensure_import_paths(script_dir: pathPath, vault_root: pathPath) -> None:
     """Ensure the script directory and vault root are available on sys.path."""
     for path in (script_dir, vault_root):
         path_str = str(path)
@@ -225,9 +225,9 @@ def ensure_import_paths(script_dir: Path, vault_root: Path) -> None:
 # -----------------------------------------------------------------------------------------------
 
 
-def redirect_working_directory(target_dir: Path) -> Path:
+def redirect_working_directory(target_dir: pathPath) -> pathPath:
     """Redirects the current working directory to the target directory reliably."""
-    target = Path(target_dir).resolve()
+    target = pathPath(target_dir).resolve()
     if target.exists() and target.is_dir():
         osChdir(target)
     return target
@@ -247,10 +247,10 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
     """
     # Resolve sys.argv[0] to an absolute path before changing the directory
     if sysArgv and sysArgv[0]:
-        sysArgv[0] = str(Path(sysArgv[0]).resolve())
+        sysArgv[0] = str(pathPath(sysArgv[0]).resolve())
 
     # Resolve the directory of the calling file
-    script_dir = Path(file_path).resolve().parent
+    script_dir = pathPath(file_path).resolve().parent
 
     # Find repo root (directory containing .venv, standalone.yaml, or go.mod)
     repo_root = script_dir
@@ -266,7 +266,7 @@ def bootstrap_microservice(file_path: str, app_name: str = "app") -> None:
     # Find workspace root (check BASTIEN_CORE_ROOT first for external L3/L4/L5 domain services,
     # otherwise walk up until we find universal-logger, microservice-toolbox, go.work, .cargo/config.toml, or *.code-workspace)
     core_root_env = osEnviron.get("BASTIEN_CORE_ROOT", "").strip()
-    core_root = Path(core_root_env).expanduser().resolve() if core_root_env else None
+    core_root = pathPath(core_root_env).expanduser().resolve() if core_root_env else None
     if core_root is not None and (core_root / "microservice-toolbox").is_dir():
         workspace_root = core_root
     else:

@@ -16,15 +16,15 @@ KEY PARAMETERS:
 - Signal: Standardized structure for trading strategy outputs.
 """
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import List
+from dataclasses import dataclass as dcDataclass, field as dcField
+from enum import Enum as enumEnum
+from typing import List as typeList
 
 # -----------------------------------------------------------------------------------------------
 # Market Event Standard (L1/L2)
 # -----------------------------------------------------------------------------------------------
 
-class MarketEventType(str, Enum):
+class MarketEventType(str, enumEnum):
     """Standard identifiers for different types of market data events."""
 
     TRADE = "trade"
@@ -38,7 +38,7 @@ class MarketEventType(str, Enum):
 # -----------------------------------------------------------------------------------------------
 
 
-@dataclass
+@dcDataclass
 class MarketEvent:
     """The primary envelope for all real-time market data across the fleet."""
 
@@ -53,7 +53,7 @@ class MarketEvent:
 # -----------------------------------------------------------------------------------------------
 
 
-class Aggressor(str, Enum):
+class Aggressor(str, enumEnum):
     """Indicates which side initiated the trade (taker side)."""
 
     BUY = "buy"
@@ -64,7 +64,7 @@ class Aggressor(str, Enum):
 # -----------------------------------------------------------------------------------------------
 
 
-@dataclass
+@dcDataclass
 class Trade:
     """Standardized representation of an individual trade execution."""
 
@@ -77,7 +77,7 @@ class Trade:
 # -----------------------------------------------------------------------------------------------
 
 
-@dataclass
+@dcDataclass
 class Quote:
     """Standardized representation of a Top-of-Book (L1) quote."""
 
@@ -90,7 +90,7 @@ class Quote:
 # -----------------------------------------------------------------------------------------------
 
 
-@dataclass
+@dcDataclass
 class OrderBookLevel:
     """A single price level in an order book."""
 
@@ -101,18 +101,18 @@ class OrderBookLevel:
 # -----------------------------------------------------------------------------------------------
 
 
-@dataclass
+@dcDataclass
 class OrderBook:
     """Standardized representation of a Limit Order Book (L2)."""
 
-    bids: List[OrderBookLevel] = field(default_factory=list)
-    asks: List[OrderBookLevel] = field(default_factory=list)
+    bids: typeList[OrderBookLevel] = dcField(default_factory=list)
+    asks: typeList[OrderBookLevel] = dcField(default_factory=list)
 
 # -----------------------------------------------------------------------------------------------
 # OHLCV Standard (Time-Series)
 # -----------------------------------------------------------------------------------------------
 
-@dataclass
+@dcDataclass
 class OHLCV:
     """Standardized representation of a candlestick (Time-Series data)."""
 
@@ -131,7 +131,7 @@ class OHLCV:
 # Signal Standard (Trading Strategy)
 # -----------------------------------------------------------------------------------------------
 
-class SignalType(str, Enum):
+class SignalType(str, enumEnum):
     """Standard identifiers for trading signal directions."""
 
     BUY = "buy"
@@ -143,7 +143,7 @@ class SignalType(str, Enum):
 # -----------------------------------------------------------------------------------------------
 
 
-@dataclass
+@dcDataclass
 class Signal:
     """Standardized structure for strategy-generated trading signals."""
 

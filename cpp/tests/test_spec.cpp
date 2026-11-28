@@ -13,6 +13,7 @@
  */
 
 #include <cassert>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -104,6 +105,35 @@ void test_build_spec_from_config() {
     assert(enriched.category == "Base Fleet");
     assert(!enriched.url.empty());
     assert(enriched.dataStructure["version"].is_string());
+
+    // Brain ID resolution from BRAIN_ID env var using isolated temp config override
+    system("mkdir -p config");
+    const std::string brainCfgPath = "config/test.yaml";
+    {
+        std::ofstream ofs(brainCfgPath);
+        ofs << "common:\n  name: spec-brain-test\n"
+            << "capabilities:\n"
+            << "  config_server:\n    ip: '127.0.0.1'\n    port: '9999'\n    rest_port: '9998'\n"
+            << "  squad_agent:\n    target_brain_id: ''\n"
+            << "  watchdog_agent:\n    brain_id: ''\n";
+    }
+    microservice_toolbox::config::AppConfig isolatedCfg("test");
+    std::remove(brainCfgPath.c_str());
+
+    setenv("BRAIN_ID", "brain-cpp-99", 1);
+    ServiceSpec withBrain = SpecPublisher::BuildSpecFromConfig(isolatedCfg, "config_server", validBase);
+    unsetenv("BRAIN_ID");
+    assert(withBrain.brainId == "brain-cpp-99");
+    assert(withBrain.ToJson()["brain_id"] == "brain-cpp-99");
+
+    // ResolveMFEURL rewriting in DOCKER_ENV=true
+    setenv("DOCKER_ENV", "true", 1);
+    setenv("HOST_IP", "192.168.1.50", 1);
+    std::string resolved = ResolveMFEURL(cfg, "http://0.0.0.0:8080/mfe.js");
+    unsetenv("DOCKER_ENV");
+    unsetenv("HOST_IP");
+    assert(resolved == "http://192.168.1.50:8080/mfe.js");
+
     std::cout << "  Passed (Enrichment verified with URL: " << enriched.url << ")." << std::endl;
 
     // Fail-fast tests

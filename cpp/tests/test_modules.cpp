@@ -22,6 +22,7 @@
 #include "../include/microservice_toolbox/logger/Logger.hpp"
 #include "../include/microservice_toolbox/wiretap/WireTap.hpp"
 #include "../include/microservice_toolbox/conn_manager/ManagedConnection.hpp"
+#include "../include/microservice_toolbox/trace/MissionTrace.hpp"
 
 using namespace microservice_toolbox;
 
@@ -232,7 +233,25 @@ void test_wiretap() {
     IngestResponse resp = IngestResponse::from_json({{"status", "ok"}, {"enabled", false}});
     assert(resp.status == "ok" && !resp.enabled);
 
+    assert(SanitizePayloadSummary("secret=ENC(abc123xyz)") == "secret=ENC([REDACTED])");
+    std::string long_payload(300, 'A');
+    std::string sanitized_long = SanitizePayloadSummary(long_payload);
+    assert(sanitized_long.size() == 256);
+    assert(sanitized_long.substr(253) == "...");
+
     Reset();
+    std::cout << "  Passed." << std::endl;
+}
+
+void test_mission_trace() {
+    std::cout << "Testing MissionTrace inject & case-insensitive extract..." << std::endl;
+    std::map<std::string, std::string> headers;
+    trace::InjectHeaders(headers, "  mission-cpp-01  ");
+    assert(headers["X-Bastien-Mission-ID"] == "mission-cpp-01");
+
+    std::map<std::string, std::string> lower_headers = {{"x-bastien-mission-id", "mission-cpp-02"}};
+    assert(trace::ExtractHeaders(lower_headers) == "mission-cpp-02");
+    assert(trace::ExtractMissionId(lower_headers) == "mission-cpp-02");
     std::cout << "  Passed." << std::endl;
 }
 
@@ -283,6 +302,7 @@ int main() {
         test_bin_serializer();
         test_logger_interface();
         test_wiretap();
+        test_mission_trace();
         test_conn_manager_reload();
         test_conn_manager_app_config_binding();
 
